@@ -90,9 +90,8 @@ static void fill_authored_rom(uint8_t image[ROM_BYTES], uint8_t salt) {
 static bool fixture_init(fixture *value, uint8_t salt) {
   const t64_profile_descriptor *profile = NULL;
   (void)memset(value, 0, sizeof *value);
-  value->allocator.allocate = test_allocate;
-  value->allocator.release = test_release;
-  value->allocator.context = &value->host;
+  value->allocator = (t64_host_allocator)T64_HOST_ALLOCATOR_INIT(
+      test_allocate, test_release, &value->host);
   fill_authored_rom(value->image, salt);
   if (t64_profile_lookup("ntsc-cart-4m-skeleton", &profile) !=
           T64_STATUS_OK ||
@@ -147,7 +146,7 @@ static t64_status bus_write32(t64_machine *machine, uint32_t address,
 static bool advance_without_host_calls(fixture *value, uint32_t stop_kind,
                                        uint64_t limit,
                                        t64_stop_result *result_out) {
-  t64_stop_request request = {stop_kind, limit};
+  t64_stop_request request = T64_STOP_REQUEST_INIT(stop_kind, limit);
   size_t allocations = value->host.allocations;
   size_t releases = value->host.releases;
   t64_status status = t64_machine_advance(value->machine, &request,
@@ -221,7 +220,7 @@ static bool complete_cross_device_work(fixture *value, bool partitioned,
                                        const uint8_t expected[24],
                                        uint8_t digest_out[T64_DIGEST_SIZE],
                                        bool drain_trace) {
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
   uint32_t value32 = 0u;
   t64_trace_record records[T64_TRACE_RECORD_CAPACITY];
   size_t record_count = 0u;
@@ -293,7 +292,7 @@ static void test_interleaved_partitioned_cross_device_determinism(void) {
   uint8_t digest_partitioned[T64_DIGEST_SIZE];
   uint8_t digest_interleaved_a[T64_DIGEST_SIZE];
   uint8_t digest_interleaved_b[T64_DIGEST_SIZE];
-  t64_stop_result result = {0u, 0u};
+  t64_stop_result result = T64_STOP_RESULT_INIT;
 
   T64_CHECK(fixture_init(&isolated_a, 1u));
   T64_CHECK(fixture_init(&isolated_b, 2u));
@@ -365,7 +364,7 @@ static void test_trace_modes_and_overflow_are_observational(void) {
   uint8_t digest_overflow_untraced[T64_DIGEST_SIZE];
   uint8_t digest_overflow_traced[T64_DIGEST_SIZE];
   t64_trace_record records[T64_TRACE_RECORD_CAPACITY];
-  t64_stop_result result = {0u, 0u};
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   size_t record_count = 0u;
   uint64_t dropped = 0u;
   bool saturated = false;
@@ -462,8 +461,8 @@ static void test_guest_instruction_and_frame_bounds(void) {
   fixture partitioned;
   fixture instruction_bound;
   fixture frame_bound;
-  t64_stop_request request;
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request = T64_STOP_REQUEST_INIT(0u, 0u);
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   uint8_t digest_a[T64_DIGEST_SIZE];
   uint8_t digest_b[T64_DIGEST_SIZE];
 
@@ -552,7 +551,7 @@ static void test_pi_cancel_and_sp_promotion_after_refused_replacement(void) {
   uint8_t digest_after[T64_DIGEST_SIZE];
   t64_sp_dma_descriptor active_before;
   t64_sp_dma_descriptor pending_before;
-  t64_stop_result result = {0u, 0u};
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   uint32_t value = 0u;
   size_t trace_count_before;
   size_t trace_head_before;

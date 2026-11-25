@@ -55,8 +55,8 @@ static void test_release(void *context, t64_host_storage storage) {
   free(storage.data);
 }
 
-static const t64_host_allocator allocator = {test_allocate, test_release,
-                                             NULL};
+static const t64_host_allocator allocator =
+    T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, NULL);
 
 static bool read_openipl3_asset(uint8_t bytes[IPL3_ASSET_BYTES]) {
   const char *path = getenv("T64_TEST_IPL3_PATH");
@@ -212,8 +212,8 @@ static t64_machine *build_ai_mid_dma(const char *profile_id) {
       0x00u, 0x00u, 0x7fu, 0xffu, 0x80u, 0x00u, 0xffu, 0xffu,
       0x12u, 0x34u, 0xedu, 0xccu, 0x00u, 0x01u, 0xffu, 0xfeu};
   t64_machine *machine = create_admitted(profile_id, true);
-  t64_stop_request request = {T64_STOP_GUEST_TICK, 0u};
-  t64_stop_result stop = {0u, 0u};
+  t64_stop_request request = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, 0u);
+  t64_stop_result stop = T64_STOP_RESULT_INIT;
   uint64_t sample_tick = UINT64_MAX;
   size_t i;
 
@@ -544,8 +544,8 @@ static void install_spin_loop(t64_machine *machine) {
 }
 
 static bool advance_to(t64_machine *machine, uint64_t tick) {
-  t64_stop_request request = {T64_STOP_GUEST_TICK, tick};
-  t64_stop_result stop = {0u, 0u};
+  t64_stop_request request = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, tick);
+  t64_stop_result stop = T64_STOP_RESULT_INIT;
   const t64_status status = t64_machine_advance(machine, &request, &stop);
 
   T64_CHECK_INT(status, T64_STATUS_OK);

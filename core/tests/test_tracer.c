@@ -239,10 +239,12 @@ static bool run_openipl3_to_tick_bound(t64_stop_result *first_result,
   uint8_t image[TEST_ROM_SIZE];
   const t64_profile_descriptor *profile = NULL;
   allocator_state allocator_state_value = {0};
-  const t64_host_allocator allocator = {
-      test_allocate, test_release, &allocator_state_value};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release,
+                              &allocator_state_value);
   t64_machine *machine = NULL;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(100)};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(100));
   t64_status status;
   bool okay = false;
 
@@ -258,7 +260,7 @@ static bool run_openipl3_to_tick_bound(t64_stop_result *first_result,
   }
   if (t64_machine_admit_rom(machine, image, sizeof image) == T64_STATUS_OK &&
       t64_machine_advance(machine, &request, first_result) == T64_STATUS_OK) {
-    t64_cpu_stop_detail detail = {0u, 0u, 0u};
+    t64_cpu_stop_detail detail = T64_CPU_STOP_DETAIL_INIT;
     *retired_out = machine->cpu.retired_instructions;
     *pc_out = machine->cpu.pc;
     *last_pc_out = machine->cpu.last_pc;
@@ -281,8 +283,8 @@ static bool run_openipl3_to_tick_bound(t64_stop_result *first_result,
 
 static int tap_openipl3_public_stop_and_identity(void) {
   const t64_profile_descriptor *profile = NULL;
-  t64_stop_result first_result = {0u, 0u};
-  t64_stop_result repeat_result = {0u, 0u};
+  t64_stop_result first_result = T64_STOP_RESULT_INIT;
+  t64_stop_result repeat_result = T64_STOP_RESULT_INIT;
   uint64_t retired = 0u;
   uint32_t pc = 0u;
   uint32_t last_pc = 0u;
@@ -354,14 +356,16 @@ static void test_actual_open_ipl3_entry(void) {
   uint8_t expected_payload_sha256[T64_SHA256_DIGEST_SIZE];
   uint8_t expected_policy_sha256[T64_SHA256_DIGEST_SIZE];
   t64_trace_record records[T64_TRACE_RECORD_CAPACITY];
-  t64_cpu_stop_detail stop_detail = {0u, 0u, 0u};
+  t64_cpu_stop_detail stop_detail = T64_CPU_STOP_DETAIL_INIT;
   const t64_profile_descriptor *profile = NULL;
   allocator_state allocator_state_value = {0};
-  const t64_host_allocator allocator = {
-      test_allocate, test_release, &allocator_state_value};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release,
+                              &allocator_state_value);
   t64_machine *machine = NULL;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(1));
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   t64_status status;
   size_t count = 0u;
   uint64_t dropped = 0u;
@@ -556,12 +560,17 @@ static void test_openipl3_instruction_count_boundary(void) {
   uint8_t image[TEST_ROM_SIZE];
   const t64_profile_descriptor *profile = NULL;
   allocator_state allocator_state_value = {0};
-  const t64_host_allocator allocator = {
-      test_allocate, test_release, &allocator_state_value};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release,
+                              &allocator_state_value);
   t64_machine *machine = NULL;
-  t64_stop_request request = {T64_STOP_INSTRUCTION_COUNT, UINT64_C(1)};
-  t64_stop_result result = {0u, 0u};
-  t64_cpu_stop_detail detail = {UINT64_C(99), UINT32_C(99), UINT32_C(99)};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_INSTRUCTION_COUNT, UINT64_C(1));
+  t64_stop_result result = T64_STOP_RESULT_INIT;
+  t64_cpu_stop_detail detail = T64_CPU_STOP_DETAIL_INIT;
+  detail.retired_instructions = UINT64_C(99);
+  detail.pc = UINT32_C(99);
+  detail.opcode = UINT32_C(99);
   t64_status status;
   bool read_ok = read_pinned_ipl3(image);
 
@@ -672,12 +681,15 @@ static void test_machine_tracer(void) {
   const t64_profile_descriptor *profile = NULL;
   allocator_state alloc_a = {0};
   allocator_state alloc_b = {0};
-  const t64_host_allocator host_a = {test_allocate, test_release, &alloc_a};
-  const t64_host_allocator host_b = {test_allocate, test_release, &alloc_b};
+  const t64_host_allocator host_a =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, &alloc_a);
+  const t64_host_allocator host_b =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, &alloc_b);
   t64_machine *machine_a = NULL;
   t64_machine *machine_b = NULL;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(9)};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(9));
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   t64_status status;
 
   fill_authored_image(image_a);
@@ -782,10 +794,11 @@ static void test_allocator_storage_validation(void) {
   const t64_profile_descriptor *profile = NULL;
   allocator_state short_storage = {0};
   allocator_state misreported_alignment = {0};
-  const t64_host_allocator short_allocator = {
-      test_allocate, test_release, &short_storage};
-  const t64_host_allocator alignment_allocator = {
-      test_allocate, test_release, &misreported_alignment};
+  const t64_host_allocator short_allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, &short_storage);
+  const t64_host_allocator alignment_allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release,
+                              &misreported_alignment);
   t64_machine *machine = NULL;
 
   T64_CHECK_INT(t64_profile_lookup("ntsc-cart-4m-skeleton", &profile),

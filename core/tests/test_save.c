@@ -68,8 +68,20 @@ static void test_release(void *context, t64_host_storage storage) {
   free(storage.data);
 }
 
-static const t64_host_allocator allocator = {test_allocate, test_release,
-                                             NULL};
+static const t64_host_allocator allocator =
+    T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, NULL);
+
+/* Poisons a save info before a call: the INIT form first, so a leading
+ * struct_size of the flip stays valid, then a non-zero value in every other
+ * member by name, so a callee that leaves a member alone or writes zeros still
+ * shows in the checks of the fields it must report. */
+static void poison_save_info(t64_save_info *info) {
+  *info = (t64_save_info)T64_SAVE_INFO_INIT;
+  info->kind = UINT32_C(0xa5a5a5a5);
+  info->size_bytes = UINT32_C(0xa5a5a5a5);
+  info->flags = UINT32_C(0xa5a5a5a5);
+  info->write_generation = UINT64_C(0xa5a5a5a5a5a5a5a5);
+}
 
 static t64_machine *create_admitted(const char *profile_id) {
   const t64_profile_descriptor *profile = NULL;
@@ -207,8 +219,8 @@ static t64_machine *make_idle_machine(const char *profile_id) {
 }
 
 static bool advance_guest_to(t64_machine *machine, uint64_t tick) {
-  t64_stop_request request = {T64_STOP_GUEST_TICK, tick};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, tick);
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   t64_status status = t64_machine_advance(machine, &request, &result);
 
   T64_CHECK_INT(status, T64_STATUS_OK);
@@ -1843,7 +1855,7 @@ static void case_selection(void) {
     uint8_t authored[AUTHORED_ROM_BYTES];
     uint8_t byte5;
     uint8_t data[3];
-    t64_save_info info;
+    t64_save_info info = T64_SAVE_INFO_INIT;
     uint32_t kind;
 
     if (machine == NULL) continue;
@@ -1852,7 +1864,7 @@ static void case_selection(void) {
        32,768 through the info query. */
     T64_CHECK_INT(machine->profile.save_kind, row->kind);
     for (kind = 1u; kind <= 3u; kind++) {
-      (void)memset(&info, 0xA5, sizeof info);
+      poison_save_info(&info);
       if (kind == row->kind) {
         T64_CHECK_INT(t64_machine_save_info(machine, kind, &info),
                       T64_STATUS_OK);
@@ -1900,7 +1912,7 @@ static void case_selection(void) {
       if (status != T64_STATUS_OK) continue;
       cancel_cpu_events(machine);
       T64_CHECK_INT(machine->profile.save_kind, row->kind);
-      (void)memset(&info, 0xA5, sizeof info);
+      poison_save_info(&info);
       if (row->kind != 0u) {
         T64_CHECK_INT(t64_machine_save_info(machine, row->kind, &info),
                       T64_STATUS_OK);
@@ -1971,12 +1983,12 @@ static void check_snapshot(const char *label, const t64_machine *machine,
 static void expect_refusal(const char *label, t64_machine *machine,
                            uint32_t kind, t64_status want) {
   machine_snapshot before;
-  t64_save_info info;
-  t64_save_info sentinel;
+  t64_save_info info = T64_SAVE_INFO_INIT;
+  t64_save_info sentinel = T64_SAVE_INFO_INIT;
   t64_status status;
 
   take_snapshot(machine, &before);
-  (void)memset(&info, 0xA5, sizeof info);
+  poison_save_info(&info);
   sentinel = info;
   status = t64_machine_save_info(machine, kind, &info);
   if (status != want) {
@@ -1994,7 +2006,7 @@ static void case_refusals(void) {
   static const uint8_t write_tx[10] = {0x05, 0x07, 0xA1, 0xA2, 0xA3,
                                        0xA4, 0xA5, 0xA6, 0xA7, 0xA8};
   t64_machine *machine = make_idle_machine(E4K_ID);
-  t64_save_info info;
+  t64_save_info info = T64_SAVE_INFO_INIT;
   size_t index;
 
   if (machine != NULL) {
@@ -2002,7 +2014,7 @@ static void case_refusals(void) {
     uint8_t image[64];
 
     /* Accepted success first, in the same setup. */
-    (void)memset(&info, 0xA5, sizeof info);
+    poison_save_info(&info);
     T64_CHECK_INT(t64_machine_save_info(machine, 1u, &info), T64_STATUS_OK);
     T64_CHECK_INT(info.kind, 1u);
     T64_CHECK_INT(info.size_bytes, 512u);
@@ -2080,10 +2092,10 @@ static void case_refusals(void) {
   {
     const t64_profile_descriptor *profile = NULL;
     t64_machine *raw = NULL;
-    t64_save_info sentinel;
+    t64_save_info sentinel = T64_SAVE_INFO_INIT;
     t64_machine *admitted = create_admitted(E4K_ID);
 
-    (void)memset(&info, 0xA5, sizeof info);
+    poison_save_info(&info);
     sentinel = info;
     T64_CHECK_INT(t64_machine_save_info(NULL, 1u, &info),
                   T64_STATUS_INVALID_ARGUMENT);

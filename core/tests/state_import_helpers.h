@@ -54,8 +54,32 @@ static inline void test_release(void *context, t64_host_storage storage) {
   free(storage.data);
 }
 
-static const t64_host_allocator allocator = {test_allocate, test_release,
-                                             NULL};
+static const t64_host_allocator allocator =
+    T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, NULL);
+
+/* Poisons an import report before a call: the INIT form first, so a leading
+ * struct_size of the flip stays valid, then a non-zero value in every other
+ * member by name. A byte-wise fill would also clobber a leading struct_size,
+ * and a plain INIT assignment would let a callee that writes zeros or leaves a
+ * member alone pass the checks of the fields it must overwrite. */
+static inline void poison_import_report(t64_state_import_report *report) {
+  *report = (t64_state_import_report)T64_STATE_IMPORT_REPORT_INIT;
+  report->status = UINT32_C(0xa5a5a5a5);
+  report->reason = UINT32_C(0xa5a5a5a5);
+  report->section_id = UINT32_C(0xa5a5a5a5);
+  report->rule = UINT32_C(0xa5a5a5a5);
+  report->position = UINT64_C(0xa5a5a5a5a5a5a5a5);
+}
+
+/* True when every member still carries the poison of poison_import_report. */
+static inline bool import_report_is_poisoned(
+    const t64_state_import_report *report) {
+  return report->status == UINT32_C(0xa5a5a5a5) &&
+         report->reason == UINT32_C(0xa5a5a5a5) &&
+         report->section_id == UINT32_C(0xa5a5a5a5) &&
+         report->rule == UINT32_C(0xa5a5a5a5) &&
+         report->position == UINT64_C(0xa5a5a5a5a5a5a5a5);
+}
 
 static inline bool read_openipl3_asset(uint8_t bytes[IPL3_ASSET_BYTES]) {
   const char *path = getenv("T64_TEST_IPL3_PATH");
@@ -111,8 +135,8 @@ static inline bool advance_to(t64_machine *machine, uint64_t tick) {
     const uint64_t step = tick - machine->tick > ADVANCE_SLICE_TICKS
                               ? machine->tick + ADVANCE_SLICE_TICKS
                               : tick;
-    t64_stop_request request = {T64_STOP_GUEST_TICK, step};
-    t64_stop_result stop = {0u, 0u};
+    t64_stop_request request = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, step);
+    t64_stop_result stop = T64_STOP_RESULT_INIT;
     const t64_status status = t64_machine_advance(machine, &request, &stop);
 
     T64_CHECK_INT(status, T64_STATUS_OK);
@@ -257,7 +281,7 @@ static inline uint8_t *export_blob(const t64_machine *machine, size_t *length_ou
 
 static inline bool drain_output(t64_machine *machine, uint8_t bytes[4096],
                          size_t *copied_out) {
-  t64_output_drain_result result;
+  t64_output_drain_result result = T64_OUTPUT_DRAIN_RESULT_INIT;
   const t64_status status =
       t64_machine_output_drain(machine, bytes, 4096u, &result);
 

@@ -62,8 +62,8 @@ static void test_release(void *context, t64_host_storage storage) {
   free(storage.data);
 }
 
-static const t64_host_allocator allocator = {test_allocate, test_release,
-                                             NULL};
+static const t64_host_allocator allocator =
+    T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, NULL);
 
 static t64_machine *create_admitted(const char *profile_id) {
   const t64_profile_descriptor *profile = NULL;
@@ -609,8 +609,8 @@ static void case_cpu_store_budget(void) {
 #define STATUS_INTERRUPT UINT32_C(0x1000)
 
 static bool advance_guest_to(t64_machine *machine, uint64_t tick) {
-  t64_stop_request request = {T64_STOP_GUEST_TICK, tick};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, tick);
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   t64_status status = t64_machine_advance(machine, &request, &result);
 
   T64_CHECK_INT(status, T64_STATUS_OK);

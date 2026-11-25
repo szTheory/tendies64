@@ -504,7 +504,7 @@ static void check_pairing_in_importer(const family_row *row,
   t64_machine *fresh = create_admitted(row->v26_id);
   t64_machine *fresh25 = create_admitted(row->v25_id);
   uint8_t *copy;
-  t64_state_import_report report;
+  t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
   snapshot before;
   t64_status status;
 
@@ -517,7 +517,7 @@ static void check_pairing_in_importer(const family_row *row,
   /* The exported v26 blob gets past the header: its refusal, if any, is not a
    * magic, length or container version reason (full v26 acceptance is plan
    * 10-12). */
-  (void)memset(&report, 0, sizeof report);
+  report = (t64_state_import_report)T64_STATE_IMPORT_REPORT_INIT;
   status = t64_machine_state_import(fresh, blob26, length26, 0u, &report);
   fprintf(stderr, "export-v26-idle: %s import status %d reason %d section %u\n",
           row->v26_id, (int)status, (int)report.reason,
@@ -542,7 +542,7 @@ static void check_pairing_in_importer(const family_row *row,
     snapshot_take(fresh, &before);
     (void)memcpy(copy, blob26, length26);
     put32(copy + 0x008u, 1u);
-    (void)memset(&report, 0, sizeof report);
+    report = (t64_state_import_report)T64_STATE_IMPORT_REPORT_INIT;
     status = t64_machine_state_import(fresh, copy, length26, 0u, &report);
     fprintf(stderr,
             "export-v26-idle: %s version 1 with state 26: status %d reason %d "
@@ -559,7 +559,7 @@ static void check_pairing_in_importer(const family_row *row,
     snapshot_take(fresh, &before);
     (void)memcpy(copy, blob26, length26);
     put32(copy + 0x00Cu, 25u);
-    (void)memset(&report, 0, sizeof report);
+    report = (t64_state_import_report)T64_STATE_IMPORT_REPORT_INIT;
     status = t64_machine_state_import(fresh, copy, length26, 0u, &report);
     T64_CHECK(status != T64_STATUS_OK);
     T64_CHECK_INT(report.reason, T64_STATE_REASON_CONTAINER_VERSION);
@@ -579,7 +579,7 @@ static void check_pairing_in_importer(const family_row *row,
       copy[canonical + 14u] = (uint8_t)'5';
     }
     blob_resign(copy, length26, RS_ALL);
-    (void)memset(&report, 0, sizeof report);
+    report = (t64_state_import_report)T64_STATE_IMPORT_REPORT_INIT;
     status = t64_machine_state_import(fresh, copy, length26, 0u, &report);
     T64_CHECK(status != T64_STATUS_OK);
     T64_CHECK(report.reason != T64_STATE_REASON_NONE);
@@ -595,7 +595,7 @@ static void check_pairing_in_importer(const family_row *row,
     snapshot_take(fresh25, &before);
     (void)memcpy(copy, blob25, length25);
     put32(copy + 0x008u, 2u);
-    (void)memset(&report, 0, sizeof report);
+    report = (t64_state_import_report)T64_STATE_IMPORT_REPORT_INIT;
     status = t64_machine_state_import(fresh25, copy, length25, 0u, &report);
     T64_CHECK(status != T64_STATUS_OK);
     T64_CHECK_INT(report.reason, T64_STATE_REASON_CONTAINER_VERSION);
@@ -605,7 +605,7 @@ static void check_pairing_in_importer(const family_row *row,
     snapshot_take(fresh25, &before);
     (void)memcpy(copy, blob25, length25);
     put32(copy + 0x00Cu, 26u);
-    (void)memset(&report, 0, sizeof report);
+    report = (t64_state_import_report)T64_STATE_IMPORT_REPORT_INIT;
     status = t64_machine_state_import(fresh25, copy, length25, 0u, &report);
     T64_CHECK(status != T64_STATUS_OK);
     T64_CHECK_INT(report.reason, T64_STATE_REASON_CONTAINER_VERSION);

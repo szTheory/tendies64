@@ -259,7 +259,7 @@ static size_t mutate(rng *r, uint8_t *copy, size_t length) {
  * when a replacement could not be created. */
 t64_machine *state_fuzz_one(t64_machine *peer, const uint8_t *bytes, size_t n,
                             uint64_t iteration, state_fuzz_stats *stats) {
-  t64_state_import_report report;
+  t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
   snapshot before;
   size_t allocs;
   size_t releases;
@@ -268,15 +268,15 @@ t64_machine *state_fuzz_one(t64_machine *peer, const uint8_t *bytes, size_t n,
   snapshot_take(peer, &before);
   allocs = allocate_calls;
   releases = release_calls;
-  (void)memset(&report, 0xA5, sizeof report);
+  poison_import_report(&report);
   status = t64_machine_state_import(peer, bytes, n, 0u, &report);
   stats->iterations++;
   if (allocate_calls != allocs || release_calls != releases) {
     violation(stats, iteration, "the import called the allocator");
   }
   if (status == T64_STATUS_OK) {
-    t64_stop_request request;
-    t64_stop_result stop = {0u, 0u};
+    t64_stop_request request = T64_STOP_REQUEST_INIT(0u, 0u);
+    t64_stop_result stop = T64_STOP_RESULT_INIT;
 
     stats->accepted++;
     request.kind = T64_STOP_GUEST_TICK;

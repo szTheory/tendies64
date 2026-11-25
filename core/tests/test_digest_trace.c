@@ -65,8 +65,8 @@ static void test_queued_future_work_changes_digest(void) {
   uint8_t after[T64_DIGEST_SIZE];
   const t64_profile_descriptor *profile = NULL;
   allocator_state host_state = {0u};
-  const t64_host_allocator allocator = {test_allocate, test_release,
-                                        &host_state};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, &host_state);
   t64_machine *machine = NULL;
 
   fill_authored_rom(image);
@@ -105,8 +105,8 @@ static void test_digest_outputs_reject_machine_and_image_aliases(void) {
   uint8_t image_prefix[T64_DIGEST_SIZE];
   uint8_t *machine_snapshot;
   allocator_state host_state = {0u};
-  const t64_host_allocator allocator = {test_allocate, test_release,
-                                        &host_state};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, &host_state);
   t64_machine *machine = NULL;
   size_t machine_capacity;
 
@@ -267,8 +267,8 @@ static void test_digest_golden_and_machine_fields(void) {
       0x3eu, 0x30u, 0x35u, 0xf8u, 0xa6u, 0x40u, 0xc6u, 0x42u,
       0xe3u, 0x77u, 0x90u, 0xacu, 0xd9u, 0x6bu, 0x6eu, 0x77u};
   allocator_state host_state = {0u};
-  const t64_host_allocator allocator = {test_allocate, test_release,
-                                        &host_state};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, &host_state);
   t64_machine *machine = NULL;
   size_t saved_image_length;
   size_t event_index;
@@ -390,8 +390,8 @@ static void test_digest_excludes_storage_and_event_handler(void) {
   uint8_t before[T64_DIGEST_SIZE];
   uint8_t after[T64_DIGEST_SIZE];
   allocator_state host_state = {0u};
-  const t64_host_allocator allocator = {test_allocate, test_release,
-                                        &host_state};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, &host_state);
   t64_machine *machine = NULL;
   void *saved_context;
 
@@ -443,13 +443,15 @@ static void test_partitioned_and_isolated_advances_have_same_digest(void) {
   uint8_t digest_b[T64_DIGEST_SIZE];
   allocator_state alloc_a = {0u};
   allocator_state alloc_b = {0u};
-  const t64_host_allocator host_a = {test_allocate, test_release, &alloc_a};
-  const t64_host_allocator host_b = {test_allocate, test_release, &alloc_b};
+  const t64_host_allocator host_a =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, &alloc_a);
+  const t64_host_allocator host_b =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, &alloc_b);
   t64_machine *machine_a = NULL;
   t64_machine *machine_b = NULL;
-  t64_stop_request request_a = {T64_STOP_GUEST_TICK, 10u};
-  t64_stop_request request_b = {T64_STOP_GUEST_TICK, 4u};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request_a = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, 10u);
+  t64_stop_request request_b = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, 4u);
+  t64_stop_result result = T64_STOP_RESULT_INIT;
 
   T64_CHECK(fixture_init(&alloc_a, &host_a, &machine_a, image_a));
   T64_CHECK(fixture_init(&alloc_b, &host_b, &machine_b, image_b));
@@ -493,11 +495,11 @@ static void test_partitioned_and_isolated_advances_have_same_digest(void) {
 static void test_scheduler_trace_records_boundary(void) {
   uint8_t image[TEST_ROM_SIZE];
   allocator_state host_state = {0u};
-  const t64_host_allocator allocator = {test_allocate, test_release,
-                                        &host_state};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, &host_state);
   t64_machine *machine = NULL;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, 5u};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, 5u);
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   t64_trace_record record = {0u, 0u, 0u, 0u};
   size_t record_count = SIZE_MAX;
   size_t callbacks_before_advance;
@@ -536,11 +538,11 @@ static void test_trace_drain_validation_and_digest_exclusion(void) {
   uint8_t digest_before[T64_DIGEST_SIZE];
   uint8_t digest_after[T64_DIGEST_SIZE];
   allocator_state host_state = {0u};
-  const t64_host_allocator allocator = {test_allocate, test_release,
-                                        &host_state};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, &host_state);
   t64_machine *machine = NULL;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, 4u};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, 4u);
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   t64_trace_record record = {0u, 0u, 0u, 0u};
   size_t count;
   uint64_t dropped;
@@ -603,12 +605,14 @@ static void test_trace_fifo_drain_and_same_digest_as_untraced(void) {
   uint8_t digest_b[T64_DIGEST_SIZE];
   allocator_state alloc_a = {0u};
   allocator_state alloc_b = {0u};
-  const t64_host_allocator host_a = {test_allocate, test_release, &alloc_a};
-  const t64_host_allocator host_b = {test_allocate, test_release, &alloc_b};
+  const t64_host_allocator host_a =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, &alloc_a);
+  const t64_host_allocator host_b =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, &alloc_b);
   t64_machine *machine_a = NULL;
   t64_machine *machine_b = NULL;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, 7u};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, 7u);
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   t64_trace_record records[2];
   size_t count = 0u;
   uint64_t dropped = 0u;
@@ -671,12 +675,14 @@ static void test_trace_overflow_and_saturating_drop_counter(void) {
   uint8_t digest_b[T64_DIGEST_SIZE];
   allocator_state alloc_a = {0u};
   allocator_state alloc_b = {0u};
-  const t64_host_allocator host_a = {test_allocate, test_release, &alloc_a};
-  const t64_host_allocator host_b = {test_allocate, test_release, &alloc_b};
+  const t64_host_allocator host_a =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, &alloc_a);
+  const t64_host_allocator host_b =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, &alloc_b);
   t64_machine *machine_a = NULL;
   t64_machine *machine_b = NULL;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, 0u};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, 0u);
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   t64_trace_record records[T64_TRACE_RECORD_CAPACITY];
   size_t count = 0u;
   uint64_t dropped = 0u;
@@ -755,11 +761,11 @@ static void test_admission_reset_and_refusal_preserve_scheduler_trace(void) {
   uint8_t digest_before[T64_DIGEST_SIZE];
   uint8_t digest_after[T64_DIGEST_SIZE];
   allocator_state host_state = {0u};
-  const t64_host_allocator allocator = {test_allocate, test_release,
-                                        &host_state};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, &host_state);
   t64_machine *machine = NULL;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, 0u};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, 0u);
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   size_t saved_trace_count;
   size_t saved_trace_head;
   uint64_t saved_drops;
@@ -888,8 +894,8 @@ static void test_pi_state_reset_and_refused_replacement(void) {
   uint8_t digest_before[T64_DIGEST_SIZE];
   uint8_t digest_after[T64_DIGEST_SIZE];
   allocator_state host_state = {0u};
-  const t64_host_allocator allocator = {test_allocate, test_release,
-                                        &host_state};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, &host_state);
   t64_machine *machine = NULL;
   uint32_t value = 0u;
 

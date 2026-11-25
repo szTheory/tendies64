@@ -101,8 +101,20 @@ static void test_release(void *context, t64_host_storage storage) {
   free(storage.data);
 }
 
-static const t64_host_allocator allocator = {test_allocate, test_release,
-                                             NULL};
+static const t64_host_allocator allocator =
+    T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, NULL);
+
+/* Poisons a save info before a call: the INIT form first, so a leading
+ * struct_size of the flip stays valid, then a non-zero value in every other
+ * member by name, so a callee that leaves a member alone or writes zeros still
+ * shows in the checks of the fields it must report. */
+static void poison_save_info(t64_save_info *info) {
+  *info = (t64_save_info)T64_SAVE_INFO_INIT;
+  info->kind = UINT32_C(0xa5a5a5a5);
+  info->size_bytes = UINT32_C(0xa5a5a5a5);
+  info->flags = UINT32_C(0xa5a5a5a5);
+  info->write_generation = UINT64_C(0xa5a5a5a5a5a5a5a5);
+}
 
 static t64_machine *create_admitted(const char *profile_id) {
   const t64_profile_descriptor *profile = NULL;
@@ -257,8 +269,8 @@ static t64_machine *make_idle_machine(const char *profile_id) {
 }
 
 static bool advance_guest_to(t64_machine *machine, uint64_t tick) {
-  t64_stop_request request = {T64_STOP_GUEST_TICK, tick};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, tick);
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   t64_status status = t64_machine_advance(machine, &request, &result);
 
   T64_CHECK_INT(status, T64_STATUS_OK);
@@ -459,14 +471,14 @@ static void case_tracer_sram_raw(void) {
   t64_machine *machine = create_admitted(S32K_ID);
   uint8_t digest_before[T64_DIGEST_SIZE];
   uint8_t digest_after[T64_DIGEST_SIZE];
-  t64_save_info info;
+  t64_save_info info = T64_SAVE_INFO_INIT;
   size_t length = 0u;
 
   check_order_table();
   if (machine == NULL) return;
   fill_image(image_a, sizeof image_a);
 
-  (void)memset(&info, 0xA5, sizeof info);
+  poison_save_info(&info);
   T64_CHECK_INT(t64_machine_save_info(machine, T64_SAVE_SRAM_32K, &info),
                 T64_STATUS_OK);
   T64_CHECK_INT(info.kind, 3u);
@@ -479,7 +491,7 @@ static void case_tracer_sram_raw(void) {
                                         T64_SAVE_FORMAT_RAW, image_a,
                                         sizeof image_a),
                 T64_STATUS_OK);
-  (void)memset(&info, 0xA5, sizeof info);
+  poison_save_info(&info);
   T64_CHECK_INT(t64_machine_save_info(machine, T64_SAVE_SRAM_32K, &info),
                 T64_STATUS_OK);
   T64_CHECK_INT(info.write_generation, 1u);
@@ -652,7 +664,7 @@ static void check_success_postconditions(const profile_row *profile) {
   uint8_t digest_machine[T64_DIGEST_SIZE];
   uint8_t digest_fresh[T64_DIGEST_SIZE];
   uint8_t digest_repeat[T64_DIGEST_SIZE];
-  t64_save_info info;
+  t64_save_info info = T64_SAVE_INFO_INIT;
   size_t length = 0u;
   uint32_t format;
 
@@ -722,7 +734,7 @@ static void check_success_postconditions(const profile_row *profile) {
   }
 
   /* Info reports kind, size, busy flag and generation. */
-  (void)memset(&info, 0xA5, sizeof info);
+  poison_save_info(&info);
   T64_CHECK_INT(t64_machine_save_info(machine, profile->kind, &info),
                 T64_STATUS_OK);
   T64_CHECK_INT(info.kind, profile->kind);
@@ -733,7 +745,7 @@ static void check_success_postconditions(const profile_row *profile) {
   /* Export is always allowed and returns the committed bytes, also while the
      deadline is in the future; the import is refused then. */
   machine->save.busy_until = machine->tick + 500u;
-  (void)memset(&info, 0xA5, sizeof info);
+  poison_save_info(&info);
   T64_CHECK_INT(t64_machine_save_info(machine, profile->kind, &info),
                 T64_STATUS_OK);
   T64_CHECK_INT(info.flags & T64_SAVE_INFO_BUSY, T64_SAVE_INFO_BUSY);
@@ -1296,7 +1308,7 @@ static void check_eeprom_in_flight(void) {
   t64_machine *machine = make_idle_machine(E4K_ID);
   const uint64_t deadline = UINT64_C(10000) + H_WRITE + BUSY_WINDOW;
   uint8_t frame[64];
-  t64_save_info info;
+  t64_save_info info = T64_SAVE_INFO_INIT;
   size_t length = 0u;
   uint64_t generation;
 
@@ -1319,7 +1331,7 @@ static void check_eeprom_in_flight(void) {
                 T64_STATUS_SAVE_BUSY);
   T64_CHECK(snapshot_unchanged("eeprom import at deadline minus one", machine,
                                true, &before));
-  (void)memset(&info, 0xA5, sizeof info);
+  poison_save_info(&info);
   T64_CHECK_INT(t64_machine_save_info(machine, 1u, &info), T64_STATUS_OK);
   T64_CHECK_INT(info.flags & T64_SAVE_INFO_BUSY, T64_SAVE_INFO_BUSY);
   /* Export is allowed and returns the committed bytes: the block written

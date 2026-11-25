@@ -241,7 +241,7 @@ static t64_machine *import_fresh(const char *profile_id, const uint8_t *blob,
   t64_machine *peer = create_admitted(profile_id);
 
   if (peer == NULL) return NULL;
-  (void)memset(report_out, 0xA5, sizeof *report_out);
+  poison_import_report(report_out);
   *status_out = t64_machine_state_import(peer, blob, length, 0u, report_out);
   if (*status_out != T64_STATUS_OK) print_report(label, *status_out, report_out);
   return peer;
@@ -254,7 +254,7 @@ static t64_machine *import_fresh(const char *profile_id, const uint8_t *blob,
 static void check_idle_roundtrip(const char *profile_id) {
   t64_machine *source = build_idle(profile_id);
   t64_machine *peer;
-  t64_state_import_report report;
+  t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
   t64_status status = T64_STATUS_OK;
   uint8_t *blob;
   size_t length = 0u;
@@ -290,7 +290,7 @@ static void check_idle_roundtrip(const char *profile_id) {
 static void check_mid_z_triangle(const char *profile_id) {
   t64_machine *source = build_mid_z_triangle(profile_id);
   t64_machine *peer;
-  t64_state_import_report report;
+  t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
   t64_status status = T64_STATUS_OK;
   uint8_t *blob;
   uint8_t color_before[8u * 8u * 2u];
@@ -514,8 +514,8 @@ static void drain_compare(const char *label, t64_machine *a, t64_machine *b,
   T64_CHECK_INT(a->vi.packet_count, b->vi.packet_count);
   T64_CHECK_INT(a->ai.packet_count, b->ai.packet_count);
   while (a->vi.packet_count > 0u && b->vi.packet_count > 0u) {
-    t64_video_packet_info ia;
-    t64_video_packet_info ib;
+    t64_video_packet_info ia = T64_VIDEO_PACKET_INFO_INIT;
+    t64_video_packet_info ib = T64_VIDEO_PACKET_INFO_INIT;
     size_t la = 0u;
     size_t lb = 0u;
 
@@ -547,8 +547,8 @@ static void drain_compare(const char *label, t64_machine *a, t64_machine *b,
     return;
   }
   while (a->ai.packet_count > 0u && b->ai.packet_count > 0u) {
-    t64_audio_packet_info ia;
-    t64_audio_packet_info ib;
+    t64_audio_packet_info ia = T64_AUDIO_PACKET_INFO_INIT;
+    t64_audio_packet_info ib = T64_AUDIO_PACKET_INFO_INIT;
     size_t la = 0u;
     size_t lb = 0u;
 
@@ -578,8 +578,8 @@ static bool save_state_equal(const t64_machine *a, const t64_machine *b,
                              uint32_t kind, uint8_t *copy_a, uint8_t *copy_b) {
   size_t la = 0u;
   size_t lb = 0u;
-  t64_save_info ia;
-  t64_save_info ib;
+  t64_save_info ia = T64_SAVE_INFO_INIT;
+  t64_save_info ib = T64_SAVE_INFO_INIT;
 
   if (t64_machine_save_export(a, kind, T64_SAVE_FORMAT_RAW, copy_a, 32768u,
                               &la) != T64_STATUS_OK ||
@@ -605,7 +605,7 @@ typedef enum { SAVE_NONE = 0, SAVE_SRAM, SAVE_EEPROM } save_write_kind;
 static void check_mid_scan_out(const char *profile_id, save_write_kind save) {
   t64_machine *source = build_mid_scan_out(profile_id);
   t64_machine *peer;
-  t64_state_import_report report;
+  t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
   t64_status status = T64_STATUS_OK;
   uint8_t *blob;
   uint8_t *copy_a = (uint8_t *)malloc(32768u);
@@ -735,7 +735,7 @@ static void check_mid_scan_out(const char *profile_id, save_write_kind save) {
 static void check_v25_hidden_zero(void) {
   t64_machine *source = build_idle(SAVE_S32K_ID);
   t64_machine *peer = create_admitted(SAVE_S32K_ID);
-  t64_state_import_report report;
+  t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
   uint8_t *blob;
   size_t length = 0u;
   size_t i;
@@ -1254,7 +1254,7 @@ static void check_inventory(void) {
 }
 
 static void run_hostile_row(const hostile_row *row, t64_machine *machine) {
-  t64_state_import_report report;
+  t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
   snapshot before;
   uint8_t *blob;
   size_t length = 0u;
@@ -1267,7 +1267,7 @@ static void run_hostile_row(const hostile_row *row, t64_machine *machine) {
     return;
   }
   snapshot_take(machine, &before);
-  (void)memset(&report, 0xA5, sizeof report);
+  poison_import_report(&report);
   status = t64_machine_state_import(machine, blob, length, 0u, &report);
   if (status != row->status || report.status != row->status ||
       report.reason != row->reason || report.section_id != row->section ||
@@ -1393,7 +1393,7 @@ static void case_hostile(void) {
     /* the accepted baselines of the same setup: each base blob imports into a
      * fresh machine of its own id before any mutant runs */
     for (i = 0u; i < BASE_COUNT; i++) {
-      t64_state_import_report report;
+      t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
       t64_status status = T64_STATUS_OK;
       t64_machine *fresh =
           import_fresh(i == BASE_V25 ? SI_STEM_ID : V2_STEM, bases[i].blob,

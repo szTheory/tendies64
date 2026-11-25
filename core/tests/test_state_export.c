@@ -50,8 +50,8 @@ static void test_release(void *context, t64_host_storage storage) {
   free(storage.data);
 }
 
-static const t64_host_allocator allocator = {test_allocate, test_release,
-                                             NULL};
+static const t64_host_allocator allocator =
+    T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, NULL);
 
 static bool read_openipl3_asset(uint8_t bytes[IPL3_ASSET_BYTES]) {
   const char *path = getenv("T64_TEST_IPL3_PATH");
@@ -118,8 +118,8 @@ static void install_spin_loop(t64_machine *machine) {
 static uint64_t last_stop_tick;
 
 static bool advance_to(t64_machine *machine, uint64_t tick) {
-  t64_stop_request request = {T64_STOP_GUEST_TICK, tick};
-  t64_stop_result stop = {0u, 0u};
+  t64_stop_request request = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, tick);
+  t64_stop_result stop = T64_STOP_RESULT_INIT;
   const t64_status status = t64_machine_advance(machine, &request, &stop);
 
   T64_CHECK_INT(status, T64_STATUS_OK);
@@ -1180,14 +1180,14 @@ static const uint8_t isviewer_bytes[24] = {
 static t64_machine *build_video_observer(bool progress) {
   t64_machine *machine = build_vi_frame(SI_STEM_ID);
   uint8_t drained[32];
-  t64_output_drain_result drain;
+  t64_output_drain_result drain = T64_OUTPUT_DRAIN_RESULT_INIT;
 
   if (machine == NULL) return NULL;
   T64_CHECK_INT(machine->vi.packet_head, 0);
   T64_CHECK_INT(machine->vi.packet_count, 1);
   isviewer_emit(machine, isviewer_bytes, 8u);
   if (progress) {
-    (void)memset(&drain, 0, sizeof drain);
+    drain = (t64_output_drain_result)T64_OUTPUT_DRAIN_RESULT_INIT;
     T64_CHECK_INT(
         t64_machine_output_drain(machine, drained, sizeof drained, &drain),
         T64_STATUS_OK);
@@ -1474,8 +1474,8 @@ static uint8_t *snapshot_machine(const t64_machine *machine) {
 
 static void case_non_interference(void) {
   allocator_counts counts = {0u, 0u};
-  const t64_host_allocator counting = {counting_allocate, counting_release,
-                                       &counts};
+  const t64_host_allocator counting =
+      T64_HOST_ALLOCATOR_INIT(counting_allocate, counting_release, &counts);
   t64_machine *machine = create_admitted_with(&counting, SI_STEM_ID);
   t64_machine *with_exports;
   t64_machine *without_exports;
@@ -1493,7 +1493,7 @@ static void case_non_interference(void) {
   uint8_t step_a[T64_DIGEST_SIZE];
   uint8_t step_b[T64_DIGEST_SIZE];
   uint8_t drained[32];
-  t64_output_drain_result drain;
+  t64_output_drain_result drain = T64_OUTPUT_DRAIN_RESULT_INIT;
 
   if (machine == NULL) return;
   install_spin_loop(machine);
@@ -1504,7 +1504,7 @@ static void case_non_interference(void) {
   /* Observer progress: 12 captured bytes drained, so the drain cursor is not
    * zero and a write to it by the export would show in the snapshot. */
   isviewer_emit(machine, isviewer_bytes, 12u);
-  (void)memset(&drain, 0, sizeof drain);
+  drain = (t64_output_drain_result)T64_OUTPUT_DRAIN_RESULT_INIT;
   T64_CHECK_INT(t64_machine_output_drain(machine, drained, sizeof drained,
                                          &drain),
                 T64_STATUS_OK);

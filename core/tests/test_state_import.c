@@ -109,7 +109,7 @@ static void print_digest(const char *label, const uint8_t digest[T64_DIGEST_SIZE
 static void case_roundtrip(void) {
   t64_machine *source = build_s1(SI_STEM_ID);
   t64_machine *peer;
-  t64_state_import_report report;
+  t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
   uint8_t source_digest[T64_DIGEST_SIZE];
   uint8_t peer_digest[T64_DIGEST_SIZE];
   uint8_t *blob;
@@ -138,7 +138,7 @@ static void case_roundtrip(void) {
   T64_CHECK(peer->trace_count > 0u);
   allocate_before = allocate_calls;
   release_before = release_calls;
-  (void)memset(&report, 0xA5, sizeof report);
+  poison_import_report(&report);
   status = t64_machine_state_import(peer, blob, length, 0u, &report);
   T64_CHECK_INT(status, T64_STATUS_OK);
   T64_CHECK_INT(report.status, T64_STATUS_OK);
@@ -226,7 +226,7 @@ static void continuation_pair(uint64_t partition) {
   t64_machine *peer;
   uint8_t *blob;
   size_t length = 0u;
-  t64_state_import_report report;
+  t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
   uint64_t base;
   uint8_t before[T64_DIGEST_SIZE];
   uint8_t source_bytes[4096];
@@ -1162,7 +1162,7 @@ static void check_baselines(const bool used[T_COUNT]) {
 
   for (i = 0u; i < T_COUNT; i++) {
     t64_machine *peer;
-    t64_state_import_report report;
+    t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
 
     if (!used[i] || done[i]) continue;
     done[i] = true;
@@ -1182,7 +1182,7 @@ static void run_row(const row *r, unsigned checks) {
   uint8_t *blob = build_row_blob(r, &length);
   uint8_t *pristine;
   t64_machine *peer = peer_for(r->target);
-  t64_state_import_report report;
+  t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
   snapshot before;
   size_t allocs_before;
   size_t releases_before;
@@ -1197,7 +1197,7 @@ static void run_row(const row *r, unsigned checks) {
   pristine = copy_region(blob, length);
   T64_CHECK(t64_state_summary_is_clear(peer));
   if ((checks & CHECK_UNTOUCHED) != 0u) snapshot_take(peer, &before);
-  (void)memset(&report, 0xA5, sizeof report);
+  poison_import_report(&report);
   allocs_before = allocate_calls;
   releases_before = release_calls;
   status = t64_machine_state_import(peer, blob, length, 0u, &report);
@@ -1276,7 +1276,7 @@ static void case_container_refusals(void) {
   t64_machine *peer;
   t64_machine *bare = NULL;
   const t64_profile_descriptor *profile = NULL;
-  t64_state_import_report report;
+  t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
   uint8_t byte = 0u;
   const uint8_t *blob;
   size_t length;
@@ -1288,9 +1288,13 @@ static void case_container_refusals(void) {
   /* argument rows */
   peer = peer_for(T_S1);
   if (peer != NULL) {
+    /* A NULL machine answers INVALID_ARGUMENT at the entry guard and leaves
+     * every output untouched (docs/abi/status-classes.txt), so the report keeps
+     * its poison; the earlier check read the report before any call wrote it. */
+    poison_import_report(&report);
     T64_CHECK_INT(t64_machine_state_import(NULL, blob, length, 0u, &report),
                   T64_STATUS_INVALID_ARGUMENT);
-    T64_CHECK_INT(report.reason, T64_STATE_REASON_ARG_NULL);
+    T64_CHECK(import_report_is_poisoned(&report));
     T64_CHECK_INT(t64_machine_state_import(peer, NULL, length, 0u, &report),
                   T64_STATUS_INVALID_ARGUMENT);
     T64_CHECK_INT(report.reason, T64_STATE_REASON_ARG_NULL);
@@ -1344,7 +1348,7 @@ static void case_container_refusals(void) {
       size_t arm;
 
       for (arm = 0u; arm < sizeof refusals / sizeof refusals[0]; arm++) {
-        t64_state_import_report disjoint;
+        t64_state_import_report disjoint = T64_STATE_IMPORT_REPORT_INIT;
         t64_status want;
 
         want = t64_machine_state_import(peer, refusals[arm].bytes,
@@ -1418,7 +1422,7 @@ static void case_invariant_accepts(void) {
   for (i = 0u; i < sizeof points / sizeof points[0]; i++) {
     t64_machine *source = NULL;
     t64_machine *peer;
-    t64_state_import_report report;
+    t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
     uint8_t *blob;
     size_t length = 0u;
 
@@ -1481,7 +1485,7 @@ static void case_invariant_refusals(void) {
  * import calls the allocator or releases anything. */
 static void case_scratch_storage(void) {
   t64_machine *peer;
-  t64_state_import_report report;
+  t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
   size_t allocs;
   size_t releases;
 
@@ -1555,7 +1559,7 @@ static void isviewer_emit(t64_machine *machine, const uint8_t *bytes,
 }
 
 static uint64_t save_generation(t64_machine *machine, uint32_t kind) {
-  t64_save_info info;
+  t64_save_info info = T64_SAVE_INFO_INIT;
 
   if (kind == 0u) return machine->save.write_generation;
   T64_CHECK_INT(t64_machine_save_info(machine, kind, &info), T64_STATUS_OK);
@@ -1566,7 +1570,7 @@ static uint64_t save_generation(t64_machine *machine, uint32_t kind) {
 
 static void idempotence_of(t64_machine *source, const char *profile_id) {
   t64_machine *peer = create_admitted(profile_id);
-  t64_state_import_report report;
+  t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
   uint8_t *first;
   uint8_t *second;
   size_t first_length = 0u;
@@ -1641,7 +1645,7 @@ static void case_save_media_roundtrip(void) {
   t64_machine *peer = create_admitted(SAVE_S32K_ID);
   t64_machine *wrong = create_admitted(SAVE_E4K_ID);
   t64_machine *stem = create_admitted(SI_STEM_ID);
-  t64_state_import_report report;
+  t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
   uint8_t *blob = NULL;
   size_t length = 0u;
   uint32_t value = 0u;
@@ -1798,7 +1802,7 @@ static void case_save_deadline_window(void) {
   size_t length = 0u;
   uint8_t *blob;
   t64_machine *peer;
-  t64_state_import_report report;
+  t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
   uint8_t image[512];
   size_t offset = 0u;
   size_t body = 0u;
@@ -1847,7 +1851,7 @@ static void partition_run(uint64_t first_step, uint64_t later_step,
                           bool trace) {
   t64_machine *source = build_s1(SI_STEM_ID);
   t64_machine *peer = create_admitted(SI_STEM_ID);
-  t64_state_import_report report;
+  t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
   uint8_t *blob = NULL;
   size_t length = 0u;
   uint64_t base;
@@ -1894,7 +1898,7 @@ done:
 static void perturbation_control(bool execute_tick) {
   t64_machine *source = build_s1(SI_STEM_ID);
   t64_machine *peer = create_admitted(SI_STEM_ID);
-  t64_state_import_report report;
+  t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
   uint8_t *blob = NULL;
   size_t length = 0u;
   uint64_t base;
@@ -1944,7 +1948,7 @@ static void case_dirty_peer(void) {
   t64_machine *dirty = build_s1(SI_STEM_ID);
   t64_machine *rewound = build_s1(SI_STEM_ID);
   t64_machine *clone = create_admitted(SI_STEM_ID);
-  t64_state_import_report report;
+  t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
   uint8_t *blob = NULL;
   uint8_t *rewound_blob = NULL;
   size_t length = 0u;
@@ -2056,9 +2060,9 @@ static void case_observer_flag(void) {
   t64_machine *keep = create_admitted(SI_STEM_ID);
   t64_machine *drop = create_admitted(SI_STEM_ID);
   t64_machine *refused = create_admitted(SI_STEM_ID);
-  t64_state_import_report report;
-  t64_video_packet_info source_info;
-  t64_video_packet_info keep_info;
+  t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
+  t64_video_packet_info source_info = T64_VIDEO_PACKET_INFO_INIT;
+  t64_video_packet_info keep_info = T64_VIDEO_PACKET_INFO_INIT;
   static const uint8_t first[8] = {'o', 'n', 'e', '.', 'o', 'n', 'e', '.'};
   static const uint8_t second[8] = {'t', 'w', 'o', '.', 't', 'w', 'o', '.'};
   uint8_t drained[4096];
@@ -2190,7 +2194,7 @@ static void tuple_print(const char *label, const tuple *t) {
 static void run_to(t64_machine *machine, uint64_t target, uint64_t step,
                    tuple *out) {
   t64_status status = T64_STATUS_OK;
-  t64_stop_result stop = {0u, 0u};
+  t64_stop_result stop = T64_STOP_RESULT_INIT;
   bool stopped = false;
 
   while (machine->tick < target && !stopped) {
@@ -2202,7 +2206,8 @@ static void run_to(t64_machine *machine, uint64_t target, uint64_t step,
       const uint64_t next = part - machine->tick > ADVANCE_SLICE_TICKS
                                 ? machine->tick + ADVANCE_SLICE_TICKS
                                 : part;
-      t64_stop_request request = {T64_STOP_GUEST_TICK, next};
+      t64_stop_request request =
+          T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, next);
 
       status = t64_machine_advance(machine, &request, &stop);
       if (status != T64_STATUS_OK || stop.reason != T64_STOP_REASON_BOUND) {
@@ -2601,9 +2606,10 @@ static t64_machine *build_b07(void) {
   build_stop_tick = 0u;
   if (machine == NULL) return NULL;
   for (attempt = 0u; attempt < 512u; attempt++) {
-    t64_stop_request request = {T64_STOP_GUEST_TICK,
-                                machine->tick + UINT64_C(4000000)};
-    t64_stop_result stop = {0u, 0u};
+    t64_stop_request request =
+        T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK,
+                              machine->tick + UINT64_C(4000000));
+    t64_stop_result stop = T64_STOP_RESULT_INIT;
 
     T64_CHECK_INT(t64_machine_advance(machine, &request, &stop), T64_STATUS_OK);
     if (machine->vi.packet_count >= T64_VIDEO_QUEUE_CAPACITY) {
@@ -2765,9 +2771,10 @@ static t64_machine *build_b10(void) {
   for (i = 0u; i < 4u; i++) advance_to_next_ai_sample(machine);
   ai_submit(machine, UINT32_C(0x110), 8u);
   if (current_ai_event(machine) != NULL) {
-    t64_stop_request request = {T64_STOP_GUEST_TICK,
-                                current_ai_event(machine)->tick};
-    t64_stop_result stop = {0u, 0u};
+    t64_stop_request request =
+        T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK,
+                              current_ai_event(machine)->tick);
+    t64_stop_result stop = T64_STOP_RESULT_INIT;
 
     T64_CHECK_INT(t64_machine_advance(machine, &request, &stop), T64_STATUS_OK);
     build_stop_reason = stop.reason;
@@ -3407,7 +3414,7 @@ static t64_machine *boundary_peer(size_t index) {
   const boundary *b = &boundaries[index];
   const bprep *p = &prepared[index];
   t64_machine *peer = create_admitted(b->profile);
-  t64_state_import_report report;
+  t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
   t64_status status;
 
   if (peer == NULL) return NULL;
@@ -3430,7 +3437,7 @@ static t64_machine *boundary_peer(size_t index) {
  * of the same blob. Literals are recorded when T64_STATE_MATRIX_TRACE is set. */
 static void extra_b13(size_t index) {
   const boundary *b = &boundaries[index];
-  t64_state_import_report report;
+  t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
   t64_machine *unedited = create_admitted(b->profile);
   t64_machine *shrunk = create_admitted(b->profile);
   t64_status status;
@@ -3705,7 +3712,7 @@ static uint8_t *blob_edit_pair(const uint8_t *blob, size_t length,
 static void refusal_expect(const char *label, t64_machine *peer,
                            const uint8_t *blob, size_t length,
                            uint32_t reason) {
-  t64_state_import_report report;
+  t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
   const size_t allocs = allocate_calls;
   const size_t releases = release_calls;
   const t64_status status =
@@ -3808,7 +3815,7 @@ static void case_boundary_event_rules(void) {
           /* A host-submitted input event owns no device continuation and its
            * token is never read (t64_input_event_handler uses the value), so
            * both mutants are accepted and bounded. */
-          t64_state_import_report report;
+          t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
           tuple after;
 
           T64_CHECK_INT(t64_machine_state_import(peer, skewed, skewed_length,
@@ -3834,7 +3841,7 @@ static void case_boundary_event_rules(void) {
            * mutant is accepted and the machine still returns from a bounded
            * advance: a finding recorded against the plan text, which expected
            * DEVICE_EVENT_MISSING. */
-          t64_state_import_report report;
+          t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
           tuple after;
 
           T64_CHECK_INT(t64_machine_state_import(peer, removed, removed_length,
@@ -4055,11 +4062,12 @@ static void w_reference_build(void) {
 /* Continue a stopped source by repeated calls under its own event budget. */
 static void run_budgeted(t64_machine *machine, uint64_t target, tuple *out) {
   t64_status status = T64_STATUS_OK;
-  t64_stop_result stop = {0u, 0u};
+  t64_stop_result stop = T64_STOP_RESULT_INIT;
   size_t calls;
 
   for (calls = 0u; calls < 400000u && machine->tick < target; calls++) {
-    t64_stop_request request = {T64_STOP_GUEST_TICK, target};
+    t64_stop_request request =
+        T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, target);
 
     status = t64_machine_advance(machine, &request, &stop);
     if (status != T64_STATUS_OK) break;
@@ -4098,17 +4106,19 @@ static t64_machine *stop_w_all(stop_row which, uint32_t expected_reason,
   }
   if (which == STOP_BUDGET_2) machine->profile.advance_event_budget = 2u;
   for (i = 0u; i < 30000u; i++) {
-    t64_stop_result stop = {0u, 0u};
+    t64_stop_result stop = T64_STOP_RESULT_INIT;
     t64_status status;
 
     if (which == STOP_INSTRUCTIONS) {
-      t64_stop_request request = {T64_STOP_INSTRUCTION_COUNT,
-                                  machine->instruction_count + 1u};
+      t64_stop_request request =
+          T64_STOP_REQUEST_INIT(T64_STOP_INSTRUCTION_COUNT,
+                                machine->instruction_count + 1u);
 
       if (request.value > 4096u) break;
       status = t64_machine_advance(machine, &request, &stop);
     } else {
-      t64_stop_request request = {T64_STOP_GUEST_TICK, W_H_ALL};
+      t64_stop_request request =
+          T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, W_H_ALL);
 
       status = t64_machine_advance(machine, &request, &stop);
     }
@@ -4141,7 +4151,7 @@ static t64_machine *stop_w_all(stop_row which, uint32_t expected_reason,
 static void midtick_row(stop_row which, uint32_t expected_reason) {
   t64_machine *source;
   t64_machine *peer;
-  t64_state_import_report report;
+  t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
   uint64_t literal = 0u;
   uint8_t *blob;
   size_t length = 0u;
@@ -4280,7 +4290,7 @@ static t64_machine *build_synthetic_midtick(void) {
 static void midtick_synthetic_control(const uint8_t *baseline, size_t baseline_length) {
   t64_machine *synthetic = build_synthetic_midtick();
   t64_machine *peer;
-  t64_state_import_report report;
+  t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
   uint8_t *blob;
   size_t length = 0u;
   snapshot before;
@@ -4447,7 +4457,7 @@ static void case_drop_observers_outcomes(void) {
     t64_machine *source;
     t64_machine *dropped;
     t64_machine *defaulted;
-    t64_state_import_report report;
+    t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
     tuple got;
     uint8_t digest[T64_DIGEST_SIZE];
     uint64_t x0;
@@ -5136,7 +5146,7 @@ static void rdp_state_fixture(void) {
   const char *path = getenv("T64_TEST_RDP_FILL_PATH");
   t64_machine *source = create_admitted_rom(SI_STEM_ID, path);
   t64_machine *peer = create_admitted_rom(SI_STEM_ID, path);
-  t64_state_import_report report;
+  t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
   uint8_t *blob;
   size_t length = 0u;
 
@@ -5149,8 +5159,9 @@ static void rdp_state_fixture(void) {
    * keeps the two-slot output ring from filling */
   while (source->tick < 900000u &&
          !(source->rdp.fill_count != 0u && rdp_is_idle(source))) {
-    t64_stop_request request = {T64_STOP_GUEST_TICK, source->tick + 50u};
-    t64_stop_result stop = {0u, 0u};
+    t64_stop_request request =
+        T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, source->tick + 50u);
+    t64_stop_result stop = T64_STOP_RESULT_INIT;
 
     T64_CHECK_INT(t64_machine_advance(source, &request, &stop), T64_STATUS_OK);
     drain_all_packets(source);
@@ -5183,7 +5194,7 @@ static void case_rdp_state_carry(void) {
   t64_machine *source = build_quiet();
   t64_machine *peer = create_admitted(SI_STEM_ID);
   t64_machine *old_peer = create_admitted(SI_STEM_ID);
-  t64_state_import_report report;
+  t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
   uint8_t before[8u * 8u * 2u];
   uint8_t *blob;
   size_t length = 0u;
@@ -5503,7 +5514,7 @@ static void case_mutant_refusals(void) {
   if (render_prepare()) {
     t64_machine *peer = create_admitted(SI_STEM_ID);
     t64_machine *source = build_render();
-    t64_state_import_report report;
+    t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
 
     if (peer != NULL && source != NULL) {
       T64_CHECK_INT(t64_machine_state_import(peer, render_blob, render_length,
@@ -5523,7 +5534,7 @@ static void case_mutant_refusals(void) {
   for (i = 0u; i < (size_t)TRI_COUNT; i++) {
     t64_machine *peer;
     t64_machine *source;
-    t64_state_import_report report;
+    t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
 
     if (!tri_prepare((tri_kind)i)) continue;
     peer = create_admitted(SI_STEM_ID);
