@@ -99,6 +99,24 @@ compatibility or hardware claim.
 | K1 refusal | `unit.core.k1.dispatch-refusal` and `unit.core.k1.apply-refusal` pass (the five shipped composite ids still refuse SetZImage, SetPrimDepth and the four Z triangles) |
 | predicate scope | `unit.core.profile.v26-predicate-matrix` prints `rows=25` (17 earlier ids, four si-v1, four si-v2): `t64_has_rdp_depth_profile` is true on exactly seven ids (rdp-depth-v7, rdp-vi-v8, rdp-vi-filter-v9 and the four si-v2 ids) and false on the descriptor 11 id and the four descriptor 12 ids |
 
+### 2.3 State 26 import (plan 10-12)
+
+Written by plan 10-12 (phase-wave 2). Evidence tier: code observations and unit-test
+results on the gate preset at the commits named below; nothing here is a compatibility or
+hardware claim. The importer half of the state bump: the domain text follows the machine
+(`t64.state.si.25` for the v25 tuple, `t64.state.si.26` for the v26 tuple), the five depth
+scalars are read inside the RDP block before the triangle-render proof, the hidden table
+ends section 8, and the commit writes both from the blob for state 26 only.
+
+| Item | Value |
+|------|-------|
+| tracer RED (`5e4aa1e`) | idle v26 blob imports (`idle-v26-precheck`, 10,545,971 bytes) and the mid Z-triangle blob is refused with status 32 (`STATE_RANGE`), reason 26 (`FIELD_RANGE`), section 8, rule 11 (`LEN_LE`): the triangle-render proof of `state_check_triangle_render` saw `depth_valid` false; no header, version or layout refusal |
+| GREEN (`1083257`) | the same case passes: 119 checks, the Z triangle in flight imports at tick 17 with 2 hidden entries, both machines hold 10 after 2,000 ticks and agree on digest, color and depth bytes and the 2,097,152 hidden bytes |
+| `unit.core.state.import-v26-roundtrip` native seconds | 2.03, 2.00 and 2.00 s (three `ctest` runs at 1-minute host load 12.7, above the quiet-host threshold of 8, so an upper bound); 19,760 checks |
+| provisional TIMEOUT | 300 s, 148 times the native seconds (the final value is set once, after the ASan measurement, in plan 10-12 Task 4) |
+| mid scan-out | a Z-tested 4x3 frame drawn into the VI origin, one retained video packet and two PCM DMAs in flight at export; on `-s32k` (one SRAM word written before the export) and `-e4k` (one EEPROM block written, busy window open): 3 packet-bearing field boundaries compared with digests, 1,096 field events run, 138 video packets and 2 audio packets drained equal on both machines, save bytes and busy flag equal |
+| `v25-hidden-zero` | on `ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-s32k` every one of the 2,097,152 hidden bytes of the peer was set before a state 25 import and all 2,097,152 are zero after it, depth address 0, depth flags clear |
+
 ## 3. Wave 0 decisions
 
 | Decision | Choice | Reason |
