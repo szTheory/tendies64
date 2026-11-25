@@ -2,20 +2,20 @@
 gsd_state_version: "1.0"
 milestone: v1.2
 milestone_name: Embeddable and Playable
-current_phase: 10
-current_phase_name: Carry-in Closure Before the Freeze
-status: executing
-stopped_at: Completed 10-21-PLAN.md (21 of 21); Phase 10 re-qualified and pushed (85ba477), hosted pair green; phase re-verification pending
-last_updated: "2026-11-25T16:15:28.157Z"
-last_activity: 2026-11-23
-last_activity_desc: Phase 10 execution started
-state_head: 342951fa193902ba3209a44512bd169439476c65
+current_phase: 11
+current_phase_name: Installed Consumer and Freeze Candidate
+status: planning
+stopped_at: Phase 10 complete, ready to plan Phase 11
+last_updated: "2026-11-25T16:28:38.720Z"
+last_activity: 2026-11-25
+last_activity_desc: Phase 10 complete, transitioned to Phase 11
+state_head: ad621d3e648fb276256ca563502625812f45c436
 progress:
   total_phases: 3
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 21
   completed_plans: 21
-  percent: 0
+  percent: 33
 ---
 
 # Project State
@@ -29,12 +29,12 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 
 ## Current Position
 
-Phase: 10 (Carry-in Closure Before the Freeze) — EXECUTING
-Plan: 21 of 21
-Status: Plan 10-20 complete (20 of 21, gap closure): W2-03 closed by committed VI completeness rows in v26-completeness (RED by mutant v26-digest-omit-vi-phase-cycles SURVIVED, GREEN KILLED; 26 mutants and 2 controls); local gate, sweep and full preflight pass; the plan 10-19 qualification record is superseded by design; next 10-21 (clone review, new Qualification base, native re-qualification, push and hosted pair, refreshed evidence and claims); local commits not yet pushed
-Last activity: 2026-11-23 — Phase 10 execution started
+Phase: 11 — Installed Consumer and Freeze Candidate
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-11-25 — Phase 10 complete, transitioned to Phase 11
 
-Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
+Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 
 
 ## Performance Metrics
@@ -219,7 +219,7 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 ## Session Continuity
 
 Last session: 2026-11-25T16:15:27.996Z
-Stopped at: Completed 10-21-PLAN.md (21 of 21); Phase 10 re-qualified and pushed (85ba477), hosted pair green; phase re-verification pending
+Stopped at: Phase 10 complete, ready to plan Phase 11
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
