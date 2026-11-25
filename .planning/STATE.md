@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 10
 current_phase_name: Carry-in Closure Before the Freeze
 status: executing
-stopped_at: Completed 10-12-PLAN.md
-last_updated: "2026-11-25T01:43:31.536Z"
+stopped_at: Completed 10-13-PLAN.md
+last_updated: "2026-11-25T02:17:56.523Z"
 last_activity: 2026-11-23
 last_activity_desc: Phase 10 execution started
-state_head: 7ac4029a94997e6159aa608cc63dfee62535355b
+state_head: cc02e17c53a1a51ce6f805b7e096173cef0f3d96
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 19
-  completed_plans: 12
+  completed_plans: 13
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 ## Current Position
 
 Phase: 10 (Carry-in Closure Before the Freeze) — EXECUTING
-Plan: 13 of 19
+Plan: 14 of 19
 Status: Ready to execute
 Last activity: 2026-11-23 — Phase 10 execution started
 
@@ -72,6 +72,7 @@ Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
 | Phase 10 P09 | 23 min | 3 tasks | 13 files |
 | Phase 10 P10 | 27 min | 4 tasks | 11 files |
 | Phase 10 P12 | 38 min | 4 tasks | 11 files |
+| Phase 10 P13 | 31 min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -159,6 +160,9 @@ Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
 - [Phase 10]: 10-09: t64_machine_state_export and state_version_registered stay exact v25 (state 26 export refused INVALID_ARGUMENT, import reports the state-version reason) until plans 10-11 and 10-12; ISViewer widened to the eight SI-family ids
 - [Phase 10]: 10-10: depth literals on the descriptor 13 ids come from a scratch calculator over the z_format[8] table and the V7 rules; the wrong-depth control compares a 5 byte window (color word, depth word, sidecar entry) of the covered pixel, not the whole Z image, because the covered pixel set is a rasterization result not independently derived
 - [Phase 10]: State 26 import (plan 10-12): the canonical domain text follows the machine (t64.state.si.26 for the v26 tuple, t64.state.si.25 for v25), the five depth scalars are read before the triangle-render proof (ADDR_RANGE, BOOL_01, 16-bit INDEX_LT), the hidden table is ENUM_CLOSED per byte (0 or 0x80 to 0x83) and written by the commit for state 26 only; the Z product bound of the acceptance preflight is re-proved from the blob values by a written-out copy guarded by a parity case
+- [Phase 10]: Plan 10-13 Wave 2 review passes with no blocking finding (gate 248 of 248, ASan 24 of 24, sweep 0 differences from two bases, one tuple, one domain, one container value 2); design decision D10 (written-out Z product bound) accepted; pushed f57b019 with a green hosted pair (run 45530265365); Wave 3 base 1cded8de34b0c2f5c5bea903095ffc7f1e55d6fc
+- [Phase 10]: Plan 10-13 warnings W2-01 (Z product bound and its parity case are unpinned: two perturbed bounds survive the committed tests) and W2-02 (two exact-tuple predicates are not membership tokens, six site rows missing) await a decision on a follow-up numbered plan; neither blocks Wave 3
+- [Phase 10]: Plan 10-13 hosted gate-macos warm sample 496 s is the highest so far (cold projection 682 s, margin 218 s, F-122); plan 10-17 re-reads the total before the cold run of plan 10-19
 
 ### Pending Todos
 
@@ -184,8 +188,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-25T01:43:31.511Z
-Stopped at: Completed 10-12-PLAN.md
+Last session: 2026-11-25T02:17:56.500Z
+Stopped at: Completed 10-13-PLAN.md
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
