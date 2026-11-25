@@ -291,7 +291,8 @@ unit.core.api.unload
 unit.core.api.not-ready-table
 unit.core.api.output-status
 repo.api-init-guard
-repo.api-init-guard-selftest'
+repo.api-init-guard-selftest
+repo.abi-prefix'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

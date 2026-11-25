@@ -73,3 +73,19 @@ set_tests_properties(repo.api-init-guard-selftest PROPERTIES
   TIMEOUT 60
   COST 1
   ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
+# repo.abi-prefix (plan 11-11, DR-17): the core archive defines exactly the
+# public functions of the header plus names that start with t64i_, every entry
+# of the generated rename header core/t64_prefix.h names a symbol the archive
+# defines, and regenerating the header from the archive changes nothing. A new
+# unprefixed internal symbol, a stale entry or a hand edit fails it. The
+# command runs on the t64_core archive of the build tree.
+add_test(NAME repo.abi-prefix
+  COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/gen-prefix-header.py
+          --check ${CMAKE_BINARY_DIR}/core/libt64_core.a
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(repo.abi-prefix PROPERTIES
+  LABELS "repo;phase11"
+  TIMEOUT 30
+  COST 1
+  ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
