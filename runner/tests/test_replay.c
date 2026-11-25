@@ -108,8 +108,8 @@ static void host_release(void *context, t64_host_storage storage) {
   free(storage.data);
 }
 
-static const t64_host_allocator g_allocator = {host_allocate, host_release,
-                                               NULL};
+static const t64_host_allocator g_allocator =
+    T64_HOST_ALLOCATOR_INIT(host_allocate, host_release, NULL);
 
 static uint8_t g_rom[8192];
 static size_t g_rom_length;
@@ -207,14 +207,14 @@ static bool measure_polls(poll_measure *out) {
   memset(out, 0, sizeof *out);
   if (machine == NULL) return false;
   while (tick < UINT64_C(2000000)) {
-    t64_stop_request request = {T64_STOP_GUEST_TICK, tick + UINT64_C(16)};
-    t64_stop_result stop = {0u, 0u};
+    t64_stop_request request =
+        T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, tick + UINT64_C(16));
+    t64_stop_result stop = T64_STOP_RESULT_INIT;
     if (t64_machine_advance(machine, &request, &stop) != T64_STATUS_OK) break;
     tick = stop.tick;
     if (!drain_trace_all(machine, note_start, out, &out->dropped)) break;
     if (stop.reason == T64_STOP_REASON_GUEST_COMPLETION) {
-      t64_output_drain_result drain;
-      memset(&drain, 0, sizeof drain);
+      t64_output_drain_result drain = T64_OUTPUT_DRAIN_RESULT_INIT;
       out->completed = true;
       out->completion_tick = stop.tick;
       ok = t64_machine_output_drain(machine, out->log, sizeof out->log,
@@ -306,8 +306,9 @@ static bool advance_to(t64_machine *machine, uint64_t *tick, uint64_t target,
     uint64_t next = target - *tick > step ? *tick + step : target;
     unsigned stalled = 0u;
     for (;;) {
-      t64_stop_request request = {T64_STOP_GUEST_TICK, next};
-      t64_stop_result stop = {0u, 0u};
+      t64_stop_request request =
+          T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, next);
+      t64_stop_result stop = T64_STOP_RESULT_INIT;
       uint64_t before = *tick;
       if (t64_machine_advance(machine, &request, &stop) != T64_STATUS_OK ||
           stop.tick < before || stop.tick > next) {

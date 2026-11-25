@@ -496,7 +496,8 @@ static void pad_release(void *context, t64_host_storage storage) {
   free(storage.data);
 }
 
-static const t64_host_allocator allocator = {pad_allocate, pad_release, NULL};
+static const t64_host_allocator allocator =
+    T64_HOST_ALLOCATOR_INIT(pad_allocate, pad_release, NULL);
 
 typedef struct {
   uint64_t starts[POLL_COUNT];
@@ -533,8 +534,9 @@ static bool measure_polls(const char *rom_path, poll_measure *out) {
     return false;
   }
   while (tick < UINT64_C(1000000)) {
-    t64_stop_request request = {T64_STOP_GUEST_TICK, tick + UINT64_C(16)};
-    t64_stop_result stop = {0u, 0u};
+    t64_stop_request request =
+        T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, tick + UINT64_C(16));
+    t64_stop_result stop = T64_STOP_RESULT_INIT;
     t64_trace_record records[64];
     size_t count;
     uint64_t dropped = 0u;
@@ -560,8 +562,7 @@ static bool measure_polls(const char *rom_path, poll_measure *out) {
     } while (count == 64u);
     out->dropped = dropped;
     if (stop.reason == T64_STOP_REASON_GUEST_COMPLETION) {
-      t64_output_drain_result drain;
-      memset(&drain, 0, sizeof drain);
+      t64_output_drain_result drain = T64_OUTPUT_DRAIN_RESULT_INIT;
       out->completed = true;
       out->completion_tick = stop.tick;
       ok = t64_machine_output_drain(machine, out->log, sizeof out->log,

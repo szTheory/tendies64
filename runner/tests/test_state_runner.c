@@ -1681,7 +1681,8 @@ static bool state_file_commit(const char *dir, const char *name,
  * mid-run state comes from the core API.) */
 static bool native_state_file(const char *dir, uint64_t tick,
                               state_file *out) {
-  static const t64_host_allocator host = {host_allocate, host_release, NULL};
+  static const t64_host_allocator host =
+      T64_HOST_ALLOCATOR_INIT(host_allocate, host_release, NULL);
   char rom_path[PATH_MAX];
   uint8_t *rom = (uint8_t *)malloc(1u << 20);
   size_t rom_length = 0u;
@@ -1702,8 +1703,8 @@ static bool native_state_file(const char *dir, uint64_t tick,
   {
     uint64_t reached = 0u;
     while (reached < tick) {
-      t64_stop_request request;
-      t64_stop_result stop = {0u, 0u};
+      t64_stop_request request = T64_STOP_REQUEST_INIT(0u, 0u);
+      t64_stop_result stop = T64_STOP_RESULT_INIT;
       request.kind = T64_STOP_GUEST_TICK;
       request.value = tick - reached > 2000u ? reached + 2000u : tick;
       if (t64_machine_advance(machine, &request, &stop) != T64_STATUS_OK ||
@@ -2463,7 +2464,8 @@ static const char *tuple_label(const tuple_name *table, size_t count,
 static bool inprocess_import(const uint8_t *blob, size_t size,
                              t64_status *status_out,
                              t64_state_import_report *report_out) {
-  static const t64_host_allocator host = {host_allocate, host_release, NULL};
+  static const t64_host_allocator host =
+      T64_HOST_ALLOCATOR_INIT(host_allocate, host_release, NULL);
   char rom_path[PATH_MAX];
   uint8_t *rom = (uint8_t *)malloc(1u << 20);
   size_t rom_length = 0u;
@@ -2603,7 +2605,7 @@ static int tracer_run(const char *row_name) {
    * the status, the reason, the section and the rule, never only the reason */
   {
     t64_status status = T64_STATUS_OK;
-    t64_state_import_report report;
+    t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
     uint32_t want_status = 0u;
     uint32_t want_reason = 0u;
     uint32_t want_rule = 0u;

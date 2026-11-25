@@ -348,7 +348,8 @@ static int read_descriptor_bytes(int fd, size_t length, size_t maximum,
 static int core_admit_fixture(const uint8_t *bytes, size_t length,
                               const t64_input_schedule *schedule) {
   allocator_state state = {0u};
-  t64_host_allocator allocator = {host_allocate, host_release, &state};
+  t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(host_allocate, host_release, &state);
   const t64_profile_descriptor *profile = NULL;
   t64_machine *machine = NULL;
   size_t rom_size = 0u;

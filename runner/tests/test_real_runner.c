@@ -64,8 +64,8 @@ static void test_release(void *context, t64_host_storage storage) {
 
 static bool core_content_digest_matches(const uint8_t *rom, size_t length,
                                         const char *expected_sha256) {
-  static const t64_host_allocator allocator = {
-      test_allocate, test_release, NULL};
+  static const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, NULL);
   const t64_profile_descriptor *profile = NULL;
   t64_machine *machine = NULL;
   uint8_t digest[T64_DIGEST_SIZE];

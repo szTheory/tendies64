@@ -530,8 +530,8 @@ static bool run_to_bound(t64_machine *machine, partition_kind partition,
   while (current_tick < HELLO_BOUND) {
     uint64_t maximum_chunk;
     uint64_t next_tick;
-    t64_stop_request request;
-    t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+    t64_stop_request request = T64_STOP_REQUEST_INIT(0u, 0u);
+    t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
     t64_status status;
 
     if (partition == PARTITION_TRACE_16) {
@@ -581,12 +581,13 @@ static bool execute_case(const uint8_t *ipl3, size_t ipl3_length,
                          const t64_input_schedule *schedule,
                          partition_kind partition, run_result *out) {
   allocator_state state = {0u};
-  t64_host_allocator allocator = {host_allocate, host_release, &state};
+  t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(host_allocate, host_release, &state);
   input_trace observed[T64_INPUT_MAX_EVENTS];
   size_t observed_count = 0u;
   bool trace_enabled = partition != PARTITION_UNTRACED_4096;
   t64_machine *machine;
-  t64_output_drain_result drain = {0};
+  t64_output_drain_result drain = T64_OUTPUT_DRAIN_RESULT_INIT;
   uint8_t output[sizeof expected_output - 1u];
   bool did_run;
 

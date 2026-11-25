@@ -251,7 +251,8 @@ static bool observe_machine(t64_machine *machine, bool *saw_entry,
 }
 
 static void test_cpu_profile_authored_guest(void) {
-  t64_host_allocator allocator = {allocate_machine, release_machine, NULL};
+  t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(allocate_machine, release_machine, NULL);
   const t64_profile_descriptor *profile = NULL;
   const t64_profile_descriptor *warm_profile = NULL;
   t64_machine *machine = NULL;
@@ -335,11 +336,13 @@ static void test_cpu_profile_authored_guest(void) {
   while (current_tick < TEST_TICK_BOUND) {
     uint64_t step = current_tick >= UINT64_C(514000) ? 1u : 16u;
     uint64_t target = current_tick + step;
-    t64_stop_result stop = {0u, 0u};
-    t64_output_drain_result drained = {0u, 0u, 0u, {0u}, false, false};
+    t64_stop_result stop = T64_STOP_RESULT_INIT;
+    t64_output_drain_result drained = T64_OUTPUT_DRAIN_RESULT_INIT;
     if (target > TEST_TICK_BOUND) target = TEST_TICK_BOUND;
     status = t64_machine_advance(
-        machine, &(t64_stop_request){T64_STOP_GUEST_TICK, target}, &stop);
+        machine,
+        &(t64_stop_request)T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, target),
+        &stop);
     if (status != T64_STATUS_OK) {
       (void)fprintf(stderr, "advance status=%u at tick=%llu\n", status,
                     (unsigned long long)current_tick);
@@ -391,7 +394,7 @@ static void test_cpu_profile_authored_guest(void) {
     if (stop.reason == T64_STOP_REASON_CPU_UNSUPPORTED ||
         stop.reason == T64_STOP_REASON_GUEST_COMPLETION ||
         stop.reason == T64_STOP_REASON_HALT) {
-      t64_cpu_stop_detail detail = {0u, 0u, 0u};
+      t64_cpu_stop_detail detail = T64_CPU_STOP_DETAIL_INIT;
       if (t64_machine_cpu_stop_detail(machine, &detail) == T64_STATUS_OK) {
         (void)fprintf(stderr,
                       "guest stopped early reason=%u tick=%llu full_pc=%016llx opcode=%08x retired=%llu\n",
@@ -455,7 +458,8 @@ static void test_cpu_profile_authored_guest(void) {
 static void test_cpu_profile_exact_image_limit(void) {
   const size_t image_length = 0x00401000u;
   const uint32_t payload_length = 0x00400000u;
-  t64_host_allocator allocator = {allocate_machine, release_machine, NULL};
+  t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(allocate_machine, release_machine, NULL);
   const t64_profile_descriptor *profile = NULL;
   t64_machine *machine = NULL;
   uint8_t *image = (uint8_t *)calloc(image_length, 1u);
@@ -505,7 +509,8 @@ cleanup:
 static void check_cpu_profile_rejects_transactionally(
     const t64_profile_descriptor *profile, const uint8_t *image,
     size_t image_length, const char *name) {
-  t64_host_allocator allocator = {allocate_machine, release_machine, NULL};
+  t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(allocate_machine, release_machine, NULL);
   t64_machine *machine = NULL;
   uint8_t boot_asset[IPL3_BYTES];
   uint8_t before[T64_DIGEST_SIZE];
