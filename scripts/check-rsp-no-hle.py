@@ -1057,9 +1057,27 @@ def _expected_object_sources(root: pathlib.Path) -> dict[str, pathlib.Path]:
     return expected
 
 
+def _prefix_renames(root: pathlib.Path) -> dict[str, str]:
+    """The `#define name target` renames of core/t64_prefix.h (plan 11-11).
+
+    The canonical-symbol lookups below read object files, which hold the
+    renamed (t64i_) symbol; the mapping is read from the generated header and
+    is never restated here. A tree without the header maps every name to itself.
+    """
+    renames: dict[str, str] = {}
+    header = root / "core" / "t64_prefix.h"
+    if header.is_file():
+        for line in header.read_text(encoding="utf-8").splitlines():
+            found = re.fullmatch(r"#define ([A-Za-z_]\w*) ([A-Za-z_]\w*)", line)
+            if found:
+                renames[found.group(1)] = found.group(2)
+    return renames
+
+
 def _check_build_route(root: pathlib.Path, build: pathlib.Path) -> tuple[list[str], list[str]]:
     findings: list[str] = []
     evidence: list[str] = []
+    renames = _prefix_renames(root)
     expected = _expected_object_sources(root)
     if not expected:
         return ["build route: expected production source count is zero"], evidence
@@ -1197,7 +1215,7 @@ def _check_build_route(root: pathlib.Path, build: pathlib.Path) -> tuple[list[st
         else:
             findings.append("build/core/CMakeFiles/t64_core.dir/t64_rsp.c.o: nm inspection failed")
         for symbol in ("t64_rsp_issue_event", "t64_rsp_ensure_opportunity", "t64_rsp_start"):
-            if symbol not in symbols:
+            if renames.get(symbol, symbol) not in symbols:
                 findings.append(
                     f"build/core/CMakeFiles/t64_core.dir/t64_rsp.c.o: required canonical symbol {symbol} is absent"
                 )
@@ -1233,7 +1251,7 @@ def _check_build_route(root: pathlib.Path, build: pathlib.Path) -> tuple[list[st
             "t64_rdp_triangle_render_row",
             "t64_rdp_triangle_word_count",
         ):
-            if symbol not in symbols:
+            if renames.get(symbol, symbol) not in symbols:
                 findings.append(
                     "build/core/CMakeFiles/t64_core.dir/t64_rdp_raster.c.o: "
                     f"required canonical symbol {symbol} is absent"
@@ -1270,7 +1288,7 @@ def _check_build_route(root: pathlib.Path, build: pathlib.Path) -> tuple[list[st
             "t64_rdp_tmem_triangle_pixel",
             "t64_rdp_tmem_validate_triangle",
         ):
-            if symbol not in symbols:
+            if renames.get(symbol, symbol) not in symbols:
                 findings.append(
                     "build/core/CMakeFiles/t64_core.dir/t64_rdp_tmem.c.o: "
                     f"required canonical symbol {symbol} is absent"
@@ -1305,7 +1323,7 @@ def _check_build_route(root: pathlib.Path, build: pathlib.Path) -> tuple[list[st
             findings.append(
                 "build/core/CMakeFiles/t64_core.dir/t64_rdp_pipeline.c.o: nm inspection failed"
             )
-        if "t64_rdp_combine_pixel" not in symbols:
+        if renames.get("t64_rdp_combine_pixel", "t64_rdp_combine_pixel") not in symbols:
             findings.append(
                 "build/core/CMakeFiles/t64_core.dir/t64_rdp_pipeline.c.o: "
                 "required canonical symbol t64_rdp_combine_pixel is absent"
@@ -1343,7 +1361,7 @@ def _check_build_route(root: pathlib.Path, build: pathlib.Path) -> tuple[list[st
             "t64_rdp_depth_evaluate_pixel",
             "t64_rdp_depth_commit_pixel",
         ):
-            if symbol not in symbols:
+            if renames.get(symbol, symbol) not in symbols:
                 findings.append(
                     "build/core/CMakeFiles/t64_core.dir/t64_rdp_depth.c.o: "
                     f"required canonical symbol {symbol} is absent"
