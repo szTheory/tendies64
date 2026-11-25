@@ -872,6 +872,10 @@ No source, test, script or pin was edited after the failure, and the executor di
 qualification (the plan says a failed stage stops the plan). There is no qualification record
 yet, so nothing below is a pass.
 
+Update after the repeats (section 15.1): a fourth native attempt on the same unchanged source
+passed and its record verifies; the three failed attempts, this one first, stay in the evidence
+beside it. This section up to section 15.1 records attempt 1 as it happened.
+
 Command: `python3 -B scripts/qualify-phase10.py --native` (no `--rehearsal`), exit 1, last line
 `qualify-phase10: refused original evidence: stage gate command 0 exited 1, expected 0`. The
 private step logs of the attempt are under
@@ -915,8 +919,8 @@ assertions above. That is the most likely cause but it is an inference: the atte
 `LastTest.log` was overwritten by the first diagnostic below before the third test's output was
 read (lesson: copy `build/gate/Testing/Temporary/LastTest.log` before any further ctest run), and
 the cause of the load spike on the shared host was not identified. The persistent load before the
-attempt (about three busy cores) comes from unrelated long-running processes, and a Docker
-virtual machine held about 10.8 GB resident.
+attempt (about three busy cores) comes from unrelated long-running host workloads, and an
+unrelated virtual machine held about 10.8 GB resident.
 
 Diagnostics run after the failure. None is a qualification record and none changed a tracked file:
 
@@ -937,3 +941,68 @@ run, the evidence and the claims) was started. The choice between a repeat on a 
 numbered fix plan belongs to the orchestrator. A repeat creates a new record directory and
 consumes one cold-boot attempt number per gate run (the counters stand at 4 and 4 after the gate
 stage of the attempt and the diagnostic gate run).
+
+### 15.1 Repeats and the passing final record
+
+Written by plan 10-19 when it was resumed (Tasks 1 recording, 3 and 4). The orchestrator
+repeated the one qualification command three more times and the executor read the results;
+nothing was edited between attempts (`git status --short` empty, `git diff` of every bound
+path against the Qualification base empty, the head stayed `b9d957c391b128622912481a99ffe24e6c84e609`
+for attempts 2 to 4), no limit was widened and no wall backstop was changed. Evidence tier: native
+measurements; the record is `tier: unit-tested, authored scope` and says
+`claims.hardware_accuracy: false` and `claims.oracle_comparison: false`. The four attempts, all
+on the same command `python3 -B scripts/qualify-phase10.py --native` (no `--rehearsal`), in order:
+
+| Attempt | Record directory (private, repo-relative, not committed) | Source head | Result | Failed names (supervisor wall backstop) | `ctest --preset gate` wall |
+|---------|-----------------------------------------------------------|-------------|--------|------------------------------------------|----------------------------|
+| 1 | `build/gate/10-qualification-private/20261125T051452604175Z-1f862a0f` | `1f862a0f7a25` | gate stage failed, no record | `runner.save-roundtrip` 45.73 s, `runner.state-export` 97.34 s, `controls.real.rdp-drain-cadence` 42.74 s | 389.31 s |
+| 2 | `build/gate/10-qualification-private/20261125T054642787825Z-b9d957c3` | `b9d957c391b1` | gate stage failed, no record | `runner.cpu-diagnostic` 134.68 s, `controls.real.raw-capture-caps` 43.91 s, `controls.real.raw-capture-target-errors` 44.07 s | 242.25 s |
+| 3 | `build/gate/10-qualification-private/20261125T055712530841Z-b9d957c3` | `b9d957c391b1` | gate stage failed, no record | `controls.real.audio-wrong-sample` 55.44 s, `harness.fsize-report-capture-still-bounded` 55.80 s | 187.38 s |
+| 4 | `build/gate/10-qualification-private/20261125T134440416529Z-b9d957c3` | `b9d957c391b1` | **passed, `record.json` written, `--verify` exit 0** | none (254 of 254) | 77.30 s |
+
+Reading of the three failures, with its limit. Every failed name is a Phase 8 or 9 supervised-run
+test (labels `controls` or `runner`; none is a Phase 10 name) that ended at a wall backstop of the
+supervisor under heavy unrelated host workloads (1-minute load 10 to 12 on a multi-core macOS host
+while other CPU-heavy work ran); no name failed twice, and the names move with the host speed. The
+same source passed plain `sh scripts/gate.sh` (196 s and 135 s), the 10-17 rehearsal, the 10-18
+clone gate and every hosted run (two warm pairs and the cold run of section 15.2). The passing
+attempt ran after the unrelated workloads were reduced. That the cause is host load is an
+inference from timing and from the passes of the unchanged source, not a proven cause, and the
+supervisor backstops of those tests stay as they are (they live in bound or frozen source).
+
+The passing record (all figures are the record's own):
+
+| Item | Value |
+|------|-------|
+| record id and directory | `20261125T134440416529Z-b9d957c3`, `build/gate/10-qualification-private/20261125T134440416529Z-b9d957c3/record.json` |
+| record SHA-256 | `82ef8c2e8aa45db3c938fb3b2ed736299a90026ac3850c7d16ca90e503985c96` |
+| `commit_sha`, rehearsal | `b9d957c391b128622912481a99ffe24e6c84e609`, `rehearsal: false`, `status: complete`, tree clean (`dirty_status_sha256` is the SHA-256 of the empty string) |
+| Qualification base | `ad39b6be2f803af45af15d4ed511b72a89460339`; `qualification_drift_paths` is empty, so every bound input equals the audited tree |
+| source snapshot | 60 bound inputs, `input_manifest_sha256` `35bee73db0e88da29f771481d3307c99dada8e7343ea94d2e9ee73a69cd6bceb`, no deleted path, excluded `.planning/` and `docs/ci-reviews/LOG.md` |
+| wave bases bound | Wave 0 `4ac633e8`, Wave 1 `f6ab8c26`, Wave 2 `6dd78598`, Wave 3 `1cded8de`, Qualification base `ad39b6be` |
+| `--verify` | `python3 -B scripts/qualify-phase10.py --verify <record>` exit 0, "record verified against the current tree" (run at head `b9d957c`, one-shot: it cannot be repeated after the evidence and claim documents are committed, because those paths are bound inputs newer than the Qualification base) |
+| inventory | 30 `PHASE10_TESTS` names equal the 30 names of `ctest -N -L phase10`; names SHA-256 `c0e7d637b3f1c181b4f7cb08f032bf3aa5a84a04241005114459b08eff156f28`; 254 names in the gate |
+| tested build ids | core `t64-build-v1-b6c298e66f1cbecb45d9f939a62d1c5b93dbc466c1ba7cf7980c291b2f136884`, runner `t64-runner-v1-684d67fa59f416d1549be743c93cfd451fc8b1ab849ac31fdd643ef2e7811f55`, runner test twin `t64-runner-v1-2d3ac6f8be3b8203341f9238c3d2c07d52a3f3363ee6a078ef870d9b29f60051`, ASan core `t64-build-v1-63fe5be296b2b623822ce9f111b6474eb0c4462e1de642718c31f9bc31b7ad5a` (equal to the 10-17 rehearsal ids) |
+| host | macOS; 1-minute load 16.1 at the start and 6.8 at the end (the start is above the quiet-host threshold of 8, so the seconds below are upper bounds); total 418.6 s on the qualifier clock, about 6 min 59 s wall |
+
+| Stage | Seconds | Limit | Observed |
+|-------|---------|-------|----------|
+| ci-scanner | 2.16 | 90 | `check-ci-yml.sh` ok, selftest 138 cases, 0 failures |
+| inventory | 0.65 | 60 | `check-test-inventory.sh --preset gate` PASS, count 254 |
+| oracle | 0.15 | 60 | `--expect-blocked` exit 0 ("authority record valid; blocked: no oracle operation is authorized"), `--require-approved` exit 2 |
+| gate | 129.41 | 600 | `gate.sh` PASS, total 129 s (sh-n 0, lint-selftest 4, fixture-qualification 1, configure 0, build 0, boot-evidence-selftest 13, test-inventory-selftest 24, test-inventory 0, ctest 78, core-lint 9); 254 of 254 passed, ctest wall 77.30 s |
+| phase10-junit | 7.16 | 120 | 30 testcases equal the block, none failed or skipped; JUnit SHA-256 `7f53de882887238a1b1cac4c858b4f532d917d44f4a5f6b62135680b95b5e923`; the qualifier hermetic test 7.13 s, `import-v26-hostile` 7.15 s, `import-v26-roundtrip` 2.03 s, `export-v26` 1.87 s, `state-format-v26` 1.45 s, the other 25 names 0.003 to 1.31 s |
+| asan | 136.95 | 1,320 (120 + 600 + 600) | configure 0.19, build 7.71, `ctest --preset asan -L phase10` 129.05 s wall (305.08 s summed): 30 testcases equal the block, none failed or skipped; JUnit SHA-256 `d4e0144cc049173066c11d3b02924e51b3ada8897fafce59cbbd83fe9c1520d8`; `import-v26-hostile` 129.03 s, `import-v26-roundtrip` 37.44 s, `state-format-v26` 33.99 s |
+| mutants | 100.72 | 600 | 27 rows equal the driver's `--list`: 25 mutants KILLED, the equivalent control `control-equivalent-depth-cap` SURVIVED, the non-compiling control `control-no-compile` INVALID, each as expected |
+| sweep | 41.02 | 300 | `sweep: 1599 shared lines, 0 differences, 0 head-only lines` (21 shipped ids, Wave 0 base to head) |
+
+Every stage ended inside its limit; the three smallest ratios of limit to seconds are 4.6 (the
+gate, 600 s against 129.41 s), 6.0 (the mutants, 600 s against 100.72 s) and 7.3 (the sweep, 300 s
+against 41.02 s), so every limit is still more than four times the second of this run. The
+Qualification base check of the
+plan (one-shot) passed before any plan 10-19 document was committed: the base is the 40-hex
+literal of section 5, and `git diff --name-only` base to head lists only `.planning/` paths.
+`sh scripts/preflight-phase10.sh` was run at the start of the first attempt (PASS in 41 s,
+section 15 above). The cold-boot attempt counters (`06-05-cold-hello-attempt-NN` and
+`06-05-cold-startup-attempt-NN`, cap 99, D-10-17-01) stand at 9 and 9 after the four attempts, so
+the cap was not reached.
