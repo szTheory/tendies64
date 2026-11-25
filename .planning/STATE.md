@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 11
 current_phase_name: Installed Consumer and Freeze Candidate
 status: executing
-stopped_at: Completed 11-07-PLAN.md
-last_updated: "2026-11-25T22:17:03.756Z"
+stopped_at: Completed 11-08-PLAN.md
+last_updated: "2026-11-25T22:30:02.122Z"
 last_activity: 2026-11-25
 last_activity_desc: Phase 11 execution started
-state_head: 75a56b9913676f980a99e61aae52c6e33b313b1f
+state_head: 2ff693119b7d84c82767cb23796882f014c6df99
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 46
-  completed_plans: 28
+  completed_plans: 29
   percent: 33
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 ## Current Position
 
 Phase: 11 (Installed Consumer and Freeze Candidate) — EXECUTING
-Plan: 8 of 25
+Plan: 9 of 25
 Status: Ready to execute
 Last activity: 2026-11-25 — Phase 11 execution started
 
@@ -88,6 +88,7 @@ Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 | Phase 11 P05 | 22min | 2 tasks | 10 files |
 | Phase 11 P06 | 39 min | 2 tasks | 14 files |
 | Phase 11 P07 | 10min | 2 tasks | 14 files |
+| Phase 11 P08 | 12min | 2 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -212,6 +213,7 @@ Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 - [Phase 11]: Plan 11-04: reset emits the admission record and raises no in-call flag; unload clears guest state without a boot entry and releases the image with the flag raised; output status without an image is OK with zero counts and full free capacity; t64_output_status is 48 bytes; slot copy-out is inline in the two sealed observers; 13 slot member names mapped NONE in state-field-rules
 - [Phase 11]: Plan 11-05: DR-09 macros list every member explicitly so the flip edits only the first element; codemod fails closed on EXPECTED_CORPUS_PATHS, the printer and any scratch root that is not below build/ with its own toplevel and the marker; sentinel values on a zero-only type become INIT plus named member assignments; a memset of a converted object is a hand site (it would clear struct_size after the flip)
 - [Phase 11]: Plan 11-07: a byte-wise 0xa5 sentinel fill of a macro-type result becomes a file-local poison helper (INIT assignment, then every member set by name) so refusal and overwrite tests keep their detection power after the flip adds struct_size; the codemod still lists an initialized array as a hand site, so --check exits 1 by design while test_ai.c arrays remain, and the 11-10 init-form guard must accept an array whose entries all use the INIT form
+- [Phase 11]: Plan 11-08: a 0xa5 fill of an import report or a save info becomes a poison helper (INIT assignment, then every member set to 0xa5.. by name; the shared helper lives in state_import_helpers.h, the save helper is file-local), zeroing memsets of reports and drain results become INIT assignments; a NULL-machine row of test_state_import.c that read a never-written report on stack residue now poisons the report and checks it untouched, matching the status-classes contract that a NULL machine leaves every output untouched; the codemod does not see a pointer-form memset of a macro-type object (report_out), so 11-09/11-10 must grep for it
 
 ### Pending Todos
 
@@ -237,8 +239,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-25T22:17:03.604Z
-Stopped at: Completed 11-07-PLAN.md
+Last session: 2026-11-25T22:30:01.801Z
+Stopped at: Completed 11-08-PLAN.md
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
