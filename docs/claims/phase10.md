@@ -18,7 +18,9 @@ two hosted platforms build with different identities by design.
 How a block is counted. The counted unit is stated in the paragraph before each block and the
 `pass` and `total` values equal the number of counted units, every one of which passed in the
 retained originals of the final native qualification (record
-`20261125T134440416529Z-b9d957c3`). Blocks 1, 2 and 4 to 8 count registered CTest names: each
+`20261125T155456703622Z-1fc0b1da`, taken after the gap closure of plans 10-20 and 10-21; the
+earlier record of plan 10-19 is superseded and kept as history in the evidence document).
+Blocks 1, 2 and 4 to 8 count registered CTest names: each
 counted name is one of the 30 `PHASE10_TESTS` names of `scripts/check-test-inventory.sh`
 (label `phase10`) and is a passed testcase both in the retained gate-preset JUnit and in the
 retained ASan and UBSan JUnit of that record. Block 3 counts the accepted authored ROM row that
@@ -97,20 +99,32 @@ the target allocation byte for byte as it was, and the v26 fuzz windows),
 `unit.core.digest.v26-completeness` (every member of the RDP state, every byte of the coverage
 table, strided TMEM bytes and the first, a middle and the last byte of the hidden depth table
 flipped one bit at a time must change the canonical stream; the five depth members are plain
-rows, not exclusions) and `unit.core.digest.v26-strip-differential` (with the markers, the
+rows, not exclusions. The same case flips every member of the VI state: 120 rows over the
+1,208 bytes of `t64_vi_state`, including all 37 members of both retained video packet slots.
+On the stem id every one of the 1,208 bytes is flipped: 791 member bytes change the stream and
+exactly 417 flips leave it unchanged, namely 400 bytes of six named exclusions with their
+reasons (the host observer cursors `packet_head` and `packet_count`, and the per-slot
+`profile_id` and `build_id` strings that the v25 and v26 state does not carry) and 17 padding
+bytes. On the three save ids and on the state 25 stem id the first byte of every row, the last
+byte of every excluded row and every padding byte are flipped; two size pins make a new member
+fail the build until it has a row) and `unit.core.digest.v26-strip-differential` (with the markers, the
 identity spans and the new-span classes removed, a v26 stream equals the v25 stream of the
 corresponding si-v1 id for machines built by the same operations, so the v25 framing is
 unchanged). One version marker holds: state serialization 26, digest domain `t64.state.si.26`,
 container version word 2 with the format string `t64.state-container.v2`. The mutant rows
 `v26-import-skip-hidden` and `v26-import-depth-after-proof` (killed by the round trip),
 `v26-import-addr-unchecked` and `v26-import-z-products-unchecked` (killed by the hostile rows)
-and the two digest omissions were KILLED in the final qualification. A round trip compares a
-machine with its own export, so a layout that both sides share wrongly would pass it; the layout
-is pinned separately by the export-side tests and the independent version 2 decoder, which are
-supporting tests and are not counted: `unit.core.state.export-v26`,
-`unit.core.state.export-v26-bounds`, `runner.state-format-v26` and `runner.composite-state-v2`.
-The suites run on the four registered ids; this block binds the stem id and the three save ids
-are exercised and not claimed.
+and the three digest omissions (`v26-digest-omit-scalar` and `v26-digest-omit-hidden` of block 1
+and `v26-digest-omit-vi-phase-cycles`, which drops one VI member from the walker; the last one
+survived the committed case before the VI rows existed and is killed by it now) were KILLED in
+the final qualification. A round trip compares a machine with its own export, so a layout that
+both sides share wrongly would pass it; the layout is pinned separately by the export-side tests
+and the independent version 2 decoder, which are supporting tests and are not counted:
+`unit.core.state.export-v26`, `unit.core.state.export-v26-bounds`, `runner.state-format-v26` and
+`runner.composite-state-v2`. The suites run on the four registered ids; this block binds the stem
+id and the three save ids are exercised and not claimed. The representative VI sweep also runs on
+the state 25 stem id `ntsc-cart-4m-openipl3-rdram-b-t1-si-v1`, which is exercised and not
+claimed.
 
 ```t64-claim
 build_id: 0.0.0+t64-build-v1-b6c298e66f1cbecb45d9f939a62d1c5b93dbc466c1ba7cf7980c291b2f136884

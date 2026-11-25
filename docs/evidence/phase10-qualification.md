@@ -1,14 +1,21 @@
 # Phase 10 carry-in closure qualification
 
-The audited source is the tree of `ad39b6be2f803af45af15d4ed511b72a89460339` (the Qualification
-base recorded in the Phase 10 pin-impact record). The one final native qualification
-(`python3 -B scripts/qualify-phase10.py --native`, no rehearsal flag) passed on the head
-`b9d957c391b128622912481a99ffe24e6c84e609`, whose bound source inputs equal those of the audited
-tree (every path between the two commits is a planning record or `docs/ci-reviews/LOG.md`), and the
-exact-binding verifier (`python3 -B scripts/qualify-phase10.py --verify`) then accepted the record
-against that tree. The same audited tree ran in a warm hosted pair and in one measured cold-cache
-hosted run of `gate-macos`, which finished inside its 900-second job limit. The bounded claims are
-the eight blocks of [phase10](../claims/phase10.md).
+The audited source is the tree of `76451024e148073804e162841c3d0a3543bd2567` (the Qualification
+base recorded in the Phase 10 pin-impact record after the gap closure of plans 10-20 and 10-21).
+The one final native qualification (`python3 -B scripts/qualify-phase10.py --native`, no
+rehearsal flag) passed on the head `1fc0b1da70acf6c9b0f3baf0b46abf9d5a69468f` (named H2 below),
+whose bound source inputs equal those of the audited tree (the one path between the two commits is
+a planning record), on its first attempt, and the exact-binding verifier
+(`python3 -B scripts/qualify-phase10.py --verify`) then accepted the record against that tree. The
+head that was pushed and ran in a warm hosted pair is `85ba477bbf49a8fd1f2ca764c51433764c85bcab`
+(named H3 below: H2 plus one planning-only commit, with the identical bound source snapshot). An
+earlier qualification of plan 10-19 on the first audited tree (`ad39b6be...`) is superseded and
+kept below as history: plan 10-20 then added the committed flip-every-member rows of the VI state
+(a bound test source) and moved the qualifier text, so that record no longer verifies. The one
+measured cold-cache hosted run of `gate-macos` (731 s of its 900-second job limit) was taken on
+the earlier audited tree and was **not repeated** for the gap closure, which changed test source,
+the mutant driver and qualifier text only. The bounded claims are the eight blocks of
+[phase10](../claims/phase10.md).
 
 Evidence tier: **unit-tested, authored scope** (every block of the claim file is tier `unit-tested`).
 Every expected value is a hand-derived literal or comes from an independent oracle script kept
@@ -24,11 +31,12 @@ published, and no tag was created (the commits are named by their 40-hex ids).
 
 | Item | Value |
 | --- | --- |
-| audited source (Qualification base) | `ad39b6be2f803af45af15d4ed511b72a89460339` |
-| head of the final native qualification (`commit_sha` of the record) | `b9d957c391b128622912481a99ffe24e6c84e609` |
-| head of the hosted runs (warm pair and cold run) | `f081d392763ad384c3d50ae1b24b709d5af3b7d4`, an ancestor of the Qualification base; the paths between the two are planning records and `docs/ci-reviews/LOG.md` only |
-| wave bases bound by the record | Wave 0 `4ac633e880e0c26005cb03092e8d8485e721034c`, Wave 1 `f6ab8c26d008b8301b729b5aae2715e1b1079318`, Wave 2 `6dd785986f6aa78c6da5573a558b15b386a4edee`, Wave 3 `1cded8de34b0c2f5c5bea903095ffc7f1e55d6fc` |
-| core build id (the claim `build_id` values carry the prefix `0.0.0+`) | `t64-build-v1-b6c298e66f1cbecb45d9f939a62d1c5b93dbc466c1ba7cf7980c291b2f136884` |
+| audited source (Qualification base) | `76451024e148073804e162841c3d0a3543bd2567` |
+| qualified commit **H2** (`commit_sha` of the record of this document) | `1fc0b1da70acf6c9b0f3baf0b46abf9d5a69468f`; the one path between the base and H2 is the pin-impact record |
+| pushed head **H3** (the head of the warm hosted pair of this document) | `85ba477bbf49a8fd1f2ca764c51433764c85bcab`, H2 plus one planning-only commit (the record of the re-qualification); `git diff --name-only H2 H3` lists planning records only, so H3 has the identical bound source snapshot of H2 |
+| earlier audited source (superseded, history) | `ad39b6be2f803af45af15d4ed511b72a89460339`, qualified by the plan 10-19 record on `b9d957c391b128622912481a99ffe24e6c84e609`; the warm pair and the one cold run of the earlier tree ran on `f081d392763ad384c3d50ae1b24b709d5af3b7d4`, an ancestor of that earlier base (the paths between the two are planning records and `docs/ci-reviews/LOG.md` only) |
+| wave bases bound by the record | Wave 0 `4ac633e880e0c26005cb03092e8d8485e721034c`, Wave 1 `f6ab8c26d008b8301b729b5aae2715e1b1079318`, Wave 2 `6dd785986f6aa78c6da5573a558b15b386a4edee`, Wave 3 `1cded8de34b0c2f5c5bea903095ffc7f1e55d6fc`, Qualification base `76451024e148073804e162841c3d0a3543bd2567` |
+| core build id (the claim `build_id` values carry the prefix `0.0.0+`; all four build ids equal those of the superseded plan 10-19 record because no production source changed) | `t64-build-v1-b6c298e66f1cbecb45d9f939a62d1c5b93dbc466c1ba7cf7980c291b2f136884` |
 | runner build id | `t64-runner-v1-684d67fa59f416d1549be743c93cfd451fc8b1ab849ac31fdd643ef2e7811f55` |
 | runner test twin build id | `t64-runner-v1-2d3ac6f8be3b8203341f9238c3d2c07d52a3f3363ee6a078ef870d9b29f60051` |
 | ASan and UBSan core build id | `t64-build-v1-63fe5be296b2b623822ce9f111b6474eb0c4462e1de642718c31f9bc31b7ad5a` |
@@ -41,32 +49,46 @@ published, and no tag was created (the commits are named by their 40-hex ids).
 
 ## Native record
 
-The record is private build output kept on the machine that ran it (`build/gate/10-qualification-private/20261125T134440416529Z-b9d957c3/record.json`,
-SHA-256 `82ef8c2e8aa45db3c938fb3b2ed736299a90026ac3850c7d16ca90e503985c96`); this document holds
+The record is private build output kept on the machine that ran it (`build/gate/10-qualification-private/20261125T155456703622Z-1fc0b1da/record.json`,
+SHA-256 `1099e3971e0cca245844641ad4977b3dbc3ce523e452449efb551d75a9d487fc`); this document holds
 digests, counts and seconds only. The record states `rehearsal: false`, `status: complete`, a clean
 tree, an empty `qualification_drift_paths`, `tier: unit-tested, authored scope`, and
-`claims.hardware_accuracy: false` and `claims.oracle_comparison: false`. It binds 60 source inputs
-(manifest SHA-256 `35bee73db0e88da29f771481d3307c99dada8e7343ea94d2e9ee73a69cd6bceb`) and the
-30 `PHASE10_TESTS` names (names SHA-256
+`claims.hardware_accuracy: false` and `claims.oracle_comparison: false`. It binds 62 source inputs
+(manifest SHA-256 `eb28495da4fb2a271c65f01d3a375b6b386d36160b55c792fd6cacc7c144aa15`; the two
+inputs added against the superseded record are the claim and evidence documents of plan 10-19, and
+three inputs have new content: `core/tests/test_digest_v26.c`, `scripts/p10-mutants.py` and
+`scripts/qualify-phase10.py`) and the 30 `PHASE10_TESTS` names (names SHA-256
 `c0e7d637b3f1c181b4f7cb08f032bf3aa5a84a04241005114459b08eff156f28`, equal to the 30 names of
-`ctest -N -L phase10`). Total 418.6 s on the qualifier clock (about 6 min 59 s wall); host 1-minute
-load 16.1 at the start and 6.8 at the end, so the seconds are upper bounds for a quiet host.
+`ctest -N -L phase10`). Total 410.78 s on the qualifier clock (6 min 51 s wall); host 1-minute
+load 9.10 at the start and 7.28 at the end, after a wait for the load to fall to 8 or below, so the
+seconds are close to a quiet host and still upper bounds. The record passed on its first attempt:
+there is no failed attempt of this re-qualification, and no limit, backstop or source changed.
 
 | Stage | Seconds | Limit | Observed |
 | --- | ---: | ---: | --- |
-| ci-scanner | 2.16 | 90 | `check-ci-yml.sh` ok, selftest 138 cases, 0 failures |
-| inventory | 0.65 | 60 | exact test inventory of the gate preset passes, count 254 |
-| oracle | 0.15 | 60 | `--expect-blocked` exit 0 (blocked: no oracle operation is authorized); `--require-approved` exit 2 (no pinned competent owner or legal decision) |
-| gate (`scripts/gate.sh`) | 129.41 | 600 | PASS, total 129 s; `ctest --preset gate` 254 of 254 passed, wall 77.30 s |
-| phase10-junit | 7.16 | 120 | 30 testcases equal the block, none failed or skipped (gate-preset JUnit SHA-256 `7f53de882887238a1b1cac4c858b4f532d917d44f4a5f6b62135680b95b5e923`, 23.35 s summed) |
-| asan (configure, build, selection) | 136.95 | 1,320 | configure 0.19 s, build 7.71 s, `ctest --preset asan -L phase10` 129.05 s wall: 30 testcases equal the block, none failed or skipped (JUnit SHA-256 `d4e0144cc049173066c11d3b02924e51b3ada8897fafce59cbbd83fe9c1520d8`, 305.08 s summed) |
-| mutants | 100.72 | 600 | 27 rows equal the driver's `--list`: 25 KILLED, 1 equivalent control SURVIVED, 1 non-compiling control INVALID, each as expected |
-| sweep | 41.02 | 300 | `sweep: 1599 shared lines, 0 differences, 0 head-only lines` |
+| ci-scanner | 2.98 | 90 | `check-ci-yml.sh` ok, selftest 138 cases, 0 failures |
+| inventory | 1.10 | 60 | exact test inventory of the gate preset passes, count 254 |
+| oracle | 0.22 | 60 | `--expect-blocked` exit 0 (blocked: no oracle operation is authorized); `--require-approved` exit 2 (no pinned competent owner or legal decision) |
+| gate (`scripts/gate.sh`) | 128.13 | 600 | PASS, total 128 s; `ctest --preset gate` 254 of 254 passed, wall 76.18 s |
+| phase10-junit | 7.02 | 120 | 30 testcases equal the block, none failed or skipped (gate-preset JUnit SHA-256 `4d4e9987113ae7e3743681502ecc150d720d801f5d66e1a0cd6947e8b2c2214d`, 23.82 s summed; `unit.core.digest.v26-completeness` 1.13 s) |
+| asan (configure, build, selection) | 125.10 | 1,320 | configure 0.14 s, build 7.84 s, `ctest --preset asan -L phase10` 117.12 s wall: 30 testcases equal the block, none failed or skipped (JUnit SHA-256 `db0cb3fb19eb490224cbf72052d4a446bdaecfe8dc4fcc9e65412d4f2a7977cc`, 274.81 s summed; `unit.core.digest.v26-completeness` 8.67 s), no sanitizer report |
+| mutants | 105.00 | 600 | 28 rows equal the driver's `--list`: 26 KILLED, 1 equivalent control SURVIVED, 1 non-compiling control INVALID, each as expected |
+| sweep | 40.77 | 300 | `sweep: 1599 shared lines, 0 differences, 0 head-only lines` |
 
 Each limit is a kill deadline of the qualifier, derived from measured seconds in its own source. The
-tightest ratios of limit to observed seconds are 4.6 (the gate), 6.0 (the mutants) and 7.3 (the sweep).
+tightest ratios of limit to observed seconds are 4.7 (the gate), 5.1 (the ASan selection wall), 5.7
+(the mutants) and 7.4 (the sweep); against the serial sum of the ASan names (274.81 s) the 600 s
+CTest limit is 2.18 times, not the rule of the qualifier (the four-job preset overlaps the names).
 
-### Attempts
+### Superseded qualification and its attempts (history, plan 10-19)
+
+Plan 10-19 qualified the first audited tree (`ad39b6be...`, record
+`20261125T134440416529Z-b9d957c3`, SHA-256 `82ef8c2e8aa45db3c938fb3b2ed736299a90026ac3850c7d16ca90e503985c96`,
+`commit_sha` `b9d957c391b128622912481a99ffe24e6c84e609`, 60 inputs, a mutant stage without the
+VI row, gate 129.41 s, asan 136.95 s, total 418.6 s, host load 16.1 at the start and 6.8 at the
+end). **That record is superseded, not withdrawn**: plan 10-20 changed a bound test source and the
+qualifier text, so it no longer verifies against the tree of this document, and it stays listed
+with its four attempts because they are part of the evidence. Its four-attempt history follows.
 
 The one qualification command was run four times on the same unchanged source; no limit was widened
 and no source, test, script or pin changed between attempts. Attempts 1 to 3 ended in the gate stage
@@ -83,8 +105,10 @@ from timing and from the passes of the unchanged source (plain `sh scripts/gate.
 | 3 | `build/gate/10-qualification-private/20261125T055712530841Z-b9d957c3` | `b9d957c391b1` | gate stage failed, no record: `controls.real.audio-wrong-sample`, `harness.fsize-report-capture-still-bounded` | 187.38 s |
 | 4 | `build/gate/10-qualification-private/20261125T134440416529Z-b9d957c3` | `b9d957c391b1` | **passed; record written; `--verify` exit 0** | 77.30 s |
 
-The verifier ran once, at the head `b9d957c391b128622912481a99ffe24e6c84e609`, before this document
-and the claim file were committed. It cannot be repeated at a later head: this document and
+The verifier ran once for each record: for the superseded record at the head
+`b9d957c391b128622912481a99ffe24e6c84e609`, and for the record of this document (`20261125T155456703622Z-1fc0b1da`)
+at H2, `1fc0b1da70acf6c9b0f3baf0b46abf9d5a69468f`, in both cases before this document and the claim
+file were committed. It cannot be repeated at a later head: this document and
 `docs/claims/phase10.md` are bound source inputs newer than the Qualification base (the qualifier
 excludes only `.planning/` and `docs/ci-reviews/LOG.md`), so a later `--verify` is expected to
 refuse with a changed-path message (reproduction below). It was deliberately not re-run.
@@ -92,7 +116,12 @@ refuse with a changed-path message (reproduction below). It was deliberately not
 ## Mutant classification
 
 The out-of-tree mutant driver `scripts/p10-mutants.py --run` edits scratch copies of the sources and
-classifies each row by the named test and case that fails. Every row of this table is as expected.
+classifies each row by the named test and case that fails. The table lists the 28 rows of the
+driver: 26 mutants, all KILLED, and 2 controls, the equivalent control that must SURVIVE and the
+non-compiling control that must be INVALID. Every row of this table is as expected. The row
+`v26-digest-omit-vi-phase-cycles` (plan 10-20, finding W2-03) removes the hash of one VI member
+(`phase_cycles`) from the digest walker; it SURVIVED the committed case before the VI rows existed
+(a behavioral RED, attributed by a stream-equality probe) and is KILLED by the case after them.
 
 | Row | Kind | Result | Failing test and case |
 | --- | --- | --- | --- |
@@ -122,6 +151,7 @@ classifies each row by the named test and case that fails. Every row of this tab
 | `v26-import-depth-after-proof` | mutant | KILLED | `test_state_import_v26` case `roundtrip` |
 | `v26-import-addr-unchecked` | mutant | KILLED | `test_state_import_v26` case `hostile` |
 | `v26-import-z-products-unchecked` | mutant | KILLED | `test_state_import_v26` case `hostile` |
+| `v26-digest-omit-vi-phase-cycles` | mutant | KILLED | `test_digest_v26` case `v26-completeness` |
 | `control-no-compile` | control | INVALID | does not compile, must be INVALID |
 
 ## Digest sweep, K1 and oracle authority
@@ -145,19 +175,29 @@ classifies each row by the named test and case that fails. Every row of this tab
 
 ## Hosted records
 
-Run 45548987145 is the warm pair of the audited head (workflow `ci`, source `f081d39`, both jobs
-success, Binutils cache hit on both). Run 45550277510 is the cold-cache run: the
-orchestrator deleted the macOS Binutils cache entry, then dispatched the workflow on the same head
-(`workflow_dispatch`); the executor only read the completed run. The recorded rows are F-123 to
-F-125 and the Runs rows of `docs/ci-reviews/LOG.md`; the measurements of the earlier waves are
-F-120 to F-122.
+Run 45650890027 is the warm pair of the pushed head H3 (`85ba477bbf49a8fd1f2ca764c51433764c85bcab`,
+workflow `ci`, event `push`, both jobs success, Binutils cache hit on both, no cache saved or
+changed): the head of this document's re-qualification, whose bound source snapshot is that of the
+qualified commit H2. Run 45548987145 is the warm pair of the earlier audited head (workflow `ci`,
+source `f081d39`, both jobs success, Binutils cache hit on both). Run 45550277510 is the cold-cache
+run of that earlier head: the orchestrator deleted the macOS Binutils cache entry, then dispatched
+the workflow on the same head (`workflow_dispatch`); the executor only read the completed run.
+**The cold run was measured on the earlier audited tree and was not repeated for the gap closure**,
+which changed test source, the mutant driver and qualifier text and added no CTest name; the
+measured hosted cost of the gap closure is test time only: `unit.core.digest.v26-completeness` ran
+3.13 s on macOS and 3.85 s on Linux against 1.67 s and 1.02 s before the VI rows, and the ctest
+wall of 254 names moved by -2 s on macOS and +2 s on Linux against the earlier warm run, inside the
+52 s spread of F-119. The recorded rows are F-123 to F-126 and the Runs rows of
+`docs/ci-reviews/LOG.md`; the measurements of the earlier waves are F-120 to F-122.
 
 | Run | Job | Seconds | Gate step | `ctest` | Binutils cache |
 | --- | --- | ---: | ---: | ---: | --- |
-| 45548987145 (warm) | `gate-macos` | 385 | 337 s | 196 s on 254 names | hit |
-| 45548987145 (warm) | `gate-linux` | 233 | 191 s | 126 s on 254 names | hit |
-| 45550277510 (cold) | `gate-macos` | **731** | 653 s | 265 s on 254 names | **miss on restore, saved after the job** |
-| 45550277510 (cold) | `gate-linux` | 250 | 200 s | not read | hit |
+| 45650890027 (warm, H3, the head of this document) | `gate-macos` | 368 | 315 s | 194 s on 254 names | hit |
+| 45650890027 (warm, H3, the head of this document) | `gate-linux` | 254 | 202 s | 128 s on 254 names | hit |
+| 45548987145 (warm, earlier head) | `gate-macos` | 385 | 337 s | 196 s on 254 names | hit |
+| 45548987145 (warm, earlier head) | `gate-linux` | 233 | 191 s | 126 s on 254 names | hit |
+| 45550277510 (cold, earlier head) | `gate-macos` | **731** | 653 s | 265 s on 254 names | **miss on restore, saved after the job** |
+| 45550277510 (cold, earlier head) | `gate-linux` | 250 | 200 s | not read | hit |
 
 ### Cold run against the 900-second limit
 
@@ -190,6 +230,10 @@ here against 179 and 186 s measured earlier (F-096, F-111), ctest 69 s more than
 same names (a runner-speed difference, 17 s beyond the spread). The macOS cache entry was recreated
 after the run (5.03 MiB); the Linux entry was untouched; a timed-out job saving no cache was not
 exercised. Measured, not projected, is the success criterion of GATE-01, and this measurement meets it.
+It was taken on the earlier audited tree (`f081d39`) and is not repeated for the gap closure, whose
+only hosted cost is the added test time of one existing case (+1.46 s on macOS in run 45650890027);
+a cold figure for H3 would be about 733 s, which is a projection and not a measurement, with a
+margin of about 167 s.
 
 ## Phase 9 carry-in triage
 
@@ -206,17 +250,17 @@ seven live spec docs is section 12 of the same record.
 | Criterion | Evidence |
 | --- | --- |
 | 1. depth fixture on the new ids equal to independent literals, wrong-depth control fails, shipped ids unchanged | claim block 1 (`unit.core.rdp.depth-composite-*`), the mutant rows of the VID-07 group, the K1 tests and the sweep above (1599 lines, 0 differences) |
-| 2. state mid-primitive and mid-scan-out with depth round trips, one version marker, flip-every-member test, build-identity-bound documentation | claim block 2 (`unit.core.state.import-v26-*`, `unit.core.digest.v26-*`); `docs/spec/state-container.md` and `docs/spec/machine-contract.md` state that blobs are build-identity-bound and outside the interface promise |
+| 2. state mid-primitive and mid-scan-out with depth round trips, one version marker, flip-every-member test, build-identity-bound documentation | claim block 2 (`unit.core.state.import-v26-*`, `unit.core.digest.v26-*`); the flip-every-member case `v26-completeness` covers the RDP half (every RDP member, the coverage table, strided TMEM and the hidden depth table) and the VI half (120 rows over the 1,208 bytes of `t64_vi_state`: on the stem id every byte is flipped and exactly 417 of 1,208 are inert, namely 400 bytes of six named exclusions with reasons and 17 padding bytes, 791 member bytes change the stream; a representative sweep on the three save ids and the state 25 stem id; five ids in all), with the mutant `v26-digest-omit-vi-phase-cycles` KILLED (finding W2-03 closed by plan 10-20); `docs/spec/state-container.md` and `docs/spec/machine-contract.md` state that blobs are build-identity-bound and outside the interface promise |
 | 3. VG-01 to VG-05 and the standard-NTSC clock each have independent expectations and a failing mutant | claim blocks 4 to 8 (nine `unit.core.vg.*` names, 14 mutants KILLED) |
 | 4. one composite guest: raw video and audio from a capture run, exact save bytes from a save-out run, same final digest, each output against its own independent expectation with a wrong-value control | claim block 3 (`phase10-composite-s32k` through `runner.composite-two-run`; `controls.real.composite-wrong-rom` and `harness.composite-oracle` as supporting tests) |
-| 5. measured cold-cache hosted `gate-macos` run inside its limit with before and after timings, the 15-minute limit with its scanner rule and the pinned limit relation; adding a manifest row needs no oracle-request rebind | the cold run above (731 s of 900 s), F-111 and F-120 to F-125, F-115 and F-117; the composite rows were appended in one commit with `PINNED_REQUEST_SHA256` unchanged |
+| 5. measured cold-cache hosted `gate-macos` run inside its limit with before and after timings, the 15-minute limit with its scanner rule and the pinned limit relation; adding a manifest row needs no oracle-request rebind | the cold run above (731 s of 900 s, measured on the earlier audited tree and not repeated), F-111 and F-120 to F-126, F-115 and F-117; the composite rows were appended in one commit with `PINNED_REQUEST_SHA256` unchanged |
 
 ## Claims index
 
 | Block | Profile id | Fixture set | Tier | Counting unit | Counted |
 | ---: | --- | --- | --- | --- | --- |
 | 1 | `ntsc-cart-4m-openipl3-rdram-b-t1-si-v2` | `phase10-depth-composite` | unit-tested | registered CTest names | 3 of 3: `unit.core.rdp.depth-composite-accepted`, `-wrong-depth`, `-sidecar` |
-| 2 | `ntsc-cart-4m-openipl3-rdram-b-t1-si-v2` | `phase10-state-26-roundtrip` | unit-tested | registered CTest names | 4 of 4: `unit.core.state.import-v26-roundtrip`, `-hostile`, `unit.core.digest.v26-completeness`, `-strip-differential` |
+| 2 | `ntsc-cart-4m-openipl3-rdram-b-t1-si-v2` | `phase10-state-26-roundtrip` | unit-tested | registered CTest names | 4 of 4: `unit.core.state.import-v26-roundtrip`, `-hostile`, `unit.core.digest.v26-completeness` (RDP and VI members), `-strip-differential` |
 | 3 | `ntsc-cart-4m-openipl3-rdram-b-t1-si-v2-s32k` | `phase10-composite-run` | unit-tested | accepted ROM row | 1 of 1: `phase10-composite-s32k` through `runner.composite-two-run` |
 | 4 | `ntsc-cart-4m-openipl3-rdram-b-t1-rdp-depth-v7` | `phase10-vg-depth` | unit-tested | registered CTest names | 4 of 4: `unit.core.vg.decal-equality`, `primitive-z-saturation`, `delta-ceiling`, `z-exponent-boundaries` |
 | 5 | `ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v8` | `phase10-vg-vi-clock` | unit-tested | registered CTest names | 2 of 2: `unit.core.vg.ntsc-clock`, `rgba5551-alpha-clear` |
@@ -244,7 +288,9 @@ and the Bayer matrix on `rdp-blender-v6` are exercised and not claimed. The four
 descriptor 13 family are exercised by the depth, digest and import names (the import round trips add
 the three save ids on a mid scan-out state with a save write); the claim blocks bind the stem id, and
 the save ids `-e4k`, `-e16k` and `-s32k` are exercised and not claimed, except that block 3 binds
-`-s32k` for the composite ROM.
+`-s32k` for the composite ROM. The representative VI sweep of `unit.core.digest.v26-completeness`
+also runs on the state 25 stem id `ntsc-cart-4m-openipl3-rdram-b-t1-si-v1`, which is exercised and
+not claimed.
 
 ## Recorded exceptions for owner review
 
@@ -278,11 +324,20 @@ earlier claim, tier or authority.
    macOS ctest 265 s cold and 196 s warm on 254 names against 251 s on 224 names (F-111): +14 s
    against F-111, inside the 52 s spread, and +69 s against the warm run on the same names, 17 s
    beyond it. The measured cold `gate-macos` job is 731 s against 900 s (margin 169 s, one
-   sample; the Gate-growth ledger is PIN-IMPACT section 6). The reversal rule did not trigger.
-3. **G5 plan-count exception.** Phase 10 took 19 plans against a guideline of about 10 to 15. The four
+   sample; the Gate-growth ledger is PIN-IMPACT section 6). The reversal rule did not trigger. The
+   gap closure of plans 10-20 and 10-21 added no CTest name (254 still) and no offset; it grew the
+   existing case `unit.core.digest.v26-completeness` by about 0.7 s natively (1.13 s in the final
+   record) and, hosted, by 1.46 s on macOS and 2.83 s on Linux (run 45650890027, F-126), with the
+   ctest wall of the 254 names at 194 s macOS and 128 s Linux; the warm `gate-macos` job of that
+   run is 368 s. The cold run was not repeated.
+3. **G5 plan-count exception.** Phase 10 took 21 plans (the 19 plans of the first pass plus the two
+   gap-closure plans, 10-20 and 10-21) against a guideline of about 10 to 15. The four
    per-wave review plans (10-05, 10-08, 10-13, 10-18) are mandated by the autonomy policy
    ("review per wave in scratch clones") and the qualifier (10-17) is split from the one
-   qualification (10-19); folding them would break the 4-task and about 45-minute plan cap.
+   qualification (10-19); folding them would break the 4-task and about 45-minute plan cap. The two
+   gap-closure plans exist because the verification of the first pass found the VI half of the
+   flip-every-member criterion resting on an uncommitted probe (plan 10-20 commits the rows) and
+   the record of plan 10-19 then no longer bound the tree (plan 10-21 re-qualifies).
 4. **Two accepted wave 3 deviations (plan 10-15, reviewed in 10-18 as W3-01 and W3-02).** (a) One
    literal of `runner/tests/test_state_runner.c`, a file of the Phase 9 inventoried binary, moved from
    the `t64.state-container.v2` string to the v3 string, because v2 joined the closed set of format
@@ -305,21 +360,38 @@ earlier claim, tier or authority.
    manifest hash became 39 per-row pins, the 13 whole-file hashes of the other bound files are
    unchanged, `local_decision` stays blocked and no oracle, rights or publication authority was
    granted. The script has not changed since; every later manifest row was appended without a rebind.
-7. **Native qualification retries.** Three failed attempts (a supervisor wall backstop in eight Phase 8
-   and 9 tests under unrelated host load) preceded the passing attempt; all four are listed above
-   with their record directories. No limit was widened and no source changed. Whether a slow local
-   host should be able to refuse a native qualification (a test hygiene question for Phase 11) is
-   left for review; the evidence does not depend on it because the passing record verifies and the
-   five hosted runs of Phase 10 (F-120 to F-124) passed.
+7. **Native qualification retries.** Three failed attempts of the superseded plan 10-19 qualification
+   (a supervisor wall backstop in eight Phase 8 and 9 tests under unrelated host load) preceded its
+   passing attempt; all four are listed above with their record directories. No limit was widened
+   and no source changed. The re-qualification of plan 10-21 (item 9) passed on its first attempt
+   after a wait for the host load to fall to 8 or below. Whether a slow local host should be able to
+   refuse a native qualification (a test hygiene question for Phase 11) is left for review; the
+   evidence does not depend on it because the passing record verifies and the hosted runs of Phase
+   10 passed.
 8. **Deferred carry-ins at the G3 limit and the Phase 9 deferrals.** Five items are carried, the limit
    of five warning-level gaps of guardrail G3: W2-01 (the Z product bound `state_z_products_bounded` and
    its parity case are not pinned by a committed boundary test), W2-02 (`t64_has_si_v25_profile` and
    `t64_has_si_v26_profile` are not tokens of `scripts/list-membership-sites.py`, six site rows are
    missing from the generated list), DEF-W1-01 (three sibling copies of the perspective floor are
    not pinned behaviorally), W1-03 (one sentence of the `ceil` rule in `docs/spec/vi.md`) and D-10-17-01
-   (the cold-boot tests stop working after 99 gate runs in one build tree, counters at 9 and 9).
-   They are listed in `ROADMAP.md` for the Phase 11 freeze-candidate review together with the Phase 9
+   (the cold-boot tests stop working after 99 gate runs in one build tree; the counters stood at 10
+   and 10 before the re-qualification, cap 99). W2-03 (the VI state had no committed completeness
+   rows) is **closed, not carried**: plan 10-20 committed them and the record above ran them. The five
+   items are listed in `ROADMAP.md` for the Phase 11 freeze-candidate review together with the Phase 9
    deferrals T1, T2 and T4 to T8 above. VID-04 stays deferred and unclaimed.
+9. **Re-qualification after the gap closure (plans 10-20 and 10-21).** The first qualification (plan
+   10-19) was taken before the VI half of the flip-every-member criterion was a committed test, so
+   plan 10-20 changed a bound test source, the mutant driver and the qualifier text, and plan 10-21
+   qualified the resulting tree again: an independent review of the 10-20 wave in a detached clone
+   first (gate 254 of 254, the sanitizer run of the case, the full mutant run), then the new
+   Qualification base, then one native qualification (record `20261125T155456703622Z-1fc0b1da`,
+   passed on the first attempt, `--verify` exit 0), then the push of the verified head and its warm
+   hosted pair. The cost of this exception is the 21-plan count of item 3, two more bound inputs
+   in the snapshot (62 instead of 60) and one more mutant row; the plan 10-19 record, its four
+   attempts and the whole cold-cache measurement of the earlier tree are kept, not rewritten. No
+   limit, backstop or production source was changed by the gap closure, and the cold-cache hosted
+   run (731 s of 900 s, F-124) was not repeated: it was measured on the earlier audited tree and the
+   gap closure added test time only.
 
 ## Limitations and preserved stops
 
@@ -335,7 +407,7 @@ earlier claim, tier or authority.
   tests and an independent decoder (supporting tests, not counted).
 - Hosted time: the measured cold `gate-macos` job is 731 s of 900 s on one sample; run-to-run spread
   on identical source is up to 52 s (F-119). Native qualification costs about 7 minutes on a quiet
-  host and just over half of that is the sanitizer selection and the mutant driver (238 of 419 s); a loaded local host
+  host and just over half of that is the sanitizer selection and the mutant driver (230 of 411 s); a loaded local host
   can refuse it at the supervised-run wall backstops of closed Phase 8 and 9 tests.
 - Raw state, save, replay, capture and log files stay private and are never uploaded; this document
   holds digests, sizes, counts and public run numbers only.
@@ -351,8 +423,8 @@ The private records are untracked build outputs kept on the machine that ran the
 check below needs them and the public repository checkout at the qualified head.
 
 ```sh
-git switch --detach b9d957c391b128622912481a99ffe24e6c84e609
-python3 -B scripts/qualify-phase10.py --verify build/gate/10-qualification-private/20261125T134440416529Z-b9d957c3/record.json
+git switch --detach 1fc0b1da70acf6c9b0f3baf0b46abf9d5a69468f
+python3 -B scripts/qualify-phase10.py --verify build/gate/10-qualification-private/20261125T155456703622Z-1fc0b1da/record.json
 git switch main
 ```
 
@@ -361,4 +433,6 @@ statement. At a later head it is expected to refuse, because the evidence and cl
 newer bound inputs than the Qualification base (this was read from the qualifier and not re-run). The claim file check is `sh scripts/check-claims.sh --files docs/claims/phase10.md`
 (`claims: files=1 blocks=8 errors=0`). The closed Phase 9 records are unchanged:
 `git diff --quiet 4ac633e880e0c26005cb03092e8d8485e721034c HEAD -- docs/claims/phase09.md docs/evidence/phase09-qualification.md`
-exits 0. The commits after the qualified head change documents only.
+exits 0. The commits after the pushed head H3 change documents only. The superseded record of
+plan 10-19 (`20261125T134440416529Z-b9d957c3`, head `b9d957c391b128622912481a99ffe24e6c84e609`)
+stays under the same private directory and no longer verifies against this tree, by design.
