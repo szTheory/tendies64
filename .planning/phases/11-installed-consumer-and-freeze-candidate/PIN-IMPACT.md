@@ -666,7 +666,11 @@ milestone is `build/gate/11-11-task3/red-selftest.txt` (the stubbed rules fail 7
 `red-real-tree.txt` (23 findings on the unrelabeled tree); after the relabel `repo.stale-freeze-text` and its selftest pass,
 `git diff --quiet f9124ae9fce1 -- docs/claims docs/evidence fixtures/state/decode_container.py` exits 0 and the ADR-0006
 amendment holds the three allowlist rows. `repo.si-membership-sites` and `harness.phase09-qualification` pass after the
-W2-02 regeneration. Evidence tier: unit-tested, authored scope; a software-interface claim only.
+W2-02 regeneration. The full `sh scripts/preflight-phase11.sh` at the PIN-IMPACT commit (clean tree) reports PASS in 80 s: the ctest counts
+(20 rows, 0 mismatches; 19 tests carry `phase11`), the guards step (`check-api-init.py` and `check-stale-freeze-text.sh` passed), the 231-unit
+`linux-compile` with the act image gcc 13.3.0 (it compiles the renamed core and the include of the prefix header on Linux; it does not
+archive or link, so `repo.abi-prefix` on ELF is first exercised by the hosted run) and the post-gate replay.
+Evidence tier: unit-tested, authored scope; a software-interface claim only.
 
 ### 11-05 to 11-10 codemod
 
