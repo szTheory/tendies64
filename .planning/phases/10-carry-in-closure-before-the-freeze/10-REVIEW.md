@@ -568,4 +568,71 @@ found.
 | W2-06 | info | `docs/spec/state-container.md:150-195`, `core/tests/test_state_export_v26.c:94` | the idle sizes 10,545,971, 10,546,563, 10,548,099 and 10,578,819 are derived by the test as the measured state 25 size plus 2,097,176; the review recomputed all four from the documented section lengths and the layout (check (d)), so the literals do not rest on the measurement alone | none |
 | W2-07 | info | `.planning/phases/10-carry-in-closure-before-the-freeze/PIN-IMPACT.md` section 9 | T-10-49 (the 10-03 recorded exception: the ten closed Phase 9 claim blocks compare the pinned Phase 9 manifest digest and a per-row view, not the live manifest file) is unchanged: no byte of `scripts/tests/test_phase09_qualification.py`, `docs/claims/phase09.md`, `docs/evidence/phase09-qualification.md`, `fixtures/manifest.json` or the authority checker and record changed since the Wave 0 head, `harness.phase09-qualification` passes in the scratch gate, and plan 10-19 requires the section "Recorded exceptions for owner review" and a repeat in its summary | recorded exception stands and stays flagged; it is not an owner approval of the comparator change |
 
+### Task 3: preflight, push and the hosted pair
 
+Preflight on the clean committed tree (`sh scripts/preflight-phase10.sh`, head `f57b019`): `[preflight] PASS`,
+total 100 s (oracle-authority 0 s; ctest-counts 40 regex rows, 0 mismatches, and 24 tests carry the label
+`phase10` as the `PHASE10_TESTS` block says; host-load 0 s with the WARN at load 11.70; head-ci 1 s, `origin/main`
+`a0c0a38` completed with success; timeout-audit 0 s, 101 registered TIMEOUTs, 0 too low, 0 unmeasured, lowest
+ratio 2.9 on `unit.core.state.import` against its 210 s `COST`; pii 1 s with the tree (1,291 files) and the
+33-commit range at 0 findings; linux-compile 56 s with 227 units under the act image cc 13.3.0, because C changed
+since the preflight base `a0c0a38` (first path `core/CMakeLists.txt`); post-gate-replay 41 s with 11 `ci.yml` steps
+replayed and the outputs removed). No sanitizer or timeout finding.
+
+Push (AUTONOMY section 4 routine push to the public repository, no force, no tag): the pinned refspec
+`f57b019d1c60c96bd11b6cab8cad4db287a291d9:refs/heads/main` moved `origin/main` from `a0c0a38` to `f57b019`
+(fast-forward, 33 commits: 4 `docs(10-08)`, 3 `docs(10-09)`, 3 `docs(10-10)`, 3 `docs(10-11)`, 3 `docs(10-12)`, 2
+`docs(10-13)`, 2 `feat(10-09)`, 1 `feat(10-11)`, 1 `feat(10-12)`, 2 `test(10-09)`, 4 `test(10-10)`, 1 `test(10-11)`
+and 4 `test(10-12)`). Before the push: 35 changed files, 10 under `.planning/`, 8 under `docs/` and 17 others (the
+five production sources, `core/CMakeLists.txt`, the six test sources, `fixtures/state/decode_container_v2.py`,
+`scripts/check-test-inventory.sh`, `scripts/p10-mutants.py`, `scripts/preflight-phase10-regexes.txt` and
+`tools/digest-sweep/t64_digest_sweep.c`), all text, no binary and no ROM, disc, save, audio or image extension in
+the range, no workstation path, e-mail address (other than the public no-reply commit identity, the only author),
+key or token pattern in any added line, the PII scan clean on the tree and on the range, and no protected
+material (the new tests are authored, their literals are hand derivations, the decoder is authored stdlib code, no
+oracle or ROM content).
+
+Hosted pair: run `45530265365` (`ci.yml`, event `push`, head `f57b019`), status completed, conclusion **success** on
+both jobs, Binutils cache hit on both with the key of F-111, F-120 and F-121 (`69d0bfd4...`), no cache deleted or
+changed. The run was found by `headSha` equal to `git rev-parse origin/main` and waited for with one bounded `gh
+run watch`.
+
+| Measure | gate-macos | gate-linux | Wave 1 reference (F-121, run 45321391540) |
+|---------|------------|------------|-------------------------------------------|
+| queue | 4 s | 3 s | 2 s, 3 s |
+| run | 496 s | 249 s | 326 s, 230 s (F-120: 346 s, 229 s) |
+| Gate step | 424 s | 198 s | 288 s, 181 s |
+| ctest (`Total Test time`), 248 of 248 | 260 s | 125 s | 187 s, 115 s (236 names) |
+| sh-n, lint-selftest, fixture-qualification, configure | 0, 10, 3, 3 s | 0, 18, 1, 1 s | lint-selftest 7 s (macOS, F-121), 15 s (Linux, F-120) |
+| build | 34 s | 22 s | 17 s (macOS, F-121), 20 s (Linux, F-120) |
+| boot-evidence-selftest | 39 s | 9 s | 19 s (macOS, F-121), 9 s (Linux, F-120) |
+| test-inventory-selftest | 49 s | 10 s | 38 s, 8 s |
+| core-lint | 23 s | 10 s | 15 s (macOS, F-121), 9 s (Linux, F-120) |
+| audio qualification records | 36 s | 27 s | 21 s, 28 s |
+| `unit.core.state.import` start position and seconds | 2nd of 248, 216.18 s | 2nd of 248, 103.59 s | 2nd of 236, 172.55 s and 103.11 s |
+| the other three COST tests (start position, seconds) | state-field-use-audit 3rd 72.80 s, rsp-no-hle 4th 45.96 s, phase09-qualification 5th 28.39 s | 3rd 37.85 s, 4th 41.25 s, 5th 9.45 s | 3rd 60.91 s, 4th 43.49 s, 5th 26.83 s (macOS) |
+| the 12 Wave 2 names, summed | 53.91 s (import-v26-hostile 31.42, roundtrip 9.80, export-v26 6.39, export-v26-bounds 4.25, digest.v26-completeness 1.67, the other seven 0.02 to 0.11) | 29.47 s (16.62, 4.63, 3.98, 2.63, 1.02, the other seven 0.02 to 0.34) | not present |
+
+Reading (F-119 noise band, F-122): this is the slowest warm gate-macos sample so far (496 s; the earlier seven
+were 326 to 487 s) and its Gate step is 136 s above the Wave 1 sample, more than the 52 s spread, so the plan's
+rule adds a finding row (F-122). The decomposition points at the runner, not at the 12 names: the steps that no
+Wave 2 edit touches are slow too (lint-selftest 10 against 7 s, build 34 against 17 to 19 s,
+boot-evidence-selftest 39 against 19 to 21 s, core-lint 23 against 15 to 19 s) and so is the critical-path test
+whose v25 flow Wave 2 did not change (`unit.core.state.import` 216.18 s against 172.55 s). On Linux the run is 19 s
+above Wave 1 and the ctest wall 10 s above it, inside the spread. The 12 names add 53.91 s of test seconds on macOS
+and 29.47 s on Linux; spread over the runner's cores that is the upper bound of their share of the 73 s ctest
+delta, so the two effects cannot be separated from one sample. Margin to the 900 s limit: 404 s warm; the cold
+projection with the 186 s Binutils build delta is 682 s (margin 218 s), against 673 s (F-111). That is thinner
+than the earlier rows, so plan 10-17 should re-read the measured total before the cold run of plan 10-19, and the
+reversal rule of the G4 exception stays the stop-loss. Recorded in `docs/ci-reviews/LOG.md`: the Runs row for the
+run and finding F-122. The Wave 2 row of the PIN-IMPACT.md "Gate-growth ledger" is added in the same commit. The
+cold measurement stays plan 10-19 and no hosted cache was deleted here.
+
+Plan 10-13 reviewed 10-09 to 10-12 without a blocking finding: the Wave 2 head passes the full gate in isolation
+(248 of 248) and all 24 Phase 10 names under ASan, the digest sweep reports 0 differences over the 21 shipped ids
+from both the Wave 0 and the Wave 2 base (including the four v25 export lines), the RDP state has 100 members and
+every one has a row, the VI state and the two tables are complete, the idle sizes are re-derived by hand, exactly
+one tuple, one domain and one container version value are new, the version pairing refuses every wrong pair, the
+importer has no apply-before-validate path, 25 mutants are KILLED with both controls as expected, D10 is accepted
+(with the pin-strength warning W2-01) and the pushed head's hosted pair is green. Wave 3 (plans 10-14 to 10-18)
+may start at the Wave 3 base recorded in PIN-IMPACT.md "Wave bases".
