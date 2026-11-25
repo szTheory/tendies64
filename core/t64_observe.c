@@ -84,6 +84,80 @@ t64_status t64_machine_output_drain(t64_machine *machine, uint8_t *bytes_out,
   return T64_STATUS_OK;
 }
 
+/* Ring occupancy as the status reports it: a count that does not fit the
+ * ring capacity cannot be a real queue, so the free capacity floors at 0. */
+static uint32_t ring_free(size_t queued, size_t capacity) {
+  return queued < capacity ? (uint32_t)(capacity - queued) : 0u;
+}
+
+/*
+ * Pacing information of the output rings (plan 11-04, DR-06). Read-only:
+ * every value is computed into a local record first, and the caller struct is
+ * written only after every check passed, up to the smaller of the caller's
+ * struct_size and the known size, never including struct_size itself, so a
+ * caller compiled against a larger later layout keeps its tail untouched and
+ * a refusal leaves the struct byte for byte as it was.
+ */
+t64_status t64_machine_output_status(const t64_machine *machine,
+                                     t64_output_status *status_out) {
+  t64_output_status status;
+  t64_address_range status_range;
+  uint32_t caller_size;
+  size_t copy_size;
+
+  T64_ENTRY_GUARD(machine);
+  if (status_out == NULL) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  caller_size = status_out->struct_size;
+  if (caller_size < T64_OUTPUT_STATUS_V1_SIZE) {
+    return T64_STATUS_STRUCT_TOO_SMALL;
+  }
+  copy_size = caller_size < sizeof status ? (size_t)caller_size : sizeof status;
+  if (!t64_internal_make_range(status_out, copy_size, &status_range) ||
+      !observation_span_is_disjoint(machine, status_range)) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+
+  (void)memset(&status, 0, sizeof status);
+  status.struct_size = caller_size;
+  status.video_free = (uint32_t)T64_VIDEO_QUEUE_CAPACITY;
+  status.audio_free = (uint32_t)T64_AUDIO_QUEUE_CAPACITY;
+  if (machine->has_image) {
+    const t64_vi_state *vi = &machine->vi;
+    const t64_ai_state *ai = &machine->ai;
+
+    if (vi->packet_count <= T64_VIDEO_QUEUE_CAPACITY &&
+        vi->packet_head < T64_VIDEO_QUEUE_CAPACITY) {
+      status.video_queued = (uint32_t)vi->packet_count;
+      status.video_free = ring_free(vi->packet_count, T64_VIDEO_QUEUE_CAPACITY);
+      if (vi->packet_count != 0u) {
+        status.video_next_bytes = (uint64_t)vi->packet_lengths[vi->packet_head];
+      }
+    }
+    if (ai->packet_count <= T64_AUDIO_QUEUE_CAPACITY &&
+        ai->packet_head < T64_AUDIO_QUEUE_CAPACITY) {
+      status.audio_queued = (uint32_t)ai->packet_count;
+      status.audio_free = ring_free(ai->packet_count, T64_AUDIO_QUEUE_CAPACITY);
+      if (ai->packet_count != 0u) {
+        status.audio_next_bytes = (uint64_t)ai->packet_lengths[ai->packet_head];
+      }
+    }
+    if (machine->boot.prepared &&
+        machine->output.policy_version == T64_ISVIEWER_POLICY_VERSION &&
+        machine->output.captured_bytes <= T64_ISVIEWER_CAPTURE_BYTES &&
+        machine->output_drain_cursor <= machine->output.captured_bytes) {
+      status.text_pending_bytes = (uint64_t)machine->output.captured_bytes -
+                                  (uint64_t)machine->output_drain_cursor;
+    }
+  }
+  /* struct_size is the caller's: copy the members after it. */
+  (void)memcpy((uint8_t *)status_out + sizeof status.struct_size,
+               (const uint8_t *)&status + sizeof status.struct_size,
+               copy_size - sizeof status.struct_size);
+  return T64_STATUS_OK;
+}
+
 t64_status t64_input_event_handler(t64_machine *machine,
                                    const t64_event *event) {
   if (machine == NULL || event == NULL ||

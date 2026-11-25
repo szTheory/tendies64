@@ -104,6 +104,8 @@ static uint8_t hello_rom[MAX_FIXTURE_BYTES];
 static size_t hello_length;
 static uint8_t fill_rom[MAX_FIXTURE_BYTES];
 static size_t fill_length;
+static uint8_t audio_rom[MAX_FIXTURE_BYTES];
+static size_t audio_length;
 
 static bool read_fixture(const char *name, uint8_t *bytes, size_t capacity,
                          size_t *length_out) {
@@ -556,6 +558,7 @@ typedef struct {
   size_t trace_count;
   uint64_t trace_dropped;
   bool trace_saturated;
+  t64_output_status output_status;
 } scratch;
 
 enum {
@@ -586,6 +589,7 @@ enum {
   E_TRACE_DRAIN,
   E_RESET,
   E_UNLOAD,
+  E_OUTPUT_STATUS,
   E_IS_POISONED,
   E_COUNT
 };
@@ -635,6 +639,9 @@ static const table_row table[E_COUNT] = {
     {E_TRACE_DRAIN, "trace_drain", T64_STATUS_OK, false},
     {E_RESET, "reset", T64_STATUS_NOT_READY, true},
     {E_UNLOAD, "unload", T64_STATUS_NOT_READY, true},
+    /* Image-independent: the rings are empty and the text is 0 bytes, so the
+     * answer is OK with zero counts (checked by the output-status case). */
+    {E_OUTPUT_STATUS, "output_status", T64_STATUS_OK, false},
     {E_IS_POISONED, "is_poisoned", T64_STATUS_OK, false},
 };
 
@@ -716,6 +723,9 @@ static t64_status call_table_entry(unsigned entry, t64_machine *machine,
     return t64_machine_reset(machine);
   case E_UNLOAD:
     return t64_machine_unload(machine);
+  case E_OUTPUT_STATUS:
+    s->output_status.struct_size = T64_OUTPUT_STATUS_V1_SIZE;
+    return t64_machine_output_status(machine, &s->output_status);
   case E_IS_POISONED: {
     uint32_t poisoned = 99u;
     const t64_status status = t64_machine_is_poisoned(machine, &poisoned);
@@ -800,15 +810,259 @@ static void case_not_ready_table(void) {
   table_for_profile("ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-filter-v9-ai-v1");
 }
 
+/* ---- output status ------------------------------------------------------ */
+
+/* The ring capacity, from the public header: raw video and audio are each "a
+ * bounded, lossless, two-packet queue". */
+#define RING_CAPACITY 2u
+
+static bool read_status(const t64_machine *machine, t64_output_status *out) {
+  t64_output_status status = T64_OUTPUT_STATUS_INIT;
+  const t64_status result = t64_machine_output_status(machine, &status);
+
+  T64_CHECK_INT(result, T64_STATUS_OK);
+  /* The callee never writes struct_size and writes the pad member as 0. */
+  T64_CHECK_INT(status.struct_size, T64_OUTPUT_STATUS_V1_SIZE);
+  T64_CHECK_INT(status.reserved0, 0);
+  *out = status;
+  return result == T64_STATUS_OK;
+}
+
+/* The status agrees with the oldest packet the info and copy calls report, and
+ * the two rings account for their full capacity. */
+static void check_status_against_rings(t64_machine *machine,
+                                       const t64_output_status *status) {
+  t64_video_packet_info video;
+  t64_audio_packet_info audio;
+  size_t required = 0u;
+
+  T64_CHECK_INT(status->video_queued + status->video_free, RING_CAPACITY);
+  T64_CHECK_INT(status->audio_queued + status->audio_free, RING_CAPACITY);
+  (void)memset(&video, 0, sizeof video);
+  (void)memset(&audio, 0, sizeof audio);
+  if (status->video_queued != 0u) {
+    T64_CHECK_INT(t64_video_info(machine, &video), T64_STATUS_OK);
+    T64_CHECK_INT(status->video_next_bytes, video.packet_bytes);
+    T64_CHECK_INT(t64_video_copy(machine, NULL, 0u, &required),
+                  T64_STATUS_BUFFER_TOO_SMALL);
+    T64_CHECK_INT(status->video_next_bytes, required);
+  } else {
+    T64_CHECK_INT(t64_video_info(machine, &video), T64_STATUS_NOT_READY);
+    T64_CHECK_INT(status->video_next_bytes, 0);
+  }
+  if (status->audio_queued != 0u) {
+    T64_CHECK_INT(t64_audio_info(machine, &audio), T64_STATUS_OK);
+    T64_CHECK_INT(status->audio_next_bytes, audio.byte_length);
+    required = 0u;
+    T64_CHECK_INT(t64_audio_copy(machine, NULL, 0u, &required),
+                  T64_STATUS_BUFFER_TOO_SMALL);
+    T64_CHECK_INT(status->audio_next_bytes, required);
+  } else {
+    T64_CHECK_INT(t64_audio_info(machine, &audio), T64_STATUS_NOT_READY);
+    T64_CHECK_INT(status->audio_next_bytes, 0);
+  }
+}
+
+static void status_empty(const char *profile_id, const uint8_t *image,
+                         size_t image_length) {
+  instance item;
+  t64_output_status status;
+  uint8_t before[T64_DIGEST_SIZE];
+  uint8_t after[T64_DIGEST_SIZE];
+
+  if (!make_instance(&item, profile_id, image, image_length)) return;
+  if (image != NULL) T64_CHECK(digest_of(item.machine, before));
+  if (read_status(item.machine, &status)) {
+    T64_CHECK_INT(status.video_queued, 0);
+    T64_CHECK_INT(status.video_free, RING_CAPACITY);
+    T64_CHECK_INT(status.video_next_bytes, 0);
+    T64_CHECK_INT(status.audio_queued, 0);
+    T64_CHECK_INT(status.audio_free, RING_CAPACITY);
+    T64_CHECK_INT(status.audio_next_bytes, 0);
+    T64_CHECK_INT(status.text_pending_bytes, 0);
+  }
+  if (image != NULL) {
+    T64_CHECK(digest_of(item.machine, after));
+    T64_CHECK(same_digest(before, after));
+  }
+  destroy_and_check(&item);
+}
+
+/* The ring counts follow a real run: the audio fixture drives both rings of
+ * the VI and AI profile. */
+static void status_tracks_rings(void) {
+  instance item;
+  t64_output_status status;
+  t64_output_status again;
+  uint8_t before[T64_DIGEST_SIZE];
+  uint8_t after[T64_DIGEST_SIZE];
+  uint8_t bytes[320u * 240u * 4u];
+  size_t length = 0u;
+  unsigned most_video = 0u;
+  unsigned most_audio = 0u;
+  unsigned stride;
+  uint64_t tick = 0u;
+
+  if (!make_instance(&item,
+                     "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-filter-v9-ai-v1",
+                     audio_rom, audio_length)) {
+    return;
+  }
+  for (stride = 0u; stride < 24u; stride++) {
+    tick += UINT64_C(100000);
+    (void)advance_to(item.machine, tick);
+    T64_CHECK(digest_of(item.machine, before));
+    if (!read_status(item.machine, &status)) break;
+    check_status_against_rings(item.machine, &status);
+    /* The call changed nothing, and a second call agrees with the first. */
+    T64_CHECK(digest_of(item.machine, after));
+    T64_CHECK(same_digest(before, after));
+    T64_CHECK(read_status(item.machine, &again));
+    T64_CHECK(memcmp(&status, &again, sizeof status) == 0);
+    if (status.video_queued > most_video) most_video = status.video_queued;
+    if (status.audio_queued > most_audio) most_audio = status.audio_queued;
+    if (status.video_queued != 0u) {
+      /* One copy moves the video ring by exactly one packet. */
+      const unsigned queued = status.video_queued;
+      const uint64_t next = status.video_next_bytes;
+
+      T64_CHECK_INT(t64_video_copy(item.machine, bytes, sizeof bytes, &length),
+                    T64_STATUS_OK);
+      T64_CHECK_INT(length, next);
+      if (read_status(item.machine, &again)) {
+        T64_CHECK_INT(again.video_queued, queued - 1u);
+        T64_CHECK_INT(again.video_free, status.video_free + 1u);
+        T64_CHECK_INT(again.audio_queued, status.audio_queued);
+        check_status_against_rings(item.machine, &again);
+      }
+    }
+    if (status.audio_queued != 0u) {
+      const unsigned queued = status.audio_queued;
+      const uint64_t next = status.audio_next_bytes;
+
+      T64_CHECK_INT(t64_audio_copy(item.machine, bytes, sizeof bytes, &length),
+                    T64_STATUS_OK);
+      T64_CHECK_INT(length, next);
+      if (read_status(item.machine, &again)) {
+        T64_CHECK_INT(again.audio_queued, queued - 1u);
+        T64_CHECK_INT(again.audio_free, status.audio_free + 1u);
+        check_status_against_rings(item.machine, &again);
+      }
+    }
+  }
+  /* The run really filled both rings (otherwise the counts above were all 0). */
+  T64_CHECK(most_video >= 1u);
+  T64_CHECK(most_audio >= 1u);
+  destroy_and_check(&item);
+}
+
+/* ISViewer: the pending text counts down to 0 on a drain. */
+static void status_text_pending(void) {
+  instance item;
+  t64_output_status status;
+  uint8_t drained[HELLO_BYTES + 2u];
+  t64_output_drain_result drain;
+
+  if (!make_instance(&item, HELLO_PROFILE, hello_rom, hello_length)) return;
+  if (read_status(item.machine, &status)) {
+    T64_CHECK_INT(status.text_pending_bytes, 0);
+  }
+  T64_CHECK_INT(advance_to(item.machine, HELLO_BOUND_TICK),
+                T64_STOP_REASON_GUEST_COMPLETION);
+  if (read_status(item.machine, &status)) {
+    T64_CHECK_INT(status.text_pending_bytes, HELLO_BYTES);
+  }
+  (void)memset(&drain, 0, sizeof drain);
+  T64_CHECK_INT(
+      t64_machine_output_drain(item.machine, drained, sizeof drained, &drain),
+      T64_STATUS_OK);
+  T64_CHECK_INT(drain.copied_bytes, HELLO_BYTES);
+  if (read_status(item.machine, &status)) {
+    T64_CHECK_INT(status.text_pending_bytes, 0);
+  }
+  destroy_and_check(&item);
+}
+
+/* Refusals: a struct_size below the v1 size, a NULL output and a NULL machine
+ * leave the caller struct byte for byte as it was and the digest unchanged;
+ * a larger caller struct is written only up to the known size. */
+static void status_refused(void) {
+  instance item;
+  t64_output_status status;
+  t64_output_status sentinel;
+  struct {
+    t64_output_status known;
+    uint8_t tail[24];
+  } larger;
+  uint8_t before[T64_DIGEST_SIZE];
+  uint8_t after[T64_DIGEST_SIZE];
+  static const uint32_t sizes[] = {0u, 1u, 4u, 47u};
+  size_t index;
+
+  T64_CHECK_INT(T64_OUTPUT_STATUS_V1_SIZE, sizeof(t64_output_status));
+  T64_CHECK(offsetof(t64_output_status, struct_size) == 0u);
+  if (!make_instance(&item, VI_PROFILE, fill_rom, fill_length)) return;
+  T64_CHECK(digest_of(item.machine, before));
+
+  for (index = 0u; index < sizeof sizes / sizeof sizes[0]; index++) {
+    (void)memset(&status, 0xa5, sizeof status);
+    status.struct_size = sizes[index];
+    (void)memcpy(&sentinel, &status, sizeof sentinel);
+    T64_CHECK_INT(t64_machine_output_status(item.machine, &status),
+                  T64_STATUS_STRUCT_TOO_SMALL);
+    T64_CHECK(memcmp(&status, &sentinel, sizeof status) == 0);
+  }
+  (void)memset(&status, 0xa5, sizeof status);
+  status.struct_size = T64_OUTPUT_STATUS_V1_SIZE;
+  (void)memcpy(&sentinel, &status, sizeof sentinel);
+  T64_CHECK_INT(t64_machine_output_status(item.machine, NULL),
+                T64_STATUS_INVALID_ARGUMENT);
+  T64_CHECK_INT(t64_machine_output_status(NULL, &status),
+                T64_STATUS_INVALID_ARGUMENT);
+  T64_CHECK(memcmp(&status, &sentinel, sizeof status) == 0);
+
+  /* A caller struct larger than v1: the members it knows are filled, the
+   * struct_size and the bytes past the known size are not touched. */
+  (void)memset(&larger, 0xa5, sizeof larger);
+  larger.known.struct_size = (uint32_t)sizeof larger;
+  T64_CHECK_INT(t64_machine_output_status(item.machine, &larger.known),
+                T64_STATUS_OK);
+  T64_CHECK_INT(larger.known.struct_size, sizeof larger);
+  T64_CHECK_INT(larger.known.video_free, RING_CAPACITY);
+  T64_CHECK_INT(larger.known.audio_free, RING_CAPACITY);
+  for (index = 0u; index < sizeof larger.tail; index++) {
+    T64_CHECK_INT(larger.tail[index], 0xa5);
+  }
+
+  /* A caller that knows only the first 48 bytes of a hypothetical larger v2
+   * struct sees the same v1 answer; a caller struct of exactly v1 size is the
+   * one the other cases use. None of the above changed the machine. */
+  T64_CHECK(digest_of(item.machine, after));
+  T64_CHECK(same_digest(before, after));
+  destroy_and_check(&item);
+}
+
+static void case_output_status(void) {
+  status_empty(HELLO_PROFILE, NULL, 0u);
+  status_empty(HELLO_PROFILE, hello_rom, hello_length);
+  status_empty(VI_PROFILE, fill_rom, fill_length);
+  status_tracks_rings();
+  status_text_pending();
+  status_refused();
+}
+
 static bool load_fixtures(void) {
   return read_fixture("hello.z64", hello_rom, sizeof hello_rom,
                       &hello_length) &&
          read_fixture("rdp-fill.z64", fill_rom, sizeof fill_rom,
-                      &fill_length);
+                      &fill_length) &&
+         read_fixture("audio-pcm.z64", audio_rom, sizeof audio_rom,
+                      &audio_length);
 }
 
 int main(int argc, char **argv) {
-  static const char *const cases[] = {"reset", "unload", "not-ready-table"};
+  static const char *const cases[] = {"reset", "unload", "not-ready-table",
+                                      "output-status"};
   const char *selected = NULL;
   size_t index;
   bool ran = false;
@@ -841,6 +1095,10 @@ int main(int argc, char **argv) {
     case_not_ready_table();
     ran = true;
   }
+  if (selected == NULL || strcmp(selected, "output-status") == 0) {
+    case_output_status();
+    ran = true;
+  }
   if (!ran) {
     fprintf(stderr, "unknown case: %s\n", selected);
     return 2;
@@ -853,6 +1111,9 @@ int main(int argc, char **argv) {
   }
   if (strcmp(selected, "not-ready-table") == 0) {
     return T64_TEST_FINISH("unit.core.api.not-ready-table");
+  }
+  if (strcmp(selected, "output-status") == 0) {
+    return T64_TEST_FINISH("unit.core.api.output-status");
   }
   return T64_TEST_FINISH("unit.core.api.reset");
 }

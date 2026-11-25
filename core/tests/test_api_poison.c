@@ -17,7 +17,7 @@
  *                    forty refused calls of distinct shapes (NULL pointers,
  *                    bad sizes, reversed limits, past ticks, wrong save kinds,
  *                    hostile state blobs) leave the poison query at 0
- *   reentrant        a host allocator callback that calls all 23 guarded
+ *   reentrant        a host allocator callback that calls all 26 guarded
  *                    entries on the same instance, during admission (the ROM
  *                    candidate allocation of core/t64_rom.c included),
  *                    replacement and destruction, gets T64_STATUS_REENTRANT
@@ -47,7 +47,7 @@
 #define SAVE_PROFILE_ID SI_STEM "-e4k"
 #define LEGACY_PROFILE_ID \
   "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-filter-v9-ai-v1"
-#define ENTRY_COUNT 25u
+#define ENTRY_COUNT 26u
 #define MAX_LIVE 16u
 #define MIN_REFUSED_SHAPES 40u
 
@@ -59,7 +59,7 @@ typedef struct {
   size_t unknown_releases;
   void *live[MAX_LIVE];
   size_t live_count;
-  /* Reentrancy hook: while hook_machine is set, every callback calls all 23
+  /* Reentrancy hook: while hook_machine is set, every callback calls all 26
    * guarded entries on that instance and records what came back. */
   t64_machine *hook_machine;
   bool in_hook;
@@ -208,7 +208,8 @@ static bool is_poisoned(const t64_machine *machine) {
          poisoned == 1u;
 }
 
-/* Every out parameter of the 23 machine-taking entries, one scratch record.
+/* Every out parameter of the 26 machine-taking entries (the 23 of plan
+ * 11-03 plus reset, unload and output_status of plan 11-04), one scratch record.
  * The record is filled with 0xA5 before a call and compared byte for byte
  * afterwards (padding included), so any write by a guarded refusal fails. */
 typedef struct {
@@ -238,6 +239,7 @@ typedef struct {
   size_t trace_count;
   uint64_t trace_dropped;
   bool trace_saturated;
+  t64_output_status output_status;
 } scratch;
 
 static const char *const entry_names[ENTRY_COUNT] = {
@@ -247,7 +249,7 @@ static const char *const entry_names[ENTRY_COUNT] = {
     "video_copy",    "save_info",      "save_export",    "save_import",
     "audio_info",    "audio_copy",     "queue_input",    "bus_read",
     "bus_write",     "trace_set_enabled", "trace_drain", "reset",
-    "unload"};
+    "unload", "output_status"};
 
 /* The save device kind of the profile under test; a plain value so an entry
  * can be called with a NULL machine. */
@@ -325,6 +327,8 @@ static t64_status call_entry(unsigned entry, t64_machine *machine,
     return t64_machine_reset(machine);
   case 24:
     return t64_machine_unload(machine);
+  case 25:
+    return t64_machine_output_status(machine, &s->output_status);
   default:
     return T64_STATUS_INVALID_ARGUMENT;
   }

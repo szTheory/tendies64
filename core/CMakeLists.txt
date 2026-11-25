@@ -894,16 +894,20 @@ target_include_directories(test_api_lifecycle PRIVATE
   "${CMAKE_SOURCE_DIR}/tests")
 target_link_libraries(test_api_lifecycle PRIVATE t64_core)
 t64_target_warnings(test_api_lifecycle)
-add_dependencies(test_api_lifecycle t64-boot-fixtures t64-rdp-fill-fixture)
+add_dependencies(test_api_lifecycle t64-boot-fixtures t64-rdp-fill-fixture
+  t64-audio-fixture)
 add_test(NAME unit.core.api.reset
   COMMAND test_api_lifecycle --case reset)
 add_test(NAME unit.core.api.unload
   COMMAND test_api_lifecycle --case unload)
 add_test(NAME unit.core.api.not-ready-table
   COMMAND test_api_lifecycle --case not-ready-table)
+add_test(NAME unit.core.api.output-status
+  COMMAND test_api_lifecycle --case output-status)
 set_tests_properties(unit.core.api.reset
   unit.core.api.unload
-  unit.core.api.not-ready-table PROPERTIES
+  unit.core.api.not-ready-table
+  unit.core.api.output-status PROPERTIES
   LABELS "unit;phase11"
   TIMEOUT 60
   COST 1

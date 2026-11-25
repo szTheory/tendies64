@@ -650,8 +650,9 @@ kept descriptor).
 | 26 | `t64_machine_reset` | NOT_READY | n/a | no image to reset |
 | 27 | `t64_machine_unload` | NOT_READY | n/a | no image to release; counters unchanged |
 | 28 | `t64_machine_is_poisoned` | OK (0) | written | query, no guard |
+| 28a | `t64_machine_output_status` | OK, zero counts, full free capacity, no pending text | written (struct_size never) | image-independent by design (Task 3): a host paces from it before the first admission as well; `unit.core.api.output-status` checks the empty cases with and without an image |
 | 29 | `t64_machine_destroy` | releases the remaining blocks (no image block) | n/a | `unit.core.api.unload` asserts allocations equal releases and zero outstanding after unload then destroy |
 
-`t64_machine_output_status` is added to this table by plan 11-04 Task 3. Row 21 is the one
+Row 28a was added by plan 11-04 Task 3 (the table test carries it as the `output_status` row). Row 21 is the one
 row where an image-requiring read does not answer `NOT_READY`: it keeps today's bus answer so no
 pre-admission observation changes.

@@ -671,6 +671,18 @@ only with zero capacity. Draining is available after admission, including
 after a terminal CPU stop; successful image replacement resets both guest
 output and the observer cursor.
 
+`t64_machine_output_status` (plan 11-04) is the read-only pacing call over the
+same observer state. It reports, per ring (video, audio), the queued packet
+count, the free capacity (queued plus free is the two-packet ring capacity) and
+the byte size of the next packet, and the ISViewer bytes not yet drained, in a
+`t64_output_status` whose leading caller-filled `struct_size` is part of the
+v1 layout (48 bytes, fixed-width members, one explicit pad member written as 0).
+The callee never writes `struct_size`, writes at most `min(caller, 48)` bytes
+after it and refuses a smaller value with `STRUCT_TOO_SMALL`, leaving the struct
+untouched. The call changes no digest, ring, cursor or counter, answers OK with
+zero counts and full free capacity when no image is admitted, and is covered by
+the entry guard (NULL machine, poisoned, reentrant) like every other entry.
+
 `t64_machine_queue_input` accepts an absolute guest tick, port 0, 16 button
 bits, and X/Y axes in the signed 8-bit range `[-128,127]`. The scheduled event
 value stores buttons in bits 0-15, X in bits 16-23, and Y in bits 24-31 using

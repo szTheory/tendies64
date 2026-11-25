@@ -325,6 +325,38 @@ typedef struct {
   bool total_attempted_bytes_exact;
 } t64_output_drain_result;
 
+/*
+ * Pacing information of the output rings (plan 11-04), reported by
+ * t64_machine_output_status so a host can decide how much to drain and whether
+ * to advance without trial and error. struct_size is filled by the caller with
+ * the size of the struct it was compiled against (T64_OUTPUT_STATUS_INIT does
+ * it); the callee never writes it, writes at most the first struct_size bytes
+ * of the members after it, and refuses a value below T64_OUTPUT_STATUS_V1_SIZE
+ * with T64_STATUS_STRUCT_TOO_SMALL. Counts are packets; the next-packet sizes
+ * are the byte size the next t64_video_copy or t64_audio_copy of an empty
+ * capacity reports (0 for an empty ring); text_pending_bytes is the ISViewer
+ * capture not yet drained. reserved0 is written as 0. Every member is a fixed
+ * width integer and the layout has no implicit padding.
+ */
+typedef struct {
+  uint32_t struct_size;
+  uint32_t video_queued;
+  uint32_t video_free;
+  uint32_t reserved0;
+  uint64_t video_next_bytes;
+  uint32_t audio_queued;
+  uint32_t audio_free;
+  uint64_t audio_next_bytes;
+  uint64_t text_pending_bytes;
+} t64_output_status;
+
+/* The v1 size of t64_output_status: 4 + 4 + 4 + 4 + 8 + 4 + 4 + 8 + 8 bytes. */
+#define T64_OUTPUT_STATUS_V1_SIZE UINT32_C(48)
+/* Brace initializer for a caller's t64_output_status: struct_size set to the
+ * size of the struct, every other member 0. */
+#define T64_OUTPUT_STATUS_INIT \
+  {(uint32_t)sizeof(t64_output_status), 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u}
+
 /* One queued raw VI packet. Strings and numeric policy fields are part of the
  * packet observation, not a claim about measured hardware behavior. */
 typedef struct {
@@ -650,6 +682,23 @@ T64_API t64_status t64_machine_cpu_stop_detail(
 T64_API t64_status t64_machine_output_drain(t64_machine *machine, uint8_t *bytes_out,
                                            size_t capacity,
                                            t64_output_drain_result *result_out);
+
+/*
+ * Read-only pacing information (plan 11-04): per ring (video, audio) the number
+ * of queued packets, the free capacity (queued plus free is the ring capacity,
+ * two packets for each ring) and the byte size of the next packet, plus the
+ * ISViewer bytes not yet drained. The call changes nothing: not the digest, a
+ * ring, a cursor or a counter. Check order: NULL machine and NULL status_out
+ * T64_STATUS_INVALID_ARGUMENT, poisoned and reentrant as for every entry, then
+ * a status_out->struct_size below T64_OUTPUT_STATUS_V1_SIZE
+ * T64_STATUS_STRUCT_TOO_SMALL (the struct is untouched), then a span that
+ * overlaps machine storage T64_STATUS_INVALID_ARGUMENT. Without an admitted
+ * image the answer is T64_STATUS_OK with zero counts, a full ring of free
+ * capacity and no pending text; a profile without a video or audio device
+ * reports its ring empty with the full capacity free.
+ */
+T64_API t64_status t64_machine_output_status(const t64_machine *machine,
+                                             t64_output_status *status_out);
 
 /*
  * Raw video is a bounded, lossless, two-packet queue on the RDP/VI profile.
