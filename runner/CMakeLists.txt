@@ -723,6 +723,33 @@ set_tests_properties(runner.save-roundtrip PROPERTIES
   LABELS "runner;controls" TIMEOUT 300
   ENVIRONMENT "T64_PHASE09_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/09-05-evidence")
 
+# Phase 10 composite guest (plan 10-15, RUN-07): two supervised runs of the
+# authored composite ROM (a raw-capture run and a save-out run) with equal final
+# digest, every output against the independent expectation, wrong-value
+# controls and the container v2 positive path. One binary, one CTest name per
+# case; the evidence directory is per test name and scoped per process, so the
+# names are safe under ctest -j.
+add_executable(test_composite_two_run tests/test_composite_two_run.c)
+target_compile_definitions(test_composite_two_run PRIVATE ${T64_HOST_DEFS})
+target_include_directories(test_composite_two_run PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/core/include)
+target_link_libraries(test_composite_two_run PRIVATE t64_common t64_core)
+t64_target_warnings(test_composite_two_run)
+add_dependencies(test_composite_two_run t64-supervisor t64-supervisor-test
+  t64-result-check t64-runner-real t64-boot-fixtures
+  t64-phase10-composite-fixture)
+function(t64_phase10_composite_case TEST_NAME CASE_NAME TIMEOUT_SECONDS)
+  add_test(NAME ${TEST_NAME}
+    COMMAND test_composite_two_run --case ${CASE_NAME}
+      $<TARGET_FILE:t64-supervisor> $<TARGET_FILE:t64-supervisor-test>
+      $<TARGET_FILE:t64-result-check> ${CMAKE_SOURCE_DIR}
+      $<TARGET_FILE:t64-runner-real>)
+  set_tests_properties(${TEST_NAME} PROPERTIES
+    LABELS "runner;controls;phase10" TIMEOUT ${TIMEOUT_SECONDS}
+    ENVIRONMENT "T64_PHASE10_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/10-15-evidence;T64_COMPOSITE_EXPECTED=${CMAKE_SOURCE_DIR}/fixtures/composite/composite.expected.json;T64_STATE_DECODER=${CMAKE_SOURCE_DIR}/fixtures/state/decode_container_v2.py")
+endfunction()
+t64_phase10_composite_case(runner.composite-two-run two-run 120)
+
 # Publisher controls: the module is compiled with the testing hooks, like the
 # test twin of the runner, and never reaches the production runner.
 add_executable(test_artifact_publisher tests/test_artifact_publisher.c

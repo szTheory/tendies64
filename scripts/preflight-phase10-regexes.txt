@@ -27,7 +27,8 @@
 1	^unit\.core\.vg\.serrate-filter-parity$
 1	^unit\.core\.vg\.perspective-floor$
 1	^unit\.core\.vg\.shade-floor-bayer$
-0	^runner\.composite
+1	^runner\.composite
+1	^runner\.composite-two-run$
 1	^unit\.core\.k1\.dispatch-refusal$
 2	^unit\.core\.k1\.
 1	^unit\.core\.k1\.apply-refusal$
