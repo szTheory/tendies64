@@ -342,4 +342,70 @@ oracle-bound file moved, the sweep reports 0 differences, 15 mutants are KILLED 
 expected, and the pushed head's hosted pair is green. Wave 2 (plans 10-09 to 10-13, VID-07 and CORE-06)
 may start at the Wave 2 base recorded in PIN-IMPACT.md "Wave bases".
 
+## Wave 2
+
+Plans 10-09 to 10-12 (phase-wave 2: the one identity and state bump of Phase 10, VID-07 and CORE-06): the
+four si-v2 ids (descriptor 13, machine model 21, state 26, digest domain `t64.state.si.26`), RDP depth on
+that family, the state 26 export with container version word 2, and the state 26 importer. This is the
+highest-risk wave (Phase 9's blocking digest-completeness defect surfaced only in an independent review),
+so the review re-derives and re-measures instead of reading the plan summaries. Reviewed by plan 10-13
+(Task 1 and Task 2 below).
+
+| Item | Value |
+|------|-------|
+| Wave 2 base | `6dd785986f6aa78c6da5573a558b15b386a4edee` (extracted from PIN-IMPACT.md "Wave bases" with the 10-01 base extraction idiom: exactly one 40-hex line, an existing commit, an ancestor of the head) |
+| Wave 0 base | `4ac633e880e0c26005cb03092e8d8485e721034c` (same idiom, for the whole-phase sweep) |
+| Reviewed head | `96c8711188a287756393c1871e7dda1e0a73f4af` (30 commits after the Wave 2 base; 24 files changed outside `.planning/`, 7,235 insertions and 132 deletions; the four production sources that changed are `core/t64_digest.c`, `core/t64_internal.h`, `core/t64_isviewer.c`, `core/t64_machine.c` and `core/t64_state.c`) |
+| Host | Darwin arm64, 1-minute load 12 to 15 during every run below (other sessions on the same machine, so every second count is an upper bound for a quiet host) |
+
+### Task 1: scratch gate and sanitizer selection of the Wave 2 head
+
+Method: the W0-01 form. `git clone --no-checkout --no-hardlinks` of the main repository into
+`build/10-review/w2/src`, `git checkout --detach 96c8711...`, and a copy (not a symlink) of
+`build/tools/install` into the clone so the pinned Binutils 2.45 is reused. `git status --short` of the
+clone was empty, and `git archive HEAD` of the clone and of the main repository have the same SHA-256
+(`034384e90eb56ed01eca0dbf3cf18fa79d5a2041331c7dddd956ca7120b01685`), so the scratch tree is exactly the
+archive of the head (the equality was checked again after the last scratch edit was reverted). Every
+command below ran in that clone with no `CI` or `GITHUB_*` variable; the shared tree was not written
+(`git status --short` of the main tree was empty before and after).
+
+**Gate.** `sh scripts/gate.sh`: `[gate] PASS`, `[gate] total 159s`, exit 0, first attempt. Steps in
+seconds: sh-n 0, lint-selftest 6, fixture-qualification 1, configure 1, build 7, boot-evidence-selftest 14,
+test-inventory-selftest 21, test-inventory 1, ctest 98 (`100% tests passed out of 248`, `Total Test time
+(real) = 97.74 sec`), core-lint 10. The CTest count is the 236 names of the Wave 1 head plus the 12 Wave 2
+names (3 `unit.core.profile.v26-*`, 2 `unit.core.digest.v26-*`, 3 `unit.core.rdp.depth-composite-*`, 2
+`unit.core.state.export-v26*`, 2 `unit.core.state.import-v26-*`). The gate total is 36 s above the Wave 1
+review (123 s) and the ctest step 27 s above it (71 s). The 12 new names add 15.13 s of native test time in
+that run (`CTestCostData.txt` of the scratch gate, one run each, none carries `COST`): `import-v26-hostile`
+8.63, `export-v26` 2.20, `import-v26-roundtrip` 2.20, `export-v26-bounds` 1.57, `digest.v26-completeness`
+0.40, `digest.v26-strip-differential` 0.05, `depth-composite-sidecar` 0.03 and the other five 0.006 to 0.016
+each. The 1-minute load of 12 to 15 against 7 to 12 at Wave 1 accounts for the rest of the 27 s, so every
+local figure is an upper bound and the hosted pair is the measurement that counts (Task 3).
+
+**Sanitizer selection.** `cmake --preset asan`, `cmake --build --preset asan` (357 build steps, exit 0) and
+`ctest --preset asan -L phase10 --output-on-failure`: exit 0, `100% tests passed out of 24`, `Total Test
+time (real) = 155.17 sec` (`phase10 = 280.49 sec*proc`). `ctest -N -L phase10` reports 24 tests and the
+`PHASE10_TESTS` block of `scripts/check-test-inventory.sh` lists 24 names, so the run count equals the
+block. No sanitizer report: 0 lines matching `ERROR: AddressSanitizer` or `runtime error` in the log. The
+run overlapped one digest sweep (two trees), so each second is an upper bound.
+
+| Phase 10 name (ASan preset) | seconds | | Phase 10 name (ASan preset) | seconds |
+|-----------------------------|---------|-|-----------------------------|---------|
+| `repo.p10-mutant-anchors` | 0.08 | | `unit.core.vg.decal-equality` | 0.16 |
+| `unit.core.k1.dispatch-refusal` | 5.42 | | `unit.core.vg.primitive-z-saturation` | 0.14 |
+| `unit.core.k1.apply-refusal` | 10.56 | | `unit.core.vg.delta-ceiling` | 0.14 |
+| `unit.core.profile.v26-identity` | 0.30 | | `unit.core.vg.z-exponent-boundaries` | 0.58 |
+| `unit.core.profile.v26-isviewer` | 0.14 | | `unit.core.vg.ntsc-clock` | 3.95 |
+| `unit.core.profile.v26-predicate-matrix` | 0.16 | | `unit.core.vg.rgba5551-alpha-clear` | 0.13 |
+| `unit.core.digest.v26-completeness` | 5.80 | | `unit.core.vg.serrate-filter-parity` | 0.12 |
+| `unit.core.digest.v26-strip-differential` | 0.86 | | `unit.core.vg.perspective-floor` | 0.13 |
+| `unit.core.rdp.depth-composite-accepted` | 0.15 | | `unit.core.vg.shade-floor-bayer` | 0.12 |
+| `unit.core.rdp.depth-composite-wrong-depth` | 0.22 | | `unit.core.state.export-v26` | 34.36 |
+| `unit.core.rdp.depth-composite-sidecar` | 0.60 | | `unit.core.state.export-v26-bounds` | 23.79 |
+| `unit.core.state.import-v26-roundtrip` | 47.97 | | `unit.core.state.import-v26-hostile` | 144.60 |
+
+The slowest sanitizer name is `unit.core.state.import-v26-hostile` at 144.60 s against its sanitizer TIMEOUT of
+900 s (6.2 times); `import-v26-roundtrip` 47.97 s against 600 s (12.5 times); `export-v26` and `export-v26-bounds`
+34.36 and 23.79 s against their 300 s (8.7 and 12.6 times). All four are above the 2 times line of F-108.
+
 
