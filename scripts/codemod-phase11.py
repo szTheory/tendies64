@@ -361,14 +361,28 @@ def render(text: str, start: int, end: int, head: str, conv, after_eq: bool):
                 "\n" + " " * indent + wrap_call(name, args, indent, len(suffix)))
     if args is None:
         return start, end, head + one
-    rest = suffix.strip()
-    if prefix.strip() in ("", "&") and rest.startswith(",") and len(rest) > 1 \
-            and len(prefix) + len(head) + len(one) + 1 <= LIMIT:
-        # The call starts its own line and only the arguments after it
-        # overflow: move them to the next line at the same indentation.
-        indent = prefix[:len(prefix) - len(prefix.lstrip())]
-        return (start, line_end,
-                head + one + ",\n" + indent + rest[1:].lstrip())
+    # An argument of a call: break before the argument when it follows another
+    # argument on its line, then keep or move the arguments after it.
+    broke = re.match(r"^(\s*)([^,()]+,)\s*(&?)$", prefix)
+    if broke or prefix.strip() in ("", "&"):
+        indent = broke.group(1) if broke else prefix[:len(prefix) - len(prefix.lstrip())]
+        lead = indent + (broke.group(3) if broke else prefix.strip())
+        new_start = line_start + len(broke.group(1)) + len(broke.group(2)) \
+            if broke else start
+        newline = "\n" if broke else ""
+        rest = suffix.strip()
+        if len(lead) + len(head) + len(one) + len(suffix) <= LIMIT:
+            return new_start, end, newline + (lead if broke else "") + head + one
+        moved = rest.startswith(",") and len(rest) > 1
+        tail = ",\n" + indent + rest[1:].lstrip() if moved else ""
+        stop = line_end if moved else end
+        if moved and len(lead) + len(head) + len(one) + 1 <= LIMIT:
+            return (new_start, stop,
+                    newline + (lead if broke else "") + head + one + tail)
+        col = len(lead) + len(head)
+        wrapped = wrap_call(name, args, col, 1 if moved else len(suffix))
+        return (new_start, stop,
+                newline + (lead if broke else "") + head + wrapped + tail)
     col = len(prefix) + len(head)
     return start, end, head + wrap_call(name, args, col, len(suffix))
 
@@ -410,7 +424,8 @@ def process(text: str) -> Result:
         if kind == "aggregate":
             result.sites.append(Site(
                 "member", type_name, line,
-                f"{type_name} {name} is a struct member (filled by copy)"))
+                f"{type_name} {name} is a struct member; no initializer is "
+                "possible, check how it is filled"))
             continue
         block_end = scope[1] if scope else len(masked)
         declared.append((name, match.end(4), block_end))
@@ -748,6 +763,21 @@ SELFTEST_CASES = [
      "  status = t64_machine_advance(\n      machine,\n"
      "      &(t64_stop_request)T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, target),\n"
      "      &stop);\n"),
+    ("compound literal after another argument breaks before the argument",
+     "    t64_status status = t64_machine_advance(\n"
+     "        machine, &(t64_stop_request){T64_STOP_GUEST_TICK, target}, &stop);\n"
+     "    if (t64_machine_advance(\n"
+     "            machine, &(t64_stop_request){T64_STOP_GUEST_TICK, target},\n"
+     "            &stop) != T64_STATUS_OK) {}\n",
+     "    t64_status status = t64_machine_advance(\n"
+     "        machine,\n"
+     "        &(t64_stop_request)T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, target),\n"
+     "        &stop);\n"
+     "    if (t64_machine_advance(\n"
+     "            machine,\n"
+     "            &(t64_stop_request)T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK,\n"
+     "                                                     target),\n"
+     "            &stop) != T64_STATUS_OK) {}\n"),
     ("uninitialized locals and file scope",
      "t64_stop_result g;\nvoid f(void) {\n  t64_stop_request r;\n"
      "  t64_save_info info;\n  t64_state_import_report rep;\n}\n",
