@@ -79,8 +79,8 @@ static void test_release(void *context, t64_host_storage storage) {
 
 static bool fixture_open_profile(fixture *value, const char *profile_id,
                                  uint32_t status, uint32_t asid) {
-  const t64_host_allocator allocator = {
-      test_allocate, test_release, &value->allocator};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, &value->allocator);
   const t64_profile_descriptor *profile = NULL;
   uint8_t asset[IPL3_ASSET_BYTES];
 

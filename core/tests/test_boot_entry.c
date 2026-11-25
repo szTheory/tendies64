@@ -270,8 +270,9 @@ static void test_vr4300_profile_entry(
   static const char expected_v9_prepared_state_sha256[] =
       "1e9cab87de3581578e4f5f49b1bcf6d8114046f910814b4af4f3f2e6ec42f906";
   allocator_state allocator_state_value = {0u};
-  const t64_host_allocator allocator = {
-      test_allocate, test_release, &allocator_state_value};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release,
+                              &allocator_state_value);
   const t64_profile_descriptor *profile = NULL;
   t64_profile_descriptor altered_profile;
   t64_machine *machine = NULL;
@@ -290,8 +291,9 @@ static void test_vr4300_profile_entry(
   char reference_hex[T64_DIGEST_SIZE * 2u + 1u];
   char production_hex[T64_DIGEST_SIZE * 2u + 1u];
   size_t i;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(1));
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
   t64_status status;
 
   status = t64_profile_lookup(profile_id, &profile);
@@ -1004,15 +1006,17 @@ static void test_vr4300_compat_profile_entry(
   static const char expected_v11_prepared_state_sha256[] =
       "f943e44778ae482f12798f681335608b0c57812874874b84583674495e70ce2e";
   allocator_state allocator_state_value = {0u};
-  const t64_host_allocator allocator = {
-      test_allocate, test_release, &allocator_state_value};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release,
+                              &allocator_state_value);
   const t64_profile_descriptor *profile = NULL;
   t64_machine *machine = NULL;
   uint8_t reference_digest[T64_DIGEST_SIZE];
   uint8_t production_digest[T64_DIGEST_SIZE];
   char reference_hex[T64_DIGEST_SIZE * 2u + 1u];
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(1));
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
   t64_status status;
 
   status = t64_profile_lookup(extended
@@ -1135,14 +1139,16 @@ static void test_cold_t1_profile_entry(
       "ntsc-cart-4m-openipl3-rdram-b-t1-v1",
   };
   allocator_state allocator_state_value = {0u};
-  const t64_host_allocator allocator = {
-      test_allocate, test_release, &allocator_state_value};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release,
+                              &allocator_state_value);
   const t64_profile_descriptor *profile = NULL;
   t64_machine *machine = NULL;
   uint8_t initial_digest[T64_DIGEST_SIZE];
   uint8_t changed_digest[T64_DIGEST_SIZE];
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(1));
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
   t64_status status;
 
   status = t64_profile_lookup(profile_ids[protocol ? 1u : 0u], &profile);
@@ -1246,8 +1252,9 @@ int main(void) {
   static const uint8_t zero_dmem_prefix[IPL3_DMEM_OFFSET] = {0u};
   const t64_profile_descriptor *profile = NULL;
   allocator_state allocator_state_value = {0u};
-  const t64_host_allocator allocator = {
-      test_allocate, test_release, &allocator_state_value};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release,
+                              &allocator_state_value);
   t64_profile_descriptor altered_profile;
   t64_profile_descriptor legacy_profile;
   t64_profile_descriptor legacy_v7_profile;
@@ -1270,10 +1277,15 @@ int main(void) {
   char state_hex[T64_DIGEST_SIZE * 2u + 1u];
   size_t observed_rom_size = SIZE_MAX;
   t64_status status;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(100)};
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
-  t64_stop_result repeated_result = {UINT32_MAX, UINT64_MAX};
-  t64_cpu_stop_detail detail = {UINT64_MAX, UINT32_MAX, UINT32_MAX};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(100));
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
+  t64_stop_result repeated_result =
+      T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
+  t64_cpu_stop_detail detail = T64_CPU_STOP_DETAIL_INIT;
+  detail.retired_instructions = UINT64_MAX;
+  detail.pc = UINT32_MAX;
+  detail.opcode = UINT32_MAX;
   bool fixture_ok;
 
   fixture_ok = read_qualified_asset(asset);

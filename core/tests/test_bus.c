@@ -79,7 +79,8 @@ static t64_status test_mi_pending_event(t64_machine *machine,
 static void test_memory_boundaries(void) {
 #define TEST_ROM_BYTES 4100u
   uint8_t image[TEST_ROM_BYTES];
-  const t64_host_allocator allocator = {test_allocate, test_release, NULL};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, NULL);
   const t64_profile_descriptor *profile = NULL;
   t64_machine *machine = NULL;
   uint32_t value = 0u;
@@ -315,11 +316,13 @@ static void test_bus_trace_uses_guest_tick(void) {
   size_t record_count = 0u;
   uint64_t dropped = 0u;
   bool saturated = false;
-  const t64_host_allocator allocator = {test_allocate, test_release, NULL};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, NULL);
   const t64_profile_descriptor *profile = NULL;
   t64_machine *machine = NULL;
-  const t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(7)};
-  t64_stop_result result = {0u, 0u};
+  const t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(7));
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   uint32_t value = 0u;
 
   (void)memset(image, 0, sizeof image);
@@ -372,7 +375,8 @@ static void test_mi_commands_and_irq_truth_table(void) {
   uint8_t image[4096];
   uint8_t digest_before[T64_DIGEST_SIZE];
   uint8_t digest_after[T64_DIGEST_SIZE];
-  const t64_host_allocator allocator = {test_allocate, test_release, NULL};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, NULL);
   t64_machine *machine = NULL;
   uint32_t value = 0u;
   unsigned source;
@@ -514,11 +518,14 @@ static void test_mi_tick_digest_refusal_and_reset(void) {
   uint64_t dropped = 0u;
   bool saturated = false;
   t64_event_reservation reservation;
-  const t64_host_allocator allocator = {test_allocate, test_release, NULL};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, NULL);
   t64_machine *machine = NULL;
-  const t64_stop_request set_request = {T64_STOP_GUEST_TICK, UINT64_C(11)};
-  const t64_stop_request clear_request = {T64_STOP_GUEST_TICK, UINT64_C(12)};
-  t64_stop_result result = {0u, 0u};
+  const t64_stop_request set_request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(11));
+  const t64_stop_request clear_request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(12));
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   uint32_t value = 0u;
 
   T64_CHECK(create_admitted_machine(&machine, &allocator, image, sizeof image,

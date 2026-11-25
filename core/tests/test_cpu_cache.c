@@ -105,8 +105,8 @@ static bool fixture_open_profile(fixture *value,
                                  const char *profile_id,
                                  uint32_t expected_model_version,
                                  uint32_t expected_state_version) {
-  const t64_host_allocator allocator = {
-      test_allocate, test_release, &value->allocator};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, &value->allocator);
   const t64_profile_descriptor *profile = NULL;
 
   if (value == NULL || asset == NULL || profile_id == NULL ||
@@ -1883,9 +1883,10 @@ static bool test_dma_does_not_snoop_instruction_cache(
   const uint32_t instruction_count = UINT32_C(32);
   t64_machine *machine = value->machine;
   t64_vr4300_icache_line line_before;
-  t64_stop_request request = {T64_STOP_INSTRUCTION_COUNT,
-                              (uint64_t)instruction_count};
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_INSTRUCTION_COUNT,
+                            (uint64_t)instruction_count);
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
   t64_status status;
   size_t index;
 

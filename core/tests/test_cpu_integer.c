@@ -229,14 +229,14 @@ static void destroy_machine(t64_machine *machine) {
 
 static t64_status advance_to_tick(t64_machine *machine, uint64_t tick,
                                   t64_stop_result *result_out) {
-  t64_stop_request request = {T64_STOP_GUEST_TICK, tick};
+  t64_stop_request request = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, tick);
 
   return t64_machine_advance(machine, &request, result_out);
 }
 
 static void check_bounded_tick(t64_machine *machine, uint64_t tick,
                                const char *label) {
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
   t64_status status = advance_to_tick(machine, tick, &result);
 
   check_bool(label, status == T64_STATUS_OK &&
@@ -259,7 +259,7 @@ static void check_exception(t64_machine *machine, uint64_t code,
 
 static void check_unsupported(t64_machine *machine, uint64_t tick,
                               const char *label) {
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
   t64_status status = advance_to_tick(machine, tick, &result);
 
   check_bool(label, status == T64_STATUS_OK &&
@@ -1544,8 +1544,9 @@ static const cpu_case control_cases[] = {
 
 int main(int argc, char **argv) {
   allocator_state allocator_state_value = {0u};
-  const t64_host_allocator allocator = {
-      test_allocate, test_release, &allocator_state_value};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release,
+                              &allocator_state_value);
   const t64_profile_descriptor *profile = NULL;
   test_environment environment = {&allocator, NULL, NULL};
   const cpu_case *cases;

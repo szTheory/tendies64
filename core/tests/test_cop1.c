@@ -152,8 +152,8 @@ static t64_machine *make_machine(const t64_host_allocator *allocator,
 }
 
 static bool advance_tick(t64_machine *machine, uint64_t tick) {
-  t64_stop_request request = {T64_STOP_GUEST_TICK, tick};
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_request request = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, tick);
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
   return t64_machine_advance(machine, &request, &result) == T64_STATUS_OK &&
          result.reason == T64_STOP_REASON_BOUND && result.tick == tick;
 }
@@ -676,8 +676,9 @@ static void test_tlb_permission_and_cache_failures(
                     (UINT32_C(0x35) << 26) | (UINT32_C(8) << 21) |
                         (UINT32_C(2) << 16)); /* LDC1, out-of-RDRAM PA */
   {
-    t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
-    t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+    t64_stop_request request =
+        T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(1));
+    t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
     uint32_t line_index =
         (UINT32_C(0x20000000) >> 4) &
         (T64_VR4300_DCACHE_LINE_COUNT - UINT32_C(1));
@@ -2056,7 +2057,8 @@ static void test_nan_arithmetic_transfer_and_compare_exceptions(
 
 int main(int argc, char **argv) {
   allocator_state allocation = {0u};
-  const t64_host_allocator allocator = {allocate, release, &allocation};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(allocate, release, &allocation);
   const t64_profile_descriptor *profile = NULL;
   uint8_t asset[IPL3_ASSET_BYTES];
   t64_machine *machine;

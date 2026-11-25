@@ -82,9 +82,8 @@ static bool fixture_init_profile(fixture *value,
     return false;
   }
   *value = (fixture){0};
-  value->allocator.allocate = test_allocate;
-  value->allocator.release = test_release;
-  value->allocator.context = value;
+  value->allocator = (t64_host_allocator)T64_HOST_ALLOCATOR_INIT(
+      test_allocate, test_release, value);
   if (t64_profile_lookup(profile_id, &profile) != T64_STATUS_OK ||
       profile == NULL ||
       t64_machine_create(&value->allocator, profile, &value->machine) !=
@@ -922,8 +921,9 @@ static void test_scheduled_sp_dma_to_sp_bank_invalidates_link(
     const uint8_t asset[TEST_IPL3_BYTES], uint32_t physical_base,
     bool instruction_memory) {
   uint32_t program[32] = {0};
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(20)};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(20));
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   fixture value;
   t64_status status;
   uint8_t *bank;
@@ -1156,8 +1156,9 @@ static void test_accepted_nonoverlap_dma_preserves_link(
     const uint8_t asset[TEST_IPL3_BYTES], bool sp_to_rdram) {
   uint32_t program[32] = {0};
   t64_vr4300_dcache_line dcache_before[T64_VR4300_DCACHE_LINE_COUNT];
-  t64_stop_request request = {T64_STOP_INSTRUCTION_COUNT, 0u};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_INSTRUCTION_COUNT, 0u);
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   const uint32_t device_base =
       sp_to_rdram ? UINT32_C(0x04040000) : UINT32_C(0x04600000);
   fixture value;

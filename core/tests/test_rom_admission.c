@@ -246,16 +246,17 @@ static void test_all_orders_and_refusal_state(void) {
       58u, 59u, 60u, 61u, 62u, 63u,
   };
   allocator_state allocator = {0};
-  const t64_host_allocator host_allocator = {test_allocate, test_release,
-                                              &allocator};
+  const t64_host_allocator host_allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, &allocator);
   uint8_t canonical[TEST_ROM_MIN_BYTES];
   uint8_t raw[TEST_ROM_MIN_BYTES];
   uint8_t malformed[TEST_ROM_MIN_BYTES];
   uint8_t expected_digest[T64_DIGEST_SIZE];
   const t64_profile_descriptor *profile = NULL;
   t64_machine *machine = NULL;
-  t64_stop_request tick_request = {T64_STOP_GUEST_TICK, UINT64_C(9)};
-  t64_stop_result tick_result = {0u, 0u};
+  t64_stop_request tick_request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(9));
+  t64_stop_result tick_result = T64_STOP_RESULT_INIT;
   size_t i;
 
   fill_canonical_image(canonical, sizeof canonical);
@@ -322,8 +323,8 @@ static void test_all_orders_and_refusal_state(void) {
 
 static void test_minimum_and_maximum_boundaries(void) {
   allocator_state allocator = {0};
-  const t64_host_allocator host_allocator = {test_allocate, test_release,
-                                              &allocator};
+  const t64_host_allocator host_allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, &allocator);
   uint8_t *maximum_span = NULL;
   uint8_t expected_digest[T64_DIGEST_SIZE];
   uint8_t before_rejection[T64_DIGEST_SIZE];

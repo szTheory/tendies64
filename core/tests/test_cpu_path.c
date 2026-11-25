@@ -225,8 +225,9 @@ static bool test_vr4300_break_enters_rdram_handler(
   const uint32_t break_pc = UINT32_C(0x80001000);
   const uint32_t handler_pc = UINT32_C(0x80000180);
   const uint32_t store_value = UINT32_C(0xdeadbeef);
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(2)};
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(2));
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
   t64_status status;
   uint32_t cause;
   uint32_t status_register;
@@ -295,8 +296,9 @@ static bool test_vr4300_cvt_d_w_is_machine_local(
   const uint64_t expected_a = UINT64_C(0xc1e0000000000000);
   const uint64_t expected_b = UINT64_C(0x405ec00000000000);
   allocator_state other_allocator_state = {0u};
-  const t64_host_allocator other_allocator = {
-      test_allocate, test_release, &other_allocator_state};
+  const t64_host_allocator other_allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release,
+                              &other_allocator_state);
   const t64_profile_descriptor *profile = NULL;
   t64_machine *other = NULL;
   t64_status status;
@@ -456,8 +458,9 @@ static bool test_vr4300_cop1_transfer_conversion_memory_tracer(
   const uint32_t unusable_opcode = encode_mtc1(8u, 5u);
   const uint32_t handler_opcode = UINT32_C(0x240a005a);
   allocator_state handler_allocator_state = {0u};
-  const t64_host_allocator handler_allocator = {
-      test_allocate, test_release, &handler_allocator_state};
+  const t64_host_allocator handler_allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release,
+                              &handler_allocator_state);
   const t64_profile_descriptor *profile = NULL;
   t64_machine *handler_machine = NULL;
   const t64_vr4300_dcache_line *data_line;
@@ -625,8 +628,9 @@ static bool test_vr4300_cop1_rounding_trap_recovery_and_e_cause(
   const uint64_t handler_pc = UINT64_C(0xffffffff80000180);
   const uint32_t status_cu1_fr =
       (UINT32_C(1) << 29) | (UINT32_C(1) << 26);
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(1));
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
   t64_status status;
   size_t i;
 
@@ -1111,9 +1115,13 @@ static bool test_vr4300_protected_cp0_guest_handler(
   };
   const uint32_t handler_pc = UINT32_C(0x80000180);
   const uint32_t expected_status = UINT32_C(0x90200001);
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(100)};
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
-  t64_cpu_stop_detail detail = {UINT64_MAX, UINT32_MAX, UINT32_MAX};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(100));
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
+  t64_cpu_stop_detail detail = T64_CPU_STOP_DETAIL_INIT;
+  detail.retired_instructions = UINT64_MAX;
+  detail.pc = UINT32_MAX;
+  detail.opcode = UINT32_MAX;
   t64_status status;
   uint32_t observed_status;
   uint32_t cause;
@@ -1204,8 +1212,9 @@ static bool test_vr4300_timer_interrupt_handler(
       UINT32_C(0x240c004a), /* addiu t4,zero,0x4a */
       UINT32_C(0x42000018), /* eret */
   };
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(8)};
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(8));
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
   t64_status status;
   uint32_t cause;
   uint32_t status_register;
@@ -1279,8 +1288,9 @@ static bool test_vr4300_integer_delay_fault_and_full_width_jalr(
   };
   const uint64_t branch_pc = UINT64_C(0xffffffff80001008);
   const uint64_t target = UINT64_C(0x00000001fffffffe);
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(6)};
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(6));
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
   t64_status status;
   uint32_t cause;
   uint32_t stored;
@@ -1363,8 +1373,9 @@ static bool test_vr4300_not_taken_likely_annuls_faulting_slot(
       UINT32_C(0x240c0007), /* addiu t4,zero,7 */
       UINT32_C(0x7000003f), /* explicit unsupported stop */
   };
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(2)};
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(2));
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
   size_t i;
 
   if (machine == NULL || asset == NULL ||
@@ -1407,7 +1418,8 @@ static bool test_vr4300_not_taken_likely_annuls_faulting_slot(
 static bool stop_at_unsupported(t64_machine *machine,
                                 t64_stop_result *result_out,
                                 t64_cpu_stop_detail *detail_out) {
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(100)};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(100));
 
   return t64_machine_advance(machine, &request, result_out) ==
              T64_STATUS_OK &&
@@ -1418,9 +1430,13 @@ static bool stop_at_unsupported(t64_machine *machine,
 
 static bool test_real_entry_and_next_boundary(
     t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(2)};
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
-  t64_cpu_stop_detail detail = {UINT64_MAX, UINT32_MAX, UINT32_MAX};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(2));
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
+  t64_cpu_stop_detail detail = T64_CPU_STOP_DETAIL_INIT;
+  detail.retired_instructions = UINT64_MAX;
+  detail.pc = UINT32_MAX;
+  detail.opcode = UINT32_MAX;
   t64_status status;
 
   if (t64_machine_admit_rom(machine, asset, IPL3_ASSET_BYTES) !=
@@ -1474,8 +1490,11 @@ static bool test_integer_sign_extension_and_bal_delay(
       UINT32_C(0x240e0001), /* skipped by the taken BAL */
       UINT32_C(0x7000003f), /* explicit unsupported stop */
   };
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
-  t64_cpu_stop_detail detail = {UINT64_MAX, UINT32_MAX, UINT32_MAX};
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
+  t64_cpu_stop_detail detail = T64_CPU_STOP_DETAIL_INIT;
+  detail.retired_instructions = UINT64_MAX;
+  detail.pc = UINT32_MAX;
+  detail.opcode = UINT32_MAX;
 
   if (!install_program(machine, asset, program,
                        sizeof program / sizeof program[0])) {
@@ -1503,8 +1522,11 @@ static bool test_signed_multiply_and_hilo(
       UINT32_C(0x00005810), /* mfhi t3 */
       UINT32_C(0x7000003f), /* explicit unsupported stop */
   };
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
-  t64_cpu_stop_detail detail = {UINT64_MAX, UINT32_MAX, UINT32_MAX};
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
+  t64_cpu_stop_detail detail = T64_CPU_STOP_DETAIL_INIT;
+  detail.retired_instructions = UINT64_MAX;
+  detail.pc = UINT32_MAX;
+  detail.opcode = UINT32_MAX;
 
   if (!install_program(machine, asset, program,
                        sizeof program / sizeof program[0])) {
@@ -1540,8 +1562,11 @@ static bool test_beq_delay_slot(
       UINT32_C(0x24090001), /* skipped by the taken branch */
       UINT32_C(0x7000003f), /* target */
   };
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
-  t64_cpu_stop_detail detail = {UINT64_MAX, UINT32_MAX, UINT32_MAX};
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
+  t64_cpu_stop_detail detail = T64_CPU_STOP_DETAIL_INIT;
+  detail.retired_instructions = UINT64_MAX;
+  detail.pc = UINT32_MAX;
+  detail.opcode = UINT32_MAX;
 
   if (!install_program(machine, asset, program,
                        sizeof program / sizeof program[0])) {
@@ -1568,8 +1593,11 @@ static bool test_indirect_jump_and_link(
       UINT32_C(0x240c0001), /* skipped */
       UINT32_C(0x7000003f), /* indirect target */
   };
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
-  t64_cpu_stop_detail detail = {UINT64_MAX, UINT32_MAX, UINT32_MAX};
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
+  t64_cpu_stop_detail detail = T64_CPU_STOP_DETAIL_INIT;
+  detail.retired_instructions = UINT64_MAX;
+  detail.pc = UINT32_MAX;
+  detail.opcode = UINT32_MAX;
 
   if (!install_program(machine, asset, jr_program,
                        sizeof jr_program / sizeof jr_program[0])) {
@@ -1622,8 +1650,11 @@ static bool test_kseg_endian_and_partial_memory(
   };
   uint32_t kseg0_physical = UINT32_MAX;
   uint32_t kseg1_physical = UINT32_MAX;
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
-  t64_cpu_stop_detail detail = {UINT64_MAX, UINT32_MAX, UINT32_MAX};
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
+  t64_cpu_stop_detail detail = T64_CPU_STOP_DETAIL_INIT;
+  detail.retired_instructions = UINT64_MAX;
+  detail.pc = UINT32_MAX;
+  detail.opcode = UINT32_MAX;
   size_t i;
 
   if (!install_program(machine, asset, program,
@@ -1680,8 +1711,11 @@ static bool test_unsupported_alignment_and_address_modes(
       UINT32_C(0x8c880001), UINT32_C(0x7000003f)};
   static const uint32_t unsupported_address_program[] = {
       UINT32_C(0x8c880000), UINT32_C(0x7000003f)};
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
-  t64_cpu_stop_detail detail = {UINT64_MAX, UINT32_MAX, UINT32_MAX};
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
+  t64_cpu_stop_detail detail = T64_CPU_STOP_DETAIL_INIT;
+  detail.retired_instructions = UINT64_MAX;
+  detail.pc = UINT32_MAX;
+  detail.opcode = UINT32_MAX;
   uint32_t rejected_output = UINT32_C(0xdeadbeef);
 
   if (!t64_cpu_translate(UINT64_C(0xffffffff80000100), &rejected_output) ||
@@ -1720,8 +1754,11 @@ static bool test_overflow_and_unsupported_opcode(
   static const uint32_t daddi_program[] = {
       UINT32_C(0x616a0001), UINT32_C(0x7000003f)};
   static const uint32_t unsupported_program[] = {UINT32_C(0x7000003f)};
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
-  t64_cpu_stop_detail detail = {UINT64_MAX, UINT32_MAX, UINT32_MAX};
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
+  t64_cpu_stop_detail detail = T64_CPU_STOP_DETAIL_INIT;
+  detail.retired_instructions = UINT64_MAX;
+  detail.pc = UINT32_MAX;
+  detail.opcode = UINT32_MAX;
 
   if (!install_program(machine, asset, addi_program,
                        sizeof addi_program / sizeof addi_program[0])) {
@@ -1768,8 +1805,11 @@ static bool test_cp0_count_wrap_and_compare(
       UINT32_C(0x00000000), /* nop */
       UINT32_C(0x7000003f), /* explicit unsupported stop */
   };
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
-  t64_cpu_stop_detail detail = {UINT64_MAX, UINT32_MAX, UINT32_MAX};
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
+  t64_cpu_stop_detail detail = T64_CPU_STOP_DETAIL_INIT;
+  detail.retired_instructions = UINT64_MAX;
+  detail.pc = UINT32_MAX;
+  detail.opcode = UINT32_MAX;
 
   if (!install_program(machine, asset, program,
                        sizeof program / sizeof program[0])) {
@@ -1806,8 +1846,11 @@ static bool test_cp0_register_masks(
       UINT32_C(0x408be800), /* mtc0 t3,c0_taghi */
       UINT32_C(0x7000003f), /* explicit unsupported stop */
   };
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
-  t64_cpu_stop_detail detail = {UINT64_MAX, UINT32_MAX, UINT32_MAX};
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
+  t64_cpu_stop_detail detail = T64_CPU_STOP_DETAIL_INIT;
+  detail.retired_instructions = UINT64_MAX;
+  detail.pc = UINT32_MAX;
+  detail.opcode = UINT32_MAX;
 
   if (!install_program(machine, asset, program,
                        sizeof program / sizeof program[0])) {
@@ -1833,8 +1876,11 @@ static bool test_cp0_compare_write_clears_timer(
       UINT32_C(0x40885800), /* mtc0 t0,c0_compare */
       UINT32_C(0x7000003f), /* explicit unsupported stop */
   };
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
-  t64_cpu_stop_detail detail = {UINT64_MAX, UINT32_MAX, UINT32_MAX};
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
+  t64_cpu_stop_detail detail = T64_CPU_STOP_DETAIL_INIT;
+  detail.retired_instructions = UINT64_MAX;
+  detail.pc = UINT32_MAX;
+  detail.opcode = UINT32_MAX;
 
   if (!install_program(machine, asset, program,
                        sizeof program / sizeof program[0])) {
@@ -1871,8 +1917,11 @@ static bool test_cache_operations_are_coherent(
   for (i = 0u; i < sizeof cache_cases / sizeof cache_cases[0]; i++) {
     uint32_t program[] = {UINT32_C(0xad490000), cache_cases[i].opcode,
                           UINT32_C(0x7000003f)};
-    t64_stop_result result = {UINT32_MAX, UINT64_MAX};
-    t64_cpu_stop_detail detail = {UINT64_MAX, UINT32_MAX, UINT32_MAX};
+    t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
+    t64_cpu_stop_detail detail = T64_CPU_STOP_DETAIL_INIT;
+    detail.retired_instructions = UINT64_MAX;
+    detail.pc = UINT32_MAX;
+    detail.opcode = UINT32_MAX;
 
     if (!install_program(machine, asset, program,
                          sizeof program / sizeof program[0])) {
@@ -2056,8 +2105,9 @@ static bool run_uncached_cache_index_writeback_case(
 static bool test_compat_v2_uncached_cache_profile_boundary(
     t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
   allocator_state nested_allocator_state = {0u};
-  const t64_host_allocator nested_allocator = {
-      test_allocate, test_release, &nested_allocator_state};
+  const t64_host_allocator nested_allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release,
+                              &nested_allocator_state);
   t64_machine *strict_machine = NULL;
   t64_machine *compat_v1_machine = NULL;
   bool okay;
@@ -2442,8 +2492,11 @@ static bool test_cp0_cache_unsupported_encodings(
 
   for (i = 0u; i < sizeof unsupported_cp0 / sizeof unsupported_cp0[0];
        i++) {
-    t64_stop_result result = {UINT32_MAX, UINT64_MAX};
-    t64_cpu_stop_detail detail = {UINT64_MAX, UINT32_MAX, UINT32_MAX};
+    t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
+    t64_cpu_stop_detail detail = T64_CPU_STOP_DETAIL_INIT;
+    detail.retired_instructions = UINT64_MAX;
+    detail.pc = UINT32_MAX;
+    detail.opcode = UINT32_MAX;
 
     if (!install_program(machine, asset, &unsupported_cp0[i], 1u) ||
         !stop_at_unsupported(machine, &result, &detail) ||
@@ -2455,8 +2508,11 @@ static bool test_cp0_cache_unsupported_encodings(
   }
   for (i = 0u; i < sizeof unsupported_cache / sizeof unsupported_cache[0];
        i++) {
-    t64_stop_result result = {UINT32_MAX, UINT64_MAX};
-    t64_cpu_stop_detail detail = {UINT64_MAX, UINT32_MAX, UINT32_MAX};
+    t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
+    t64_cpu_stop_detail detail = T64_CPU_STOP_DETAIL_INIT;
+    detail.retired_instructions = UINT64_MAX;
+    detail.pc = UINT32_MAX;
+    detail.opcode = UINT32_MAX;
 
     if (!install_program(machine, asset, &unsupported_cache[i], 1u)) {
       return false;
@@ -2486,9 +2542,13 @@ static bool test_software_debug_stop_break(
       UINT32_C(0x10000001), /* beq zero,zero,+1 */
       T64_CPU_SOFTWARE_DEBUG_STOP_BREAK,
   };
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(100)};
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
-  t64_cpu_stop_detail detail = {UINT64_MAX, UINT32_MAX, UINT32_MAX};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(100));
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
+  t64_cpu_stop_detail detail = T64_CPU_STOP_DETAIL_INIT;
+  detail.retired_instructions = UINT64_MAX;
+  detail.pc = UINT32_MAX;
+  detail.opcode = UINT32_MAX;
   t64_trace_record records[16];
   size_t count = 0u;
   uint64_t dropped = UINT64_MAX;
@@ -2804,8 +2864,9 @@ static bool test_vr4300_ll_sc_scheduled_dma(
   };
   const uint32_t device_base =
       sp_to_rdram ? UINT32_C(0x04040000) : UINT32_C(0x04600000);
-  t64_stop_request request = {T64_STOP_INSTRUCTION_COUNT, 0u};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_INSTRUCTION_COUNT, 0u);
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   t64_status status;
   uint32_t observed[4];
   uint32_t expected_uncached_word;
@@ -2942,9 +3003,9 @@ static bool test_vr4300_sp_dma_does_not_snoop_dcache(
   const uint32_t cache_index =
       (physical_cached_target >> 4) &
       (T64_VR4300_DCACHE_LINE_COUNT - UINT32_C(1));
-  const t64_stop_request request = {T64_STOP_INSTRUCTION_COUNT,
-                                    UINT64_C(33)};
-  t64_stop_result result = {0u, 0u};
+  const t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_INSTRUCTION_COUNT, UINT64_C(33));
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   t64_vr4300_dcache_line *line;
   t64_status status;
   uint32_t index;
@@ -3080,8 +3141,9 @@ typedef struct {
 
 int main(int argc, char **argv) {
   allocator_state allocator_state_value = {0u};
-  const t64_host_allocator allocator = {
-      test_allocate, test_release, &allocator_state_value};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release,
+                              &allocator_state_value);
   static const cpu_test_case cpu_path_cases[] = {
       {"qualified IPL3 integer path reaches the MI device boundary",
        test_real_entry_and_next_boundary},

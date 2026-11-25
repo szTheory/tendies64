@@ -536,8 +536,9 @@ static void run_fixed_inventory(uint8_t *base, uint8_t *raw,
   if (t64_profile_lookup("ntsc-cart-4m-skeleton", &profile) !=
           T64_STATUS_OK ||
       profile == NULL ||
-      t64_machine_create(&(t64_host_allocator){test_allocate, test_release,
-                                                &allocator},
+      t64_machine_create(&(t64_host_allocator)T64_HOST_ALLOCATOR_INIT(test_allocate,
+                                                                      test_release,
+                                                                      &allocator),
                          profile, &machine) != T64_STATUS_OK) {
     fail_once("machine setup");
     return;

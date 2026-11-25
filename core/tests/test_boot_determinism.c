@@ -213,7 +213,7 @@ static bool drain_trace(machine_run *run) {
 
 static bool drain_output(machine_run *run, size_t capacity) {
   uint8_t copied[T64_ISVIEWER_CAPTURE_BYTES];
-  t64_output_drain_result result;
+  t64_output_drain_result result = T64_OUTPUT_DRAIN_RESULT_INIT;
   t64_status status;
 
   if (capacity > sizeof copied || run->output_length > sizeof run->output) {
@@ -266,7 +266,8 @@ static bool advance_one_segment(machine_run *run) {
     t64_status status;
 
     status = t64_machine_advance(
-        run->machine, &(t64_stop_request){T64_STOP_GUEST_TICK, target},
+        run->machine,
+        &(t64_stop_request)T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, target),
         &run->stop);
     if (status != T64_STATUS_OK || run->stop.tick < run->current_tick ||
         run->stop.tick > target) {
@@ -308,9 +309,11 @@ static bool initialize_run(machine_run *run,
                            bool trace_enabled, uint64_t drain_interval,
                            size_t drain_capacity,
                            allocator_state *allocator_state_value) {
-  const t64_host_allocator allocator = {test_allocate, test_release,
-                                        allocator_state_value};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release,
+                              allocator_state_value);
   (void)memset(run, 0, sizeof *run);
+  run->stop = (t64_stop_result)T64_STOP_RESULT_INIT;
   run->request_bound = HELLO_BOUND;
   run->partition = partition;
   run->drain_interval = drain_interval;
@@ -330,7 +333,7 @@ static bool drive_until_done(machine_run *run) {
 }
 
 static bool finish_output(machine_run *run, bool test_short_refusal) {
-  t64_output_drain_result observation;
+  t64_output_drain_result observation = T64_OUTPUT_DRAIN_RESULT_INIT;
   uint8_t copied[T64_ISVIEWER_CAPTURE_BYTES];
   t64_status status;
 
@@ -503,7 +506,9 @@ static bool advance_one_request(t64_machine *machine, uint64_t bound,
     uint64_t before_sequence = machine->next_sequence;
     size_t before_queue = machine->queue_count;
     t64_status status = t64_machine_advance(
-        machine, &(t64_stop_request){T64_STOP_GUEST_TICK, bound}, result_out);
+        machine,
+        &(t64_stop_request)T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, bound),
+        result_out);
     if (status != T64_STATUS_OK || result_out->tick < before_tick ||
         result_out->tick > bound) {
       return false;
@@ -522,9 +527,10 @@ static bool advance_one_request(t64_machine *machine, uint64_t bound,
 static void test_completion_deadline_precedence(
     const fixture_bundle *bundle, const t64_profile_descriptor *profile) {
   allocator_state state = {0u};
-  const t64_host_allocator allocator = {test_allocate, test_release, &state};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, &state);
   t64_machine *machine = NULL;
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
   uint8_t before[T64_DIGEST_SIZE];
   uint8_t after[T64_DIGEST_SIZE];
 
@@ -555,9 +561,10 @@ static void test_completion_deadline_precedence(
 static void test_inclusive_deadline_and_stop_bounds(
     const fixture_bundle *bundle, const t64_profile_descriptor *profile) {
   allocator_state state = {0u};
-  const t64_host_allocator allocator = {test_allocate, test_release, &state};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, &state);
   t64_machine *machine = NULL;
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
   machine_run observation = {0};
   uint8_t before[T64_DIGEST_SIZE];
   uint8_t after[T64_DIGEST_SIZE];
@@ -568,11 +575,14 @@ static void test_inclusive_deadline_and_stop_bounds(
   T64_CHECK(make_machine(profile, &allocator, bundle->hello,
                          bundle->hello_length, true, true, &machine));
   if (machine == NULL) return;
+  observation.stop = (t64_stop_result)T64_STOP_RESULT_INIT;
   observation.machine = machine;
   observation.trace_enabled = true;
   observation.partition = UINT64_C(16);
   T64_CHECK_INT(t64_machine_advance(
-                    machine, &(t64_stop_request){T64_STOP_GUEST_TICK, 0u},
+                    machine,
+                    &(t64_stop_request)T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK,
+                                                             0u),
                     &result),
                 T64_STATUS_OK);
   T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
@@ -583,7 +593,9 @@ static void test_inclusive_deadline_and_stop_bounds(
   observation.current_tick = result.tick;
   T64_CHECK(drain_trace(&observation));
   T64_CHECK_INT(t64_machine_advance(
-                    machine, &(t64_stop_request){T64_STOP_GUEST_TICK, 1u},
+                    machine,
+                    &(t64_stop_request)T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK,
+                                                             1u),
                     &result),
                 T64_STATUS_OK);
   T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
@@ -617,7 +629,9 @@ static void test_inclusive_deadline_and_stop_bounds(
 
   T64_CHECK_INT(t64_machine_digest(machine, before), T64_STATUS_OK);
   T64_CHECK_INT(t64_machine_advance(
-                    machine, &(t64_stop_request){T64_STOP_GUEST_TICK, 100u},
+                    machine,
+                    &(t64_stop_request)T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK,
+                                                             100u),
                     &result),
                 T64_STATUS_TIME_REVERSED);
   T64_CHECK_INT(t64_machine_digest(machine, after), T64_STATUS_OK);
@@ -662,7 +676,8 @@ static bool digest_changes_after_toggle(t64_machine *machine, void *field,
 static void test_warm_future_field_audit(
     const fixture_bundle *bundle, const t64_profile_descriptor *profile) {
   allocator_state state = {0u};
-  const t64_host_allocator allocator = {test_allocate, test_release, &state};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, &state);
   t64_machine *machine = NULL;
   uint8_t digest[T64_DIGEST_SIZE];
   char digest_hex[T64_SHA256_HEX_SIZE];
@@ -775,7 +790,7 @@ static void test_warm_future_field_audit(
 }
 
 static bool cold_advance(t64_machine *machine, uint64_t target) {
-  t64_stop_result stop;
+  t64_stop_result stop = T64_STOP_RESULT_INIT;
   return advance_one_request(machine, target, &stop) &&
          stop.reason == T64_STOP_REASON_BOUND && stop.tick == target;
 }
@@ -862,7 +877,8 @@ static void test_cold_profile(const fixture_bundle *bundle, size_t profile_index
   static const uint64_t retired_counts[] = {530437u, 538840u};
   const uint64_t terminal = terminal_ticks[profile_index];
   allocator_state allocations = {0u};
-  const t64_host_allocator allocator = {test_allocate, test_release, &allocations};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, &allocations);
   const t64_profile_descriptor *profile = NULL;
   t64_machine *machines[4] = {NULL, NULL, NULL, NULL};
   uint8_t initial[T64_DIGEST_SIZE];

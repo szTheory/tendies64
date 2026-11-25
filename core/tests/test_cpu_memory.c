@@ -135,8 +135,8 @@ static void set_entry(t64_machine *machine, uint32_t index,
 }
 
 static bool fixture_open_profile(fixture *value, const char *profile_id) {
-  const t64_host_allocator allocator = {
-      test_allocate, test_release, &value->allocator};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, &value->allocator);
   const t64_profile_descriptor *profile = NULL;
   uint8_t asset[IPL3_ASSET_BYTES];
   size_t index;

@@ -122,7 +122,7 @@ static bool prepare_program(t64_machine *machine,
 
 static t64_status advance_ticks(t64_machine *machine, uint64_t ticks,
                                 t64_stop_result *result_out) {
-  t64_stop_request request = {T64_STOP_GUEST_TICK, ticks};
+  t64_stop_request request = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, ticks);
 
   return t64_machine_advance(machine, &request, result_out);
 }
@@ -131,7 +131,7 @@ static bool expect_exception(t64_machine *machine, uint64_t ticks,
                              uint32_t code, uint64_t epc, bool branch_delay,
                              bool expect_bad_vaddr,
                              uint64_t bad_vaddr) {
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
   t64_status status;
   uint32_t cause = (uint32_t)machine->cpu.cp0[T64_CP0_CAUSE];
   uint32_t expected_cause = code << 2;
@@ -362,7 +362,7 @@ static bool test_eret_epc_and_resume(
   static const uint32_t handler[] = {UINT32_C(0x42000018)};
   static const uint32_t resume[] = {UINT32_C(0x24081234)};
   const uint64_t resume_pc = UINT64_C(0xffffffff80002000);
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
 
   if (!prepare_program(machine, asset, GENERAL_VECTOR, handler, 1u)) {
     return false;
@@ -398,7 +398,7 @@ static bool test_eret_error_epc_preserves_exl(
   static const uint32_t handler[] = {UINT32_C(0x42000018)};
   static const uint32_t resume[] = {UINT32_C(0x24081234)};
   const uint64_t resume_pc = UINT64_C(0xffffffff80002000);
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
 
   if (!prepare_program(machine, asset, GENERAL_VECTOR, handler, 1u)) {
     return false;
@@ -437,7 +437,7 @@ static bool test_eret_full_width_maximum_address(
     t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
   static const uint32_t handler[] = {UINT32_C(0x42000018)};
   const uint64_t maximum_aligned = UINT64_C(0xfffffffffffffffc);
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
 
   if (!prepare_program(machine, asset, GENERAL_VECTOR, handler, 1u)) {
     return false;
@@ -579,7 +579,7 @@ static bool test_data_store_tlb_miss(
 static bool test_scheduler_exhaustion_is_host_error(
     t64_machine *machine, const uint8_t asset[IPL3_ASSET_BYTES]) {
   static const uint32_t program[] = {UINT32_C(0x0000000d)};
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
   t64_status status;
 
   if (!prepare_program(machine, asset, TEST_PC, program, 1u)) {
@@ -601,8 +601,9 @@ static bool test_scheduler_exhaustion_is_host_error(
 
 int main(void) {
   allocator_state allocator_state_value = {0u};
-  const t64_host_allocator allocator = {
-      test_allocate, test_release, &allocator_state_value};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release,
+                              &allocator_state_value);
   static const exception_test_case cases[] = {
       {"SYSCALL enters the common vector without retirement",
        test_syscall_exception},

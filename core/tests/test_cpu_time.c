@@ -269,8 +269,9 @@ static void test_interrupt_owners_and_masks(void) {
 static void test_scheduler_idle_partition_and_max_tick(void) {
   t64_machine one_shot;
   t64_machine partitioned;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_MAX};
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_MAX);
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
   uint64_t expected_equality_count;
 
   T64_CHECK(setup_machine(&one_shot, false));
@@ -315,8 +316,9 @@ static void test_scheduler_idle_partition_and_max_tick(void) {
 static void test_count_wrap_partition_and_initial_equal(void) {
   t64_machine one_shot;
   t64_machine partitioned;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(4)};
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(4));
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
 
   T64_CHECK(setup_machine(&one_shot, false));
   T64_CHECK(setup_machine(&partitioned, false));
@@ -418,8 +420,9 @@ static bool run_same_tick_irq_case(bool irq_first, uint64_t expected_retired,
                                    uint64_t expected_epc) {
   t64_machine machine;
   t64_event_reservation reservation;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(2)};
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(2));
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
   t64_status status;
 
   if (!setup_machine(&machine, true) || machine.ram == NULL) {
@@ -517,8 +520,9 @@ static void test_cold_t1_cost_table_for_profile(const char *profile_id) {
       {UINT32_C(0x0022001f), UINT64_C(70), 21u, 3u},
   };
   t64_machine machine;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(0)};
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(0));
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
   size_t index;
 
   T64_CHECK(setup_t1_machine(&machine, profile_id));
@@ -569,8 +573,9 @@ static void test_cold_t1_mult_interval(void) {
 static void test_cold_t1_delay_slot_interval_for_profile(
     const char *profile_id) {
   t64_machine machine;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(2)};
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(2));
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
 
   T64_CHECK(setup_t1_machine(&machine, profile_id));
   if (machine.ram == NULL) {
@@ -611,8 +616,9 @@ static void test_cold_t1_delay_slot_interval(void) {
 static void test_cold_t1_count_random_follow_elapsed_ticks_for_profile(
     const char *profile_id) {
   t64_machine machine;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(2)};
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(2));
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
 
   T64_CHECK(setup_t1_machine(&machine, profile_id));
   if (machine.ram == NULL) {
@@ -662,8 +668,9 @@ static void test_cold_t1_fetched_compare_clear_for_profile(
     const char *profile_id) {
   const uint32_t mtc0_compare = UINT32_C(0x40885800);
   t64_machine machine;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(1));
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
 
   T64_CHECK(setup_t1_machine(&machine, profile_id));
   if (machine.ram == NULL) {
@@ -722,8 +729,9 @@ static void test_cold_t1_fetched_wired_random_tlbwr_sequence_for_profile(
   const uint32_t mfc0_random = UINT32_C(0x40090800);
   const uint32_t tlbwr = UINT32_C(0x42000006);
   t64_machine machine;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(1));
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
 
   T64_CHECK(setup_t1_machine(&machine, profile_id));
   if (machine.ram == NULL) {
@@ -804,8 +812,9 @@ static void test_cold_t1_high_wired_modulo_for_profile(
   const uint32_t mtc0_wired = UINT32_C(0x40883000);
   const uint32_t tlbwr = UINT32_C(0x42000006);
   t64_machine machine;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(32)};
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(32));
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
   size_t index;
 
   T64_CHECK(setup_t1_machine(&machine, profile_id));
@@ -883,8 +892,9 @@ static void check_t1_exception_boundary(t64_machine *machine) {
 static void test_cold_t1_exception_and_interrupt_boundaries_for_profile(
     const char *profile_id) {
   t64_machine machine;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(1)};
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(1));
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
 
   T64_CHECK(setup_t1_machine(&machine, profile_id));
   if (machine.ram == NULL) {
@@ -939,8 +949,9 @@ static void test_cold_t1_exception_and_interrupt_boundaries(void) {
 
 static void test_cold_t1_idle_count_compare_for_profile(const char *profile_id) {
   t64_machine machine;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(12)};
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(12));
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
 
   T64_CHECK(setup_t1_machine(&machine, profile_id));
   if (machine.ram == NULL) {
@@ -1120,8 +1131,9 @@ static void t1_dma_machine_release(void *context, t64_host_storage storage) {
 static bool setup_t1_dma_machine(t64_machine **machine_out,
                                 const char *profile_id, uint8_t image[4096],
                                 uint8_t dram_seed) {
-  t64_host_allocator allocator = {t1_dma_machine_allocate,
-                                  t1_dma_machine_release, NULL};
+  t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(t1_dma_machine_allocate, t1_dma_machine_release,
+                              NULL);
   const t64_profile_descriptor *profile = NULL;
   t64_machine *machine;
   size_t index;
@@ -1236,8 +1248,9 @@ static void test_cold_t1_mdu_gap_dispatches_dma_and_compare(void) {
   uint8_t digest_partitioned_a[T64_DIGEST_SIZE];
   uint8_t digest_isolated_b[T64_DIGEST_SIZE];
   uint8_t digest_interleaved_b[T64_DIGEST_SIZE];
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(14)};
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(14));
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
   size_t record_count;
   size_t pi_at_eight = SIZE_MAX;
   size_t rsp_at_eight = SIZE_MAX;
