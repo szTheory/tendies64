@@ -67,7 +67,7 @@ coverage:
         status: pass
     human_judgment: false
 
-duration: 16min
+duration: 10min
 completed: 2026-11-25
 status: complete
 ---
@@ -78,9 +78,9 @@ status: complete
 
 ## Performance
 
-- **Duration:** 16 min (the host stayed at load 16 to 26 throughout, unrelated to this project, so nothing waited)
+- **Duration:** 10 min (the host stayed at load 16 to 26 throughout, unrelated to this project, so nothing waited)
 - **Started:** 2026-11-25T22:07Z
-- **Completed:** 2026-11-25T22:23Z (this summary and the state update follow the commit)
+- **Completed:** 2026-11-25T22:17Z (the summary and the state update follow the commit)
 - **Tasks:** 2 of 2 (Task 1 is the tracer and did not commit by plan; Task 2 committed once)
 - **Files modified:** 14 (0 created); 255 insertions and 188 deletions
 

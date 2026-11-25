@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 11
 current_phase_name: Installed Consumer and Freeze Candidate
 status: executing
-stopped_at: Completed 11-06-PLAN.md
-last_updated: "2026-11-25T22:06:25.544Z"
+stopped_at: Completed 11-07-PLAN.md
+last_updated: "2026-11-25T22:17:03.756Z"
 last_activity: 2026-11-25
 last_activity_desc: Phase 11 execution started
-state_head: 82012624551ebd0b1907fdec6320afb307ae3bd5
+state_head: 75a56b9913676f980a99e61aae52c6e33b313b1f
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 46
-  completed_plans: 27
+  completed_plans: 28
   percent: 33
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 ## Current Position
 
 Phase: 11 (Installed Consumer and Freeze Candidate) — EXECUTING
-Plan: 7 of 25
+Plan: 8 of 25
 Status: Ready to execute
 Last activity: 2026-11-25 — Phase 11 execution started
 
@@ -87,6 +87,7 @@ Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 | Phase 11 P04 | 25min | 4 tasks | 19 files |
 | Phase 11 P05 | 22min | 2 tasks | 10 files |
 | Phase 11 P06 | 39 min | 2 tasks | 14 files |
+| Phase 11 P07 | 10min | 2 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -210,6 +211,7 @@ Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 - [Phase 11]: 11-03: poison and in-call flags with one entry guard on all 23 machine-taking entries; scheduler handler-error whitelist by status value (INVALID_ARGUMENT and unlisted statuses poison); state export checks before it writes; bus-write carve-out written and tested
 - [Phase 11]: Plan 11-04: reset emits the admission record and raises no in-call flag; unload clears guest state without a boot entry and releases the image with the flag raised; output status without an image is OK with zero counts and full free capacity; t64_output_status is 48 bytes; slot copy-out is inline in the two sealed observers; 13 slot member names mapped NONE in state-field-rules
 - [Phase 11]: Plan 11-05: DR-09 macros list every member explicitly so the flip edits only the first element; codemod fails closed on EXPECTED_CORPUS_PATHS, the printer and any scratch root that is not below build/ with its own toplevel and the marker; sentinel values on a zero-only type become INIT plus named member assignments; a memset of a converted object is a hand site (it would clear struct_size after the flip)
+- [Phase 11]: Plan 11-07: a byte-wise 0xa5 sentinel fill of a macro-type result becomes a file-local poison helper (INIT assignment, then every member set by name) so refusal and overwrite tests keep their detection power after the flip adds struct_size; the codemod still lists an initialized array as a hand site, so --check exits 1 by design while test_ai.c arrays remain, and the 11-10 init-form guard must accept an array whose entries all use the INIT form
 
 ### Pending Todos
 
@@ -235,8 +237,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-25T22:06:25.298Z
-Stopped at: Completed 11-06-PLAN.md
+Last session: 2026-11-25T22:17:03.604Z
+Stopped at: Completed 11-07-PLAN.md
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
