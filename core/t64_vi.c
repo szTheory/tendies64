@@ -1272,6 +1272,7 @@ t64_status t64_video_info(const t64_machine *machine,
                           t64_video_packet_info *info_out) {
   t64_address_range output_range;
 
+  T64_ENTRY_GUARD(machine);
   if (machine == NULL || info_out == NULL ||
       !t64_internal_make_range(info_out, sizeof *info_out, &output_range) ||
       !t64_internal_observation_range_is_disjoint(machine, output_range)) {
@@ -1291,6 +1292,7 @@ t64_status t64_video_copy(t64_machine *machine, uint8_t *bytes_out,
   size_t required;
   uint32_t slot;
 
+  T64_ENTRY_GUARD(machine);
   if (machine == NULL || length_out == NULL ||
       !t64_internal_make_range(length_out, sizeof *length_out, &length_range) ||
       !t64_internal_observation_range_is_disjoint(machine, length_range)) {

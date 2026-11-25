@@ -861,8 +861,14 @@ add_test(NAME unit.core.api.poison
   COMMAND test_api_poison --case poison)
 add_test(NAME unit.core.api.refusals-never-poison
   COMMAND test_api_poison --case refusals-never-poison)
+add_test(NAME unit.core.api.reentrant
+  COMMAND test_api_poison --case reentrant)
+add_test(NAME unit.core.api.null-machine
+  COMMAND test_api_poison --case null-machine)
 set_tests_properties(unit.core.api.poison
-  unit.core.api.refusals-never-poison PROPERTIES
+  unit.core.api.refusals-never-poison
+  unit.core.api.reentrant
+  unit.core.api.null-machine PROPERTIES
   LABELS "unit;phase11"
   TIMEOUT 60
   COST 1

@@ -17,6 +17,15 @@
  *                    forty refused calls of distinct shapes (NULL pointers,
  *                    bad sizes, reversed limits, past ticks, wrong save kinds,
  *                    hostile state blobs) leave the poison query at 0
+ *   reentrant        a host allocator callback that calls all 23 guarded
+ *                    entries on the same instance, during admission (the ROM
+ *                    candidate allocation of core/t64_rom.c included),
+ *                    replacement and destruction, gets T64_STATUS_REENTRANT
+ *                    with every output untouched; admission then completes OK
+ *                    and the digest equals a run without the callback calls
+ *   null-machine     every machine-taking entry with a NULL machine answers
+ *                    T64_STATUS_INVALID_ARGUMENT and leaves every sentinel
+ *                    output untouched; destroy(NULL) is a no-op
  */
 #include <stdbool.h>
 #include <stddef.h>
@@ -46,7 +55,21 @@ typedef struct {
   size_t unknown_releases;
   void *live[MAX_LIVE];
   size_t live_count;
+  /* Reentrancy hook: while hook_machine is set, every callback calls all 23
+   * guarded entries on that instance and records what came back. */
+  t64_machine *hook_machine;
+  bool in_hook;
+  unsigned hook_calls;
+  unsigned hook_allocate_calls;
+  unsigned hook_release_calls;
+  unsigned hook_entries;
+  unsigned hook_reentrant;
+  unsigned hook_untouched;
+  bool hook_saw_rom_size;
 } counting_allocator;
+
+static void run_reentrancy_hook(counting_allocator *state, bool is_allocate,
+                                size_t size);
 
 static bool counting_allocate(void *context, size_t size, size_t alignment,
                               t64_host_storage *storage_out) {
@@ -57,6 +80,7 @@ static bool counting_allocate(void *context, size_t size, size_t alignment,
       state->live_count >= MAX_LIVE) {
     return false;
   }
+  run_reentrancy_hook(state, true, size);
   memory = malloc(size);
   if (memory == NULL || (uintptr_t)memory % alignment != 0u) {
     free(memory);
@@ -77,6 +101,7 @@ static void counting_release(void *context, t64_host_storage storage) {
   if (state == NULL) {
     return;
   }
+  run_reentrancy_hook(state, false, storage.capacity);
   state->releases++;
   for (index = 0u; index < state->live_count; index++) {
     if (state->live[index] == storage.data) {
@@ -211,16 +236,6 @@ typedef struct {
   bool trace_saturated;
 } scratch;
 
-/* The four public observers whose bodies are sealed by the no-HLE checker
- * (t64_video_info, t64_video_copy, t64_audio_info, t64_audio_copy; entries 11,
- * 12, 16 and 17) get their guard in task 2 of plan 11-03, together with the
- * isolated refresh of their pins. Until then the poison sweep skips them. */
-static const bool sealed_observers_guarded = false;
-
-static bool is_sealed_observer(unsigned entry) {
-  return entry == 11u || entry == 12u || entry == 16u || entry == 17u;
-}
-
 static const char *const entry_names[ENTRY_COUNT] = {
     "admit_rom",     "advance",        "content_digest", "rom_size",
     "rom_header",    "profile",        "digest",         "state_export",
@@ -228,6 +243,10 @@ static const char *const entry_names[ENTRY_COUNT] = {
     "video_copy",    "save_info",      "save_export",    "save_import",
     "audio_info",    "audio_copy",     "queue_input",    "bus_read",
     "bus_write",     "trace_set_enabled", "trace_drain"};
+
+/* The save device kind of the profile under test; a plain value so an entry
+ * can be called with a NULL machine. */
+static uint32_t entry_save_kind = 1u;
 
 /* Call guarded entry number `entry` once with arguments that would be valid
  * on a healthy admitted instance. */
@@ -271,14 +290,14 @@ static t64_status call_entry(unsigned entry, t64_machine *machine,
     return t64_video_copy(machine, s->video_bytes, sizeof s->video_bytes,
                           &s->video_length);
   case 13:
-    return t64_machine_save_info(machine, machine->profile.save_kind,
+    return t64_machine_save_info(machine, entry_save_kind,
                                  &s->save_info);
   case 14:
-    return t64_machine_save_export(machine, machine->profile.save_kind, 1u,
+    return t64_machine_save_export(machine, entry_save_kind, 1u,
                                    s->save_bytes, sizeof s->save_bytes,
                                    &s->save_length);
   case 15:
-    return t64_machine_save_import(machine, machine->profile.save_kind, 1u,
+    return t64_machine_save_import(machine, entry_save_kind, 1u,
                                    asset_bytes, 512u);
   case 16:
     return t64_audio_info(machine, &s->audio_info);
@@ -302,6 +321,42 @@ static t64_status call_entry(unsigned entry, t64_machine *machine,
   }
 }
 
+static void run_reentrancy_hook(counting_allocator *state, bool is_allocate,
+                                size_t size) {
+  unsigned entry;
+
+  if (state->hook_machine == NULL || state->in_hook) {
+    return;
+  }
+  state->in_hook = true;
+  state->hook_calls++;
+  if (is_allocate) {
+    state->hook_allocate_calls++;
+    if (size == IPL3_ASSET_BYTES) {
+      state->hook_saw_rom_size = true;
+    }
+  } else {
+    state->hook_release_calls++;
+  }
+  for (entry = 0u; entry < ENTRY_COUNT; entry++) {
+    scratch actual;
+    scratch expected;
+    t64_status status;
+
+    (void)memset(&actual, 0xa5, sizeof actual);
+    (void)memset(&expected, 0xa5, sizeof expected);
+    status = call_entry(entry, state->hook_machine, &actual);
+    state->hook_entries++;
+    if (status == T64_STATUS_REENTRANT) {
+      state->hook_reentrant++;
+    }
+    if (memcmp(&actual, &expected, sizeof actual) == 0) {
+      state->hook_untouched++;
+    }
+  }
+  state->in_hook = false;
+}
+
 /* A forced defect poisons the instance. Every guarded entry then answers
  * POISONED, every output byte stays at its sentinel, the canonical state does
  * not move, the query answers, and destroy releases everything. */
@@ -313,6 +368,7 @@ static void case_poison(void) {
   unsigned entry;
 
   if (!make_instance(&item, SAVE_PROFILE_ID, true)) return;
+  entry_save_kind = item.machine->profile.save_kind;
   T64_CHECK(not_poisoned(item.machine));
   T64_CHECK(state_hash(item.machine, before));
   t64_test_force_defect(item.machine);
@@ -338,7 +394,6 @@ static void case_poison(void) {
     scratch expected;
     t64_status status;
 
-    if (!sealed_observers_guarded && is_sealed_observer(entry)) continue;
     (void)memset(&actual, 0xa5, sizeof actual);
     (void)memset(&expected, 0xa5, sizeof expected);
     status = call_entry(entry, item.machine, &actual);
@@ -581,8 +636,98 @@ static void case_refusals_never_poison(void) {
   destroy_and_check(&legacy_item);
 }
 
+/* Host allocator callbacks that call back into the same instance. */
+static void case_reentrant(void) {
+  instance hooked;
+  instance control;
+  uint8_t hooked_digest[T64_DIGEST_SIZE];
+  uint8_t control_digest[T64_DIGEST_SIZE];
+
+  if (!make_instance(&hooked, SAVE_PROFILE_ID, false)) return;
+  entry_save_kind = hooked.machine->profile.save_kind;
+  hooked.counts.hook_machine = hooked.machine;
+  /* Admission: the ROM candidate allocation of core/t64_rom.c (an allocator
+   * call that receives the allocator, not the instance) and the replacement
+   * that releases the previous image are both reached from inside the host
+   * callbacks of this instance. */
+  T64_CHECK_INT(t64_machine_admit_rom(hooked.machine, asset_bytes,
+                                      sizeof asset_bytes),
+                T64_STATUS_OK);
+  T64_CHECK(hooked.counts.hook_allocate_calls >= 1u);
+  T64_CHECK(hooked.counts.hook_saw_rom_size);
+  T64_CHECK_INT(t64_machine_admit_rom(hooked.machine, asset_bytes,
+                                      sizeof asset_bytes),
+                T64_STATUS_OK);
+  T64_CHECK(hooked.counts.hook_allocate_calls >= 2u);
+  T64_CHECK(hooked.counts.hook_release_calls >= 1u);
+  T64_CHECK_INT(hooked.counts.hook_entries,
+                hooked.counts.hook_calls * ENTRY_COUNT);
+  T64_CHECK_INT(hooked.counts.hook_reentrant, hooked.counts.hook_entries);
+  T64_CHECK_INT(hooked.counts.hook_untouched, hooked.counts.hook_entries);
+  T64_CHECK(not_poisoned(hooked.machine));
+  /* The calls made from the callbacks changed nothing: the digest equals the
+   * digest of an instance that never had a callback calling in. */
+  hooked.counts.hook_machine = NULL;
+  T64_CHECK_INT(t64_machine_digest(hooked.machine, hooked_digest),
+                T64_STATUS_OK);
+  if (make_instance(&control, SAVE_PROFILE_ID, true)) {
+    T64_CHECK_INT(t64_machine_admit_rom(control.machine, asset_bytes,
+                                        sizeof asset_bytes),
+                  T64_STATUS_OK);
+    T64_CHECK_INT(t64_machine_digest(control.machine, control_digest),
+                  T64_STATUS_OK);
+    T64_CHECK(memcmp(hooked_digest, control_digest, sizeof hooked_digest) ==
+              0);
+    T64_CHECK_INT(control.counts.hook_calls, 0);
+    destroy_and_check(&control);
+  }
+  /* Destruction calls the host too: the release callbacks see REENTRANT. */
+  hooked.counts.hook_machine = hooked.machine;
+  {
+    const unsigned calls_before = hooked.counts.hook_calls;
+    const unsigned entries_before = hooked.counts.hook_entries;
+
+    destroy_and_check(&hooked);
+    T64_CHECK(hooked.counts.hook_calls > calls_before);
+    T64_CHECK_INT(hooked.counts.hook_entries - entries_before,
+                  (hooked.counts.hook_calls - calls_before) * ENTRY_COUNT);
+  }
+  T64_CHECK_INT(hooked.counts.hook_reentrant, hooked.counts.hook_entries);
+  T64_CHECK_INT(hooked.counts.hook_untouched, hooked.counts.hook_entries);
+}
+
+/* A NULL machine: INVALID_ARGUMENT and untouched outputs on every entry. */
+static void case_null_machine(void) {
+  unsigned entry;
+  uint32_t poisoned_out = UINT32_C(0xa5a5a5a5);
+
+  entry_save_kind = 1u;
+  for (entry = 0u; entry < ENTRY_COUNT; entry++) {
+    scratch actual;
+    scratch expected;
+    t64_status status;
+
+    (void)memset(&actual, 0xa5, sizeof actual);
+    (void)memset(&expected, 0xa5, sizeof expected);
+    status = call_entry(entry, NULL, &actual);
+    if (status != T64_STATUS_INVALID_ARGUMENT ||
+        memcmp(&actual, &expected, sizeof actual) != 0) {
+      fprintf(stderr, "null machine entry %s: status %u\n",
+              entry_names[entry], (unsigned)status);
+    }
+    T64_CHECK_INT(status, T64_STATUS_INVALID_ARGUMENT);
+    T64_CHECK(memcmp(&actual, &expected, sizeof actual) == 0);
+  }
+  T64_CHECK_INT(t64_machine_is_poisoned(NULL, &poisoned_out),
+                T64_STATUS_INVALID_ARGUMENT);
+  T64_CHECK_INT(poisoned_out, UINT32_C(0xa5a5a5a5));
+  t64_machine_destroy(NULL);
+  T64_CHECK(true);
+}
+
 int main(int argc, char **argv) {
-  static const char *const cases[] = {"poison", "refusals-never-poison"};
+  static const char *const cases[] = {"poison", "refusals-never-poison",
+                                      "reentrant", "null-machine"};
   const char *selected = NULL;
   size_t index;
   bool ran = false;
@@ -611,6 +756,14 @@ int main(int argc, char **argv) {
     case_refusals_never_poison();
     ran = true;
   }
+  if (selected == NULL || strcmp(selected, "reentrant") == 0) {
+    case_reentrant();
+    ran = true;
+  }
+  if (selected == NULL || strcmp(selected, "null-machine") == 0) {
+    case_null_machine();
+    ran = true;
+  }
   if (!ran) {
     fprintf(stderr, "unknown case: %s\n", selected);
     return 2;
@@ -618,7 +771,14 @@ int main(int argc, char **argv) {
   if (selected == NULL) {
     return T64_TEST_FINISH("unit.core.api");
   }
-  return T64_TEST_FINISH(strcmp(selected, "poison") == 0
-                             ? "unit.core.api.poison"
-                             : "unit.core.api.refusals-never-poison");
+  if (strcmp(selected, "poison") == 0) {
+    return T64_TEST_FINISH("unit.core.api.poison");
+  }
+  if (strcmp(selected, "reentrant") == 0) {
+    return T64_TEST_FINISH("unit.core.api.reentrant");
+  }
+  if (strcmp(selected, "null-machine") == 0) {
+    return T64_TEST_FINISH("unit.core.api.null-machine");
+  }
+  return T64_TEST_FINISH("unit.core.api.refusals-never-poison");
 }

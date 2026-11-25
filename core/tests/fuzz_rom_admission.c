@@ -676,7 +676,7 @@ static void run_fixed_inventory(uint8_t *base, uint8_t *raw,
   stats.branches[BRANCH_INPUT_OVERLAP]++;
 
   if (t64_machine_admit_rom(NULL, raw, FUZZ_ROM_BYTES) !=
-      T64_STATUS_INVALID_ROM) {
+      T64_STATUS_INVALID_ARGUMENT) {
     fail_once("null machine refusal");
   }
   stats.branches[BRANCH_NULL]++;

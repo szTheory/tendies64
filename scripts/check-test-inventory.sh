@@ -281,7 +281,9 @@ repo.abi-status-classes
 repo.abi-selftest
 unit.core.api.abi-version
 unit.core.api.poison
-unit.core.api.refusals-never-poison'
+unit.core.api.refusals-never-poison
+unit.core.api.reentrant
+unit.core.api.null-machine'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU
