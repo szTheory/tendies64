@@ -268,7 +268,8 @@ unit.core.vg.perspective-floor
 unit.core.vg.shade-floor-bayer
 runner.composite-two-run
 harness.composite-oracle
-controls.real.composite-wrong-rom'
+controls.real.composite-wrong-rom
+runner.state-format-v26'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

@@ -650,7 +650,12 @@ static bool replay_flags_valid(const sup_args *a) {
  * pair, and one run has one artifact producer, so they are refused with raw
  * capture and with every save and replay flag. The leaf grammar and the
  * extension are the publisher's and the runner's (state-export-open); the
- * input triple is not an artifact producer and is allowed. */
+ * input triple is not an artifact producer and is allowed. The format string
+ * is checked against the closed set {T64_STATE_CONTAINER_FORMAT,
+ * T64_STATE_CONTAINER_FORMAT_V2} only (plan 10-15): this validator has the
+ * arguments and no profile, so it cannot know which of the two a profile takes;
+ * the profile-aware pairing (v1 with state 25, v2 with state 26) is the
+ * runner's prelaunch check (runner/t64_real.c), a refusal at guest tick 0. */
 static bool state_export_flags_valid(const sup_args *a) {
   const int any = a->state_export_seen || a->state_export_format_seen;
   const int pair = a->artifact_dir_seen && a->artifact_max_bytes_seen;
@@ -669,7 +674,8 @@ static bool state_export_flags_valid(const sup_args *a) {
   }
   return a->state_export != NULL && a->state_export[0] != '\0' &&
          strlen(a->state_export) <= 36u && a->state_export_format != NULL &&
-         strcmp(a->state_export_format, T64_STATE_CONTAINER_FORMAT) == 0;
+         (strcmp(a->state_export_format, T64_STATE_CONTAINER_FORMAT) == 0 ||
+          strcmp(a->state_export_format, T64_STATE_CONTAINER_FORMAT_V2) == 0);
 }
 
 /* Real-mode validation of the state import flags (plan 09-09, usage class):

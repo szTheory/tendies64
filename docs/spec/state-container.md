@@ -211,6 +211,12 @@ only where listed here.
   `fixtures/state/decode_container_v2.py` (a separate script: the version 1
   decoder is a pinned Phase 9 oracle and is not edited) enforces the same pairing
   with the refusal kind `container-version`.
+- Format string (plan 10-15): the public name of container version 2 is
+  `t64.state-container.v2` (`T64_STATE_CONTAINER_FORMAT_V2` in
+  `core/include/tendies64/t64_machine.h`), beside the version 1 string. It is a
+  state-format constant outside the ABI promise (a blob is build-identity-bound, see
+  "Stability"), not public API work. The runner pairs the string with the profile:
+  v1 with state 25 and v2 with state 26 (the section "Runner surface").
 - Canonical region: the domain bytes are `t64.state.si.26`. The section ids,
   their order and the framing are those of state 25: ids 1 to 10, plus 11 for the
   three save ids, then the observer section 16.
@@ -320,11 +326,16 @@ identity string and the independent decoder reads the same bytes).
 ## Runner surface
 
 Flags (real mode, provisional): `--state-export LEAF` (a `.sta` leaf of at most
-36 characters) and `--state-export-format t64.state-container.v1`, required
-together. Cross-validation, before the guest starts, with detail `usage`:
+36 characters) and `--state-export-format` (`t64.state-container.v1` or, since plan
+10-15, `t64.state-container.v2`), required together. Cross-validation, before the
+guest starts, with detail `usage`:
 
 - both flags require the artifact pair (`--artifact-dir`, `--artifact-max-bytes`);
-- the format must equal `t64.state-container.v1` exactly;
+- the format must equal `t64.state-container.v1` or `t64.state-container.v2`
+  exactly (`T64_STATE_CONTAINER_FORMAT`, `T64_STATE_CONTAINER_FORMAT_V2`): the
+  supervisor checks the closed set from its arguments alone (it has no profile in
+  scope) and the runner argument parser checks the same set, so any other string is
+  `usage` and the guest is never started;
 - refused with `--raw-capture-dir` and in synthetic mode;
 - one run has one artifact producer, so refused together with every save flag
   (`--save-import`, `--save-import-size`, `--save-import-sha256`, `--save-kind`,
@@ -335,10 +346,20 @@ together. Cross-validation, before the guest starts, with detail `usage`:
 - allowed with the `--input`, `--input-size` and `--input-sha256` triple, which
   is not an artifact producer.
 
-A profile whose state serialization version is not 25 takes the existing
-prelaunch refusal (detail `refusal`, guest tick 0; a supervised run reports the
+The string is paired with the profile by the runner at prelaunch (plan 10-15,
+`state_request_admitted` in `runner/t64_real.c`, checked after the profile is
+resolved and before the guest starts): a state export is admitted for state
+serialization version 25 with the v1 string and for state 26 with the v2 string.
+Every other pair (state 25 with the v2 string, state 26 with the v1 string, and a
+profile of any other state serialization version, such as the state 24 audio
+profile, with either string) takes the existing prelaunch refusal (detail
+`refusal`, guest tick 0, nothing published; a supervised run reports the
 report-error classification the artifact preflight refusal uses). A nonexistent
-or unsafe artifact directory is the same existing preflight refusal.
+or unsafe artifact directory is the same existing preflight refusal. The cases
+are `runner.state-format-v26` (each wrong pair next to an accepted baseline of the
+same setup) and `runner.composite-state-v2` (the positive path: a state 26 export of
+the composite with the v2 string, container version word 2, decoded by the
+independent version 2 decoder).
 
 Detail names (harness-error with a host-error stop only; the closed list is in
 [result-protocol.md](result-protocol.md)): `state-export-open` (the leaf is not a
@@ -374,6 +395,8 @@ Option-pair matrix recorded for the later drift sweep:
 | replay flags (six) | refused (`usage`) |
 | `--input` triple | allowed |
 | synthetic mode | refused (`usage`) |
+| `--state-export-format` string | closed set {`t64.state-container.v1`, `t64.state-container.v2`}, any other string refused (`usage`) by the supervisor and the runner parser |
+| format string with the profile | v1 with state 25 and v2 with state 26 only; any other pair refused at the runner prelaunch (`refusal`, guest tick 0) |
 
 ## Freeze and status
 
@@ -642,8 +665,11 @@ raw capture, a custom schedule (`--input-size` and `--input-sha256`; the input p
 itself is mandatory in real mode and keeps its default), and every flag of an earlier
 artifact family. The child repeats the family rule for its forwarded options (a
 directly started child refuses the same way, guest tick 0, before any import call) and
-refuses a profile outside the composite family with the existing prelaunch refusal
-(detail `refusal`).
+refuses a profile whose state serialization version is not 25 with the existing
+prelaunch refusal (detail `refusal`); a state 26 profile is refused too, because the
+runner has no state 26 import path (the state 26 import is proven at core level by
+`unit.core.state.import-v26-roundtrip`, plan 10-12), and `runner.state-format-v26`
+asserts the refusal.
 
 An import the importer refuses, an unreadable snapshot, or a state whose tick is above
 the bound ends in the existing prelaunch refusal (`refusal`, `refused`, guest tick 0;

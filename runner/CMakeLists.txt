@@ -758,6 +758,29 @@ add_test(NAME harness.composite-oracle
 set_tests_properties(harness.composite-oracle PROPERTIES
   LABELS "harness;phase10" TIMEOUT 60 ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
 
+# Phase 10 container format strings in the runner contract (plan 10-15,
+# CORE-06): the closed set {v1, v2} at the supervisor and the runner parser, the
+# profile pairing (v1 with state 25, v2 with state 26) at the runner prelaunch,
+# every wrong pair refused at guest tick 0. One binary, one CTest name, every
+# case in order.
+add_executable(test_state_format_v26 tests/test_state_format_v26.c)
+target_compile_definitions(test_state_format_v26 PRIVATE ${T64_HOST_DEFS})
+target_include_directories(test_state_format_v26 PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/core/include)
+target_link_libraries(test_state_format_v26 PRIVATE t64_common t64_core)
+t64_target_warnings(test_state_format_v26)
+add_dependencies(test_state_format_v26 t64-supervisor t64-supervisor-test
+  t64-result-check t64-runner-real t64-boot-fixtures t64-audio-fixture
+  t64-phase09-admit-fixture t64-phase10-composite-fixture)
+add_test(NAME runner.state-format-v26
+  COMMAND test_state_format_v26
+    $<TARGET_FILE:t64-supervisor> $<TARGET_FILE:t64-supervisor-test>
+    $<TARGET_FILE:t64-result-check> ${CMAKE_SOURCE_DIR}
+    $<TARGET_FILE:t64-runner-real>)
+set_tests_properties(runner.state-format-v26 PROPERTIES
+  LABELS "runner;controls;phase10" TIMEOUT 120
+  ENVIRONMENT "T64_PHASE10_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/10-15-evidence/state-format")
+
 # Publisher controls: the module is compiled with the testing hooks, like the
 # test twin of the runner, and never reaches the production runner.
 add_executable(test_artifact_publisher tests/test_artifact_publisher.c

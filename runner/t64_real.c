@@ -161,6 +161,11 @@ typedef struct {
   /* The state import request (plan 09-09): the verified snapshot descriptor of
    * a state container; -1 when not importing. The child never opens a path. */
   int import_fd;
+  /* The requested container format string (plan 10-15), already checked against
+   * the closed set {T64_STATE_CONTAINER_FORMAT, T64_STATE_CONTAINER_FORMAT_V2}
+   * by the option parser; NULL when not exporting. run_real pairs it with the
+   * profile's state serialization version. */
+  const char *format;
 } state_request;
 
 /* The closed import reason names written once to the diagnostic stream when a
@@ -1178,6 +1183,28 @@ static bool leaf_extension_is(const char *leaf, const char *extension) {
   return dot != NULL && dot != leaf && strcmp(dot + 1, extension) == 0;
 }
 
+/* The state request against the profile (plan 10-15, CORE-06): the format
+ * string is paired with the profile's state serialization version. An export is
+ * admitted only as (25, T64_STATE_CONTAINER_FORMAT) or (26,
+ * T64_STATE_CONTAINER_FORMAT_V2); an import is admitted for 25 only, because
+ * the runner has no state-26 import path (that import is proven at core level).
+ * A request without an export leaf or an import descriptor is always admitted.
+ * The option parser has already restricted the string to the closed set, so a
+ * state-24 profile, a 25/v2 pair and a 26/v1 pair all end here. */
+static bool state_request_admitted(const state_request *state,
+                                   uint32_t state_serialization_version) {
+  if (state->import_fd >= 0 && state_serialization_version != 25u) return false;
+  if (state->leaf == NULL) return true;
+  if (state->format == NULL) return false;
+  if (state_serialization_version == 25u) {
+    return strcmp(state->format, T64_STATE_CONTAINER_FORMAT) == 0;
+  }
+  if (state_serialization_version == 26u) {
+    return strcmp(state->format, T64_STATE_CONTAINER_FORMAT_V2) == 0;
+  }
+  return false;
+}
+
 static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
                     uint64_t guest_ticks, uint64_t advance_step,
                     int video_observation_fd, int audio_observation_fd,
@@ -1269,11 +1296,13 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
     exit_code = emit_prelaunch("refusal", "refused", guest_ticks, 0);
     goto cleanup;
   }
-  if ((state->leaf != NULL || state->import_fd >= 0) &&
-      profile->state_serialization_version != 25u) {
-    /* State export and import are defined for the composite family (state
-     * serialization version 25) only: the existing prelaunch refusal, guest
-     * tick 0. */
+  if (!state_request_admitted(state, profile->state_serialization_version)) {
+    /* The format string is paired with the profile (plan 10-15, CORE-06): a
+     * state export is admitted for state serialization version 25 with the v1
+     * string and for 26 with the v2 string; a state import stays defined for
+     * 25 only (the v26 import is proven at core level). Every other pair, a
+     * state-24 profile included, is the existing prelaunch refusal, guest tick
+     * 0. */
     exit_code = emit_prelaunch("refusal", "refused", guest_ticks, 0);
     goto cleanup;
   }
@@ -2305,8 +2334,7 @@ int main(int argc, char **argv) {
   const char *save_format_token = NULL;
   save_request save = {-1, false, 0u, 0u, 0u, NULL};
   replay_request replay = {NULL, 0u, -1, NULL};
-  state_request state = {NULL, -1};
-  const char *state_format = NULL;
+  state_request state = {NULL, -1, NULL};
   uint64_t artifact_max_bytes = 0u;
   uint64_t guest_ticks = 0u;
   uint64_t advance_step = T64_REAL_TRACE_STEP;
@@ -2431,7 +2459,7 @@ int main(int argc, char **argv) {
     } else if (strcmp(option, "--state-export-format") == 0 &&
                !seen_state_format && value[0] != '\0' &&
                strlen(value) <= 36u) {
-      state_format = value;
+      state.format = value;
       seen_state_format = true;
     } else if (strcmp(option, "--state-import-fd") == 0 &&
                !seen_state_import && parse_fd(value, &state.import_fd)) {
@@ -2510,7 +2538,8 @@ int main(int argc, char **argv) {
         seen_raw_capture_dir || seen_save_import || seen_save_kind ||
         seen_save_format || seen_save_export_leaf || seen_replay_record ||
         seen_replay_interval || seen_replay_fd || seen_replay_report ||
-        strcmp(state_format, T64_STATE_CONTAINER_FORMAT) != 0) {
+        (strcmp(state.format, T64_STATE_CONTAINER_FORMAT) != 0 &&
+         strcmp(state.format, T64_STATE_CONTAINER_FORMAT_V2) != 0)) {
       return emit_prelaunch("usage", "not-started", guest_ticks, 2);
     }
   }

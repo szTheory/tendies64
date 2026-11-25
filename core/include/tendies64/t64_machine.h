@@ -392,7 +392,8 @@ t64_status t64_machine_digest(const t64_machine *machine,
  * docs/spec/state-container.md; it is an integrity-checked copy of the
  * canonical machine state plus the host observer cursors, not an
  * authenticated or portable artifact. Export is defined for the composite
- * family (state serialization version 25) only.
+ * family: state serialization version 25 (container version 1) and, since plan
+ * 10-11, version 26 (container version 2, the si-v2 profiles).
  *
  * Size-then-copy-out: a NULL buffer or a capacity below the required length
  * returns BUFFER_TOO_SMALL, sets *length_out to the required length and
@@ -411,6 +412,17 @@ t64_status t64_machine_digest(const t64_machine *machine,
 t64_status t64_machine_state_export(const t64_machine *machine,
                                     uint8_t *bytes_out, size_t capacity,
                                     size_t *length_out);
+/*
+ * The public name of container version 2 (plan 10-15, CORE-06), beside
+ * T64_STATE_CONTAINER_FORMAT above: a state serialization version 26 machine
+ * (the si-v2 profiles) writes container version word 2. This is a state-format
+ * constant, outside the ABI promise: a state blob is accepted only by the build
+ * identity and profile that wrote it (docs/spec/state-container.md, "Stability"),
+ * and the string is not public API work (the API is Phase 11). The runner pairs
+ * the string with the profile at prelaunch: the v1 string with state 25 and the
+ * v2 string with state 26; every other pair is refused at guest tick 0.
+ */
+#define T64_STATE_CONTAINER_FORMAT_V2 "t64.state-container.v2"
 
 /*
  * State import (plan 09-09; provisional until Phase 10, no API or ABI freeze).

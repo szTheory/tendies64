@@ -1221,8 +1221,12 @@ static int case_export_refusals(void) {
   expect_usage(&run);
   CHECK(list_directory(dir, first) == 0u);
   {
+    /* A string outside the closed set. Since plan 10-15 the v2 string is a
+     * member of the set (paired with state 26 at the runner prelaunch), so the
+     * wrong string of this control is the v3 one; the control and its case are
+     * unchanged. */
     const char *wrong[] = {"--state-export", STATE_LEAF,
-                           "--state-export-format", "t64.state-container.v2"};
+                           "--state-export-format", "t64.state-container.v3"};
     spec.extra = wrong;
     spec.extra_count = 4u;
     CHECK(run_supervised(&spec, &run));
