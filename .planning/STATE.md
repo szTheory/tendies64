@@ -239,3 +239,5 @@ pass. This approval applies to that specific repair, not future private values.
 
 ### Blockers
 None
+
+- Owner approval 2026-11-25 (answer "Approve call-site-only rebind", Phase 11 plan-phase): Phase 11 may perform an identity-only, orchestrator-only rebind of the Phase 7 oracle request after API call-site-only edits to the nine bound test files (core/tests/test_rdp{,_copy,_triangles,_texture,_combiner,_blender,_depth}.c, test_vi.c, test_video_output.c, runner/tests/test_rdp_video.c): reproduce the old pinned hash first, change only those call sites and the derived hashes and PINNED_REQUEST_SHA256, keep local_decision blocked, isolate in one commit. No oracle, rights or publication authority granted.
