@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 10
 current_phase_name: Carry-in Closure Before the Freeze
 status: executing
-stopped_at: Completed 10-13-PLAN.md
-last_updated: "2026-11-25T02:17:56.523Z"
+stopped_at: Completed 10-14-PLAN.md
+last_updated: "2026-11-25T02:45:48.356Z"
 last_activity: 2026-11-23
 last_activity_desc: Phase 10 execution started
-state_head: cc02e17c53a1a51ce6f805b7e096173cef0f3d96
+state_head: ffc08c1285c5008cd2f93be8cdfa8408808be592
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 19
-  completed_plans: 13
+  completed_plans: 14
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 ## Current Position
 
 Phase: 10 (Carry-in Closure Before the Freeze) — EXECUTING
-Plan: 14 of 19
+Plan: 15 of 19
 Status: Ready to execute
 Last activity: 2026-11-23 — Phase 10 execution started
 
@@ -73,6 +73,7 @@ Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
 | Phase 10 P10 | 27 min | 4 tasks | 11 files |
 | Phase 10 P12 | 38 min | 4 tasks | 11 files |
 | Phase 10 P13 | 31 min | 3 tasks | 3 files |
+| Phase 10 P14 | 26 min | 4 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -163,6 +164,8 @@ Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
 - [Phase 10]: Plan 10-13 Wave 2 review passes with no blocking finding (gate 248 of 248, ASan 24 of 24, sweep 0 differences from two bases, one tuple, one domain, one container value 2); design decision D10 (written-out Z product bound) accepted; pushed f57b019 with a green hosted pair (run 45530265365); Wave 3 base 1cded8de34b0c2f5c5bea903095ffc7f1e55d6fc
 - [Phase 10]: Plan 10-13 warnings W2-01 (Z product bound and its parity case are unpinned: two perturbed bounds survive the committed tests) and W2-02 (two exact-tuple predicates are not membership tokens, six site rows missing) await a decision on a follow-up numbered plan; neither blocks Wave 3
 - [Phase 10]: Plan 10-13 hosted gate-macos warm sample 496 s is the highest so far (cold projection 682 s, margin 218 s, F-122); plan 10-17 re-reads the total before the cold run of plan 10-19
+- [Phase 10]: 10-14: composite guest sources (419275d) and rows (f027b05) are two commits so source.revision names a commit holding the source; f027b05 is the one commit touching fixtures/manifest.json since the Wave 3 base
+- [Phase 10]: 10-14: composite runner rows use the long guest-tick cap (guest completes at tick 599,357, 643 below the default cap); plan 10-15 passes --input-size and --input-sha256 for composite.input.json
 
 ### Pending Todos
 
@@ -188,8 +191,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-25T02:17:56.500Z
-Stopped at: Completed 10-13-PLAN.md
+Last session: 2026-11-25T02:45:48.331Z
+Stopped at: Completed 10-14-PLAN.md
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).

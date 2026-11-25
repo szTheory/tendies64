@@ -71,7 +71,7 @@ corpus and a replay adapter (Plan 07-13). No oracle work happens until then.
   3. VG-01 to VG-05 and the standard-NTSC VI clock vector each have independently derived expected values and at least one mutant that fails
   4. One composite guest reports exact raw video and audio from a capture run and exact save bytes from a save-out run with the same final digest, each output compared with its own independent expectation and each with a wrong-value control
   5. A measured cold-cache hosted gate-macos run finishes inside its limit; before/after step timings, the 15-minute limit with its scanner rule, and the pinned limit relation are recorded; adding a manifest row no longer requires an oracle-request rebind
-**Plans:** 13/19 plans executed (linear chain; phase-waves 0-4; review plans 10-05, 10-08, 10-13, 10-18)
+**Plans:** 14/19 plans executed (linear chain; phase-waves 0-4; review plans 10-05, 10-08, 10-13, 10-18)
 **G5 exception (recorded 2026-11-23, plan check iteration 1):** 19 plans exceed the about 10-15 guideline because the four per-wave review plans are mandated by AUTONOMY v1.2 ("review per wave in scratch clones") and the qualifier (10-17) is split from the one qualification (10-19); folding them would break the 4-task / about 45-minute plan cap, so the plans are not folded.
 **G4 exception (recorded 2026-11-23, plan check iterations 2 and 3; for owner review):** the required gate grows in Phase 10 without removing equal time, because the new tests (K1 Z refusal, the VG vectors, the v26 identity and state round trips, the RUN-07 composite runs and the per-row binding controls) are the required evidence of this phase's success criteria and must gate everything later phases build on. No offset removes measured gate time: GATE-01's explicit CTest COST properties change the ctest scheduling order only, and the 15-minute gate-macos limit with its scanner rule and SC5's measured cold-cache run raise the ceiling and measure the result, but shorten nothing; the redundant rsp-no-hle guard in the audio-records step (about 25-32 s, research C3) is a stop-loss that may be declined, so it is not counted as an offset unless its removal is measured. Expected growth: the gate grows by the summed native seconds of every new Phase 10 CTest name; that value is not known at planning and is the PIN-IMPACT.md "Gate-growth ledger" total row (per-wave rows from 10-05, 10-08, 10-13 and 10-18, the measured total from 10-17 before the cold run), and the binding figure is the measured cold-cache gate-macos job seconds of plan 10-19 against the 900 s limit (pre-Phase-10 cold projection 673 s). Reversal evidence: the PIN-IMPACT.md "Gate-growth ledger" records each wave's new names, measured added native seconds, hosted delta and margin to 900 s; if the measured cold-cache gate-macos run (plan 10-19) exceeds 900 s or is cancelled at the limit, a new numbered plan moves non-essential Phase 10 cases (sampled sanitizer runs, duplicate-path round trips) to a non-gating lane and the cold run is repeated. The exception covers Phase 10 only; Phases 11 and 12 follow G4 as written.
 
@@ -116,7 +116,7 @@ Plans:
 - [x] 10-13-PLAN.md — W2 review of the identity/state bump, push
 
 **Wave 14** *(blocked on Wave 13 completion)*
-- [ ] 10-14-PLAN.md — W3: authored composite guest, builder, oracle, the one manifest-moving commit
+- [x] 10-14-PLAN.md — W3: authored composite guest, builder, oracle, the one manifest-moving commit
 
 **Wave 15** *(blocked on Wave 14 completion)*
 - [ ] 10-15-PLAN.md — W3: two supervised runs with equal digest, per-output expectations and controls, runner container-v2 format pairing
@@ -184,6 +184,6 @@ Priority order. NEXT and NEAR items name their promotion evidence and blocking d
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 10. Carry-in Closure Before the Freeze | v1.2 | 13/19 | In Progress | - |
+| 10. Carry-in Closure Before the Freeze | v1.2 | 14/19 | In Progress | - |
 | 11. Installed Consumer and Freeze Candidate | v1.2 | 0/TBD | Not started | - |
 | 12. Minimal Host, Playable Homebrew and Final Bind | v1.2 | 0/TBD | Not started | - |
