@@ -70,9 +70,9 @@ static bool fixture_init_with_profile(
     machine_fixture *fixture, uint8_t salt,
     const t64_profile_descriptor *profile) {
   (void)memset(fixture, 0, sizeof *fixture);
-  fixture->allocator.allocate = test_allocate;
-  fixture->allocator.release = test_release;
-  fixture->allocator.context = &fixture->host_state;
+  fixture->allocator =
+      (t64_host_allocator)T64_HOST_ALLOCATOR_INIT(test_allocate, test_release,
+                                                  &fixture->host_state);
   fill_authored_rom(fixture->image, salt);
   if (profile == NULL ||
       t64_machine_create(&fixture->allocator, profile, &fixture->machine) !=
@@ -108,8 +108,9 @@ static void fixture_destroy(machine_fixture *fixture) {
 
 static void test_unattainable_instruction_bound_and_counter_refusal(void) {
   machine_fixture fixture;
-  t64_stop_request request = {T64_STOP_INSTRUCTION_COUNT, UINT64_C(1)};
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_INSTRUCTION_COUNT, UINT64_C(1));
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
   size_t allocations_before;
   size_t releases_before;
   t64_status status;
@@ -163,8 +164,9 @@ static void test_unattainable_instruction_bound_and_counter_refusal(void) {
 static void test_inclusive_time_bounds_idle_advance_and_order(void) {
   machine_fixture fixture;
   machine_fixture idle_fixture;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(10)};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(10));
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   size_t i;
 
   T64_CHECK(fixture_init(&fixture, 2u));
@@ -228,8 +230,9 @@ static void test_inclusive_time_bounds_idle_advance_and_order(void) {
 static void test_fifo_counter_stop_leaves_later_same_tick_event(void) {
   machine_fixture first_fixture;
   machine_fixture reverse_fixture;
-  t64_stop_request request = {T64_STOP_INSTRUCTION_COUNT, UINT64_C(1)};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_INSTRUCTION_COUNT, UINT64_C(1));
+  t64_stop_result result = T64_STOP_RESULT_INIT;
 
   T64_CHECK(fixture_init(&first_fixture, 4u));
   if (first_fixture.machine == NULL) {
@@ -281,8 +284,9 @@ static void test_fifo_counter_stop_leaves_later_same_tick_event(void) {
 static void test_halt_precedence_at_time_and_counter_bounds(void) {
   machine_fixture time_fixture;
   machine_fixture counter_fixture;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(7)};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(7));
+  t64_stop_result result = T64_STOP_RESULT_INIT;
 
   T64_CHECK(fixture_init(&time_fixture, 6u));
   if (time_fixture.machine == NULL) {
@@ -446,8 +450,9 @@ static void test_queue_sequence_and_tick_exhaustion_are_transactional(void) {
                       .tick,
                   UINT64_MAX);
     {
-      t64_stop_request max_request = {T64_STOP_GUEST_TICK, UINT64_MAX};
-      t64_stop_result max_result = {0u, 0u};
+      t64_stop_request max_request =
+          T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_MAX);
+      t64_stop_result max_result = T64_STOP_RESULT_INIT;
 
       T64_CHECK_INT(t64_machine_advance(tick_fixture.machine, &max_request,
                                         &max_result),
@@ -461,8 +466,9 @@ static void test_queue_sequence_and_tick_exhaustion_are_transactional(void) {
 
   T64_CHECK(fixture_init(&max_advance_fixture, 14u));
   if (max_advance_fixture.machine != NULL) {
-    t64_stop_request max_request = {T64_STOP_GUEST_TICK, UINT64_MAX};
-    t64_stop_result max_result = {0u, 0u};
+    t64_stop_request max_request =
+        T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_MAX);
+    t64_stop_result max_result = T64_STOP_RESULT_INIT;
 
     T64_CHECK_INT(t64_machine_advance(max_advance_fixture.machine, &max_request,
                                       &max_result),
@@ -481,8 +487,8 @@ static void test_queue_sequence_and_tick_exhaustion_are_transactional(void) {
 static void test_successful_rom_replacement_resets_scheduler_state(void) {
   machine_fixture fixture;
   uint8_t replacement[TEST_ROM_SIZE];
-  t64_stop_request request = {T64_STOP_GUEST_TICK, 4u};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, 4u);
+  t64_stop_result result = T64_STOP_RESULT_INIT;
 
   T64_CHECK(fixture_init(&fixture, 15u));
   if (fixture.machine == NULL) {
@@ -516,8 +522,9 @@ static void test_successful_rom_replacement_resets_scheduler_state(void) {
 static void test_counter_overflow_and_event_budget_preserve_pending_work(void) {
   machine_fixture overflow_fixture;
   machine_fixture budget_fixture;
-  t64_stop_request request = {T64_STOP_INSTRUCTION_COUNT, UINT64_MAX};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_INSTRUCTION_COUNT, UINT64_MAX);
+  t64_stop_result result = T64_STOP_RESULT_INIT;
 
   T64_CHECK(fixture_init(&overflow_fixture, 11u));
   if (overflow_fixture.machine == NULL) {
@@ -564,8 +571,9 @@ static void test_counter_overflow_and_event_budget_preserve_pending_work(void) {
 static void test_one_shot_and_partitioned_time_advance_match(void) {
   machine_fixture one_shot;
   machine_fixture partitioned;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(10)};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(10));
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   uint8_t one_shot_digest[T64_DIGEST_SIZE];
   uint8_t partitioned_digest[T64_DIGEST_SIZE];
 

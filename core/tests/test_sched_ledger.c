@@ -53,8 +53,8 @@ static void test_release(void *context, t64_host_storage storage) {
   free(storage.data);
 }
 
-static const t64_host_allocator allocator = {test_allocate, test_release,
-                                             NULL};
+static const t64_host_allocator allocator =
+    T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, NULL);
 
 static bool read_openipl3_asset(uint8_t bytes[IPL3_ASSET_BYTES]) {
   const char *path = getenv("T64_TEST_IPL3_PATH");
@@ -193,8 +193,9 @@ static void observe_run(t64_machine *machine, observed_set *set,
   uint64_t i;
 
   for (i = 0u; i < ticks; i++) {
-    t64_stop_request request = {T64_STOP_GUEST_TICK, machine->tick + 1u};
-    t64_stop_result stop = {0u, 0u};
+    t64_stop_request request =
+        T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, machine->tick + 1u);
+    t64_stop_result stop = T64_STOP_RESULT_INIT;
 
     observe_queue(machine, set);
     if (t64_machine_advance(machine, &request, &stop) != T64_STATUS_OK) {
@@ -396,8 +397,8 @@ static void observe_synthetic(observed_set *set) {
   observe_queue(machine, set);
   /* Run until the halt event stops the guest at its tick. */
   {
-    t64_stop_request request = {T64_STOP_GUEST_TICK, 30u};
-    t64_stop_result stop = {0u, 0u};
+    t64_stop_request request = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, 30u);
+    t64_stop_result stop = T64_STOP_RESULT_INIT;
 
     T64_CHECK_INT(t64_machine_advance(machine, &request, &stop),
                   T64_STATUS_OK);
@@ -548,8 +549,8 @@ static void check_label_pair(size_t first_index, size_t second_index) {
   t64_machine *machine = create_admitted();
   const ledger_row *first = &ledger_table[first_index];
   const ledger_row *second = &ledger_table[second_index];
-  t64_stop_request request;
-  t64_stop_result stop = {0u, 0u};
+  t64_stop_request request = T64_STOP_REQUEST_INIT(0u, 0u);
+  t64_stop_result stop = T64_STOP_RESULT_INIT;
   uint64_t tick;
 
   T64_CHECK(machine != NULL);
@@ -562,7 +563,7 @@ static void check_label_pair(size_t first_index, size_t second_index) {
   reserve_labeled(machine, tick, second);
   T64_CHECK_INT(machine->queue_count, 2u);
   T64_CHECK(queued_in_order(machine, tick, first, second));
-  request = (t64_stop_request){T64_STOP_GUEST_TICK, tick};
+  request = (t64_stop_request)T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, tick);
   T64_CHECK_INT(t64_machine_advance(machine, &request, &stop), T64_STATUS_OK);
   T64_CHECK_INT(order_log_count, 2u);
   if (order_log_count == 2u) {
@@ -614,8 +615,8 @@ static bool dispatch_order(t64_machine *machine, uint64_t tick,
   size_t count = 0u;
   uint64_t dropped = 0u;
   bool saturated = false;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, tick};
-  t64_stop_result stop = {0u, 0u};
+  t64_stop_request request = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, tick);
+  t64_stop_result stop = T64_STOP_RESULT_INIT;
 
   T64_CHECK_INT(t64_machine_trace_set_enabled(machine, true), T64_STATUS_OK);
   T64_CHECK_INT(t64_machine_advance(machine, &request, &stop), T64_STATUS_OK);

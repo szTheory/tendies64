@@ -81,7 +81,8 @@ static void test_release(void *context, t64_host_storage storage) {
 }
 
 static t64_machine *create_machine_for_profile(const char *profile_id) {
-  const t64_host_allocator allocator = {test_allocate, test_release, NULL};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, NULL);
   const char *path = getenv("T64_TEST_RDP_FILL_PATH");
   const t64_profile_descriptor *profile = NULL;
   t64_machine *machine = NULL;
@@ -697,7 +698,9 @@ static bool advance_guest_to_tick(t64_machine *machine, uint64_t tick,
 
   for (attempt = 0u; attempt < 512u; attempt++) {
     t64_status status = t64_machine_advance(
-        machine, &(t64_stop_request){T64_STOP_GUEST_TICK, tick}, stop_out);
+        machine,
+        &(t64_stop_request)T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, tick),
+        stop_out);
 
     T64_CHECK_INT(status, T64_STATUS_OK);
     if (status != T64_STATUS_OK) return false;
@@ -746,8 +749,8 @@ static void case_ntsc_clock(void) {
   static const uint64_t first_field_ticks = UINT64_C(1042709);
   static const uint64_t first_line_ticks = UINT64_C(3973);
   t64_machine *machine = create_machine_for_profile(VI_V8_PROFILE_ID);
-  t64_stop_result stop = {UINT32_MAX, UINT64_MAX};
-  t64_video_packet_info info = {0};
+  t64_stop_result stop = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
+  t64_video_packet_info info = T64_VIDEO_PACKET_INFO_INIT;
   uint64_t t0;
   uint8_t observed_ticks_bytes[8];
   uint8_t expected_ticks_bytes[8];
@@ -838,7 +841,7 @@ static bool scan_out_5551(const char *profile_id, uint32_t status,
                           uint32_t *status_out) {
   static const uint64_t boundary_ticks[2] = {UINT64_C(83), UINT64_C(166)};
   t64_machine *machine = create_machine_for_profile(profile_id);
-  t64_stop_result stop = {UINT32_MAX, UINT64_MAX};
+  t64_stop_result stop = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
   size_t length = 0u;
   unsigned field;
   uint32_t i;
@@ -910,13 +913,13 @@ static void case_rgba5551_alpha_clear(void) {
   uint8_t v8_packets[2][VI_PACKET_BYTES];
   uint8_t v9_packets[2][VI_PACKET_BYTES];
   uint8_t wrong[VI_PACKET_BYTES];
-  t64_video_packet_info v8_infos[2];
-  t64_video_packet_info v9_infos[2];
+  t64_video_packet_info v8_infos[2] = {T64_VIDEO_PACKET_INFO_INIT,
+                                       T64_VIDEO_PACKET_INFO_INIT};
+  t64_video_packet_info v9_infos[2] = {T64_VIDEO_PACKET_INFO_INIT,
+                                       T64_VIDEO_PACKET_INFO_INIT};
 
   memset(v8_packets, 0, sizeof v8_packets);
   memset(v9_packets, 0, sizeof v9_packets);
-  memset(v8_infos, 0, sizeof v8_infos);
-  memset(v9_infos, 0, sizeof v9_infos);
 
   T64_CHECK(scan_out_5551(VI_V8_PROFILE_ID, UINT32_C(0x02), 4u, 3u, pixels,
                           UINT32_C(0x00020008), UINT32_C(0x400), 1u,
@@ -999,7 +1002,8 @@ static void case_serrate_filter_parity(void) {
   static const uint8_t pixel_blend[4] = {111u, 152u, 173u, 255u};
   uint16_t source[4u * 8u];
   uint8_t packets[2][VI_PACKET_BYTES];
-  t64_video_packet_info infos[2];
+  t64_video_packet_info infos[2] = {T64_VIDEO_PACKET_INFO_INIT,
+                                    T64_VIDEO_PACKET_INFO_INIT};
   uint8_t expected_field1[VI_PACKET_BYTES];
   uint8_t expected_field0[VI_PACKET_BYTES];
   uint8_t wrong[VI_PACKET_BYTES];
@@ -1013,7 +1017,6 @@ static void case_serrate_filter_parity(void) {
   fill_packet(expected_field1, pixel_x);
   fill_packet(expected_field0, pixel_y);
   memset(packets, 0, sizeof packets);
-  memset(infos, 0, sizeof infos);
 
   T64_CHECK(scan_out_5551(VI_V9_PROFILE_ID, UINT32_C(0x242), 4u, 8u, source,
                           UINT32_C(0x00020008), UINT32_C(0x02000400), 2u,

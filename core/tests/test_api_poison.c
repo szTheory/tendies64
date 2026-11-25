@@ -151,9 +151,8 @@ static bool make_instance(instance *item, const char *profile_id,
   const t64_profile_descriptor *profile = NULL;
 
   (void)memset(item, 0, sizeof *item);
-  item->allocator.allocate = counting_allocate;
-  item->allocator.release = counting_release;
-  item->allocator.context = &item->counts;
+  item->allocator = (t64_host_allocator)T64_HOST_ALLOCATOR_INIT(
+      counting_allocate, counting_release, &item->counts);
   T64_CHECK_INT(t64_profile_lookup(profile_id, &profile), T64_STATUS_OK);
   if (profile == NULL) return false;
   T64_CHECK_INT(t64_machine_create(&item->allocator, profile, &item->machine),
@@ -242,6 +241,142 @@ typedef struct {
   t64_output_status output_status;
 } scratch;
 
+/* ---- sentinels for the in/out records ----------------------------------
+ * A poisoned record is the INIT form of its type first, so a leading
+ * struct_size stays valid, and then a non-zero value in every other member by
+ * name (the values a byte fill of 0xA5 gave). A byte fill would also clobber a
+ * leading struct_size, and a plain INIT assignment would let a callee that
+ * writes zeros, or leaves a member alone, pass the checks of the fields it must
+ * overwrite. */
+#define POISON_U32 UINT32_C(0xa5a5a5a5)
+#define POISON_U64 UINT64_C(0xa5a5a5a5a5a5a5a5)
+#define POISON_SIZE ((size_t)POISON_U64)
+
+static void poison_stop_result(t64_stop_result *value) {
+  *value = (t64_stop_result)T64_STOP_RESULT_INIT_WITH(POISON_U32, POISON_U64);
+}
+
+static void poison_cpu_stop_detail(t64_cpu_stop_detail *value) {
+  *value = (t64_cpu_stop_detail)T64_CPU_STOP_DETAIL_INIT;
+  value->retired_instructions = POISON_U64;
+  value->pc = POISON_U32;
+  value->opcode = POISON_U32;
+}
+
+static void poison_drain_result(t64_output_drain_result *value) {
+  *value = (t64_output_drain_result)T64_OUTPUT_DRAIN_RESULT_INIT;
+  value->copied_bytes = POISON_SIZE;
+  value->required_bytes = POISON_SIZE;
+  value->total_attempted_bytes = POISON_U64;
+  (void)memset(value->captured_sha256, 0xa5, sizeof value->captured_sha256);
+  value->lost_output = true;
+  value->total_attempted_bytes_exact = true;
+}
+
+static void poison_import_report(t64_state_import_report *value) {
+  *value = (t64_state_import_report)T64_STATE_IMPORT_REPORT_INIT;
+  value->status = POISON_U32;
+  value->reason = POISON_U32;
+  value->section_id = POISON_U32;
+  value->rule = POISON_U32;
+  value->position = POISON_U64;
+}
+
+static void poison_save_info(t64_save_info *value) {
+  *value = (t64_save_info)T64_SAVE_INFO_INIT;
+  value->kind = POISON_U32;
+  value->size_bytes = POISON_U32;
+  value->flags = POISON_U32;
+  value->write_generation = POISON_U64;
+}
+
+static void poison_output_status(t64_output_status *value) {
+  *value = (t64_output_status)T64_OUTPUT_STATUS_INIT;
+  value->video_queued = POISON_U32;
+  value->video_free = POISON_U32;
+  value->reserved0 = POISON_U32;
+  value->video_next_bytes = POISON_U64;
+  value->audio_queued = POISON_U32;
+  value->audio_free = POISON_U32;
+  value->audio_next_bytes = POISON_U64;
+  value->text_pending_bytes = POISON_U64;
+}
+
+static void poison_audio_info(t64_audio_packet_info *value) {
+  *value = (t64_audio_packet_info)T64_AUDIO_PACKET_INFO_INIT;
+  value->sequence = POISON_U64;
+  value->first_sample_index = POISON_U64;
+  value->first_tick = POISON_U64;
+  value->last_tick = POISON_U64;
+  value->frame_count = POISON_U32;
+  value->rate_numerator = POISON_U64;
+  value->rate_denominator = POISON_U64;
+  value->channels = POISON_U32;
+  value->bits_per_sample = POISON_U32;
+  value->encoding = POISON_U32;
+  value->byte_length = POISON_SIZE;
+  (void)memset(value->profile_id, 0xa5, sizeof value->profile_id);
+  (void)memset(value->build_id, 0xa5, sizeof value->build_id);
+}
+
+static void poison_video_info(t64_video_packet_info *value) {
+  *value = (t64_video_packet_info)T64_VIDEO_PACKET_INFO_INIT;
+  value->width = POISON_U32;
+  value->height = POISON_U32;
+  value->stride_bytes = POISON_U32;
+  value->source_address = POISON_U32;
+  value->source_format = POISON_U32;
+  value->output_encoding = POISON_U32;
+  value->field = POISON_U32;
+  value->parity = POISON_U32;
+  value->control = POISON_U32;
+  value->burst = POISON_U32;
+  value->h_sync = POISON_U32;
+  value->v_sync = POISON_U32;
+  value->h_start = POISON_U32;
+  value->h_end = POISON_U32;
+  value->v_start = POISON_U32;
+  value->v_end = POISON_U32;
+  value->source_width = POISON_U32;
+  value->source_pitch_bytes = POISON_U32;
+  value->source_x_offset = POISON_U32;
+  value->source_y_offset = POISON_U32;
+  value->x_scale = POISON_U32;
+  value->y_scale = POISON_U32;
+  value->filter = POISON_U32;
+  value->start_tick = POISON_U64;
+  value->end_tick = POISON_U64;
+  value->sequence = POISON_U64;
+  value->commands_completed = POISON_U64;
+  value->fullsync_completed = POISON_U64;
+  value->last_command_word = POISON_U64;
+  value->last_command_byte = POISON_U32;
+  value->last_opcode_field = POISON_U32;
+  value->source_bytes = POISON_SIZE;
+  value->packet_bytes = POISON_SIZE;
+  (void)memset(value->profile_id, 0xa5, sizeof value->profile_id);
+  (void)memset(value->build_id, 0xa5, sizeof value->build_id);
+  (void)memset(value->vi_clock_policy, 0xa5, sizeof value->vi_clock_policy);
+  (void)memset(value->vi_output_policy, 0xa5, sizeof value->vi_output_policy);
+}
+
+/* The whole record at 0xA5, then every in/out member of a public struct type
+ * re-poisoned from its INIT form, so a leading struct_size stays valid and the
+ * members still hold a non-zero sentinel. A caller compares the record with a
+ * byte copy of itself (memcpy, never a second poisoning), so padding inside the
+ * members cannot differ between the two sides. */
+static void scratch_poison(scratch *s) {
+  (void)memset(s, 0xa5, sizeof *s);
+  poison_stop_result(&s->stop_result);
+  poison_import_report(&s->report);
+  poison_cpu_stop_detail(&s->detail);
+  poison_drain_result(&s->drain);
+  poison_video_info(&s->video_info);
+  poison_save_info(&s->save_info);
+  poison_audio_info(&s->audio_info);
+  poison_output_status(&s->output_status);
+}
+
 static const char *const entry_names[ENTRY_COUNT] = {
     "admit_rom",     "advance",        "content_digest", "rom_size",
     "rom_header",    "profile",        "digest",         "state_export",
@@ -259,7 +394,7 @@ static uint32_t entry_save_kind = 1u;
  * on a healthy admitted instance. */
 static t64_status call_entry(unsigned entry, t64_machine *machine,
                              scratch *s) {
-  t64_stop_request request;
+  t64_stop_request request = T64_STOP_REQUEST_INIT(0u, 0u);
 
   request.kind = T64_STOP_GUEST_TICK;
   request.value = UINT64_C(100000);
@@ -356,8 +491,8 @@ static void run_reentrancy_hook(counting_allocator *state, bool is_allocate,
     scratch expected;
     t64_status status;
 
-    (void)memset(&actual, 0xa5, sizeof actual);
-    (void)memset(&expected, 0xa5, sizeof expected);
+    scratch_poison(&actual);
+    (void)memcpy(&expected, &actual, sizeof expected);
     status = call_entry(entry, state->hook_machine, &actual);
     state->hook_entries++;
     if (status == T64_STATUS_REENTRANT) {
@@ -407,8 +542,8 @@ static void case_poison(void) {
     scratch expected;
     t64_status status;
 
-    (void)memset(&actual, 0xa5, sizeof actual);
-    (void)memset(&expected, 0xa5, sizeof expected);
+    scratch_poison(&actual);
+    (void)memcpy(&expected, &actual, sizeof expected);
     status = call_entry(entry, item.machine, &actual);
     if (status != T64_STATUS_POISONED ||
         memcmp(&actual, &expected, sizeof actual) != 0) {
@@ -500,14 +635,14 @@ static void case_refusals_never_poison(void) {
   uint32_t save_kind;
   uint32_t value = 0u;
   const t64_profile_descriptor *profile = NULL;
-  t64_stop_request request;
-  t64_stop_result result;
-  t64_state_import_report report;
-  t64_cpu_stop_detail detail;
-  t64_output_drain_result drain;
-  t64_video_packet_info video_info;
-  t64_audio_packet_info audio_info;
-  t64_save_info save_info;
+  t64_stop_request request = T64_STOP_REQUEST_INIT(0u, 0u);
+  t64_stop_result result = T64_STOP_RESULT_INIT;
+  t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
+  t64_cpu_stop_detail detail = T64_CPU_STOP_DETAIL_INIT;
+  t64_output_drain_result drain = T64_OUTPUT_DRAIN_RESULT_INIT;
+  t64_video_packet_info video_info = T64_VIDEO_PACKET_INFO_INIT;
+  t64_audio_packet_info audio_info = T64_AUDIO_PACKET_INFO_INIT;
+  t64_save_info save_info = T64_SAVE_INFO_INIT;
   t64_trace_record records[2];
   size_t trace_count = 0u;
   uint64_t trace_dropped = 0u;
@@ -740,8 +875,8 @@ static void case_null_machine(void) {
     scratch expected;
     t64_status status;
 
-    (void)memset(&actual, 0xa5, sizeof actual);
-    (void)memset(&expected, 0xa5, sizeof expected);
+    scratch_poison(&actual);
+    (void)memcpy(&expected, &actual, sizeof expected);
     status = call_entry(entry, NULL, &actual);
     if (status != T64_STATUS_INVALID_ARGUMENT ||
         memcmp(&actual, &expected, sizeof actual) != 0) {
@@ -764,7 +899,7 @@ static void case_null_machine(void) {
 
 static t64_status advance_to(t64_machine *machine, uint32_t kind,
                              uint64_t value, t64_stop_result *result_out) {
-  t64_stop_request request;
+  t64_stop_request request = T64_STOP_REQUEST_INIT(0u, 0u);
 
   request.kind = kind;
   request.value = value;
@@ -775,12 +910,12 @@ static t64_status advance_to(t64_machine *machine, uint32_t kind,
  * argument fault. */
 static void defect_cp0_phase(void) {
   instance item;
-  t64_stop_result result;
-  t64_stop_result expected;
+  t64_stop_result result = T64_STOP_RESULT_INIT;
+  t64_stop_result expected = T64_STOP_RESULT_INIT;
 
   if (!make_instance(&item, SAVE_PROFILE_ID, true)) return;
-  (void)memset(&result, 0xa5, sizeof result);
-  (void)memset(&expected, 0xa5, sizeof expected);
+  poison_stop_result(&result);
+  (void)memcpy(&expected, &result, sizeof expected);
   item.machine->cpu.count_half_clock_phase = 7u;
   T64_CHECK_INT(advance_to(item.machine, T64_STOP_GUEST_TICK, 100000u, &result),
                 T64_STATUS_INTERNAL_DEFECT);
@@ -954,7 +1089,7 @@ static const char *const scenario_names[SCENARIO_COUNT] = {
 
 static void guest_driven_case(handler_scenario scenario) {
   instance item;
-  t64_stop_result result;
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   t64_status status;
   uint32_t reason_wanted = T64_STOP_REASON_RESOURCE_LIMIT;
   uint64_t bound = UINT64_C(4000000);
@@ -963,7 +1098,7 @@ static void guest_driven_case(handler_scenario scenario) {
   unsigned index;
 
   if (!make_instance(&item, SAVE_PROFILE_ID, true)) return;
-  (void)memset(&result, 0xa5, sizeof result);
+  poison_stop_result(&result);
   queue_before = item.machine->queue_count;
   switch (scenario) {
   case SCENARIO_CPU_STOP:
@@ -1136,8 +1271,27 @@ typedef struct {
   uint8_t content[T64_DIGEST_SIZE];
 } observations;
 
+/* Every call starts from the same bytes: the prototype is poisoned once (the
+ * public records from their INIT forms, see the sentinels above) and copied
+ * byte for byte, so two observations compare equal or not by what the calls
+ * wrote and never by padding inside the records. */
+static void observations_poison(observations *o) {
+  static observations prototype;
+  static bool built = false;
+
+  if (!built) {
+    (void)memset(&prototype, 0xa5, sizeof prototype);
+    poison_save_info(&prototype.save);
+    poison_video_info(&prototype.video);
+    poison_audio_info(&prototype.audio);
+    poison_cpu_stop_detail(&prototype.detail);
+    built = true;
+  }
+  (void)memcpy(o, &prototype, sizeof *o);
+}
+
 static void observe(t64_machine *machine, observations *o) {
-  (void)memset(o, 0xa5, sizeof *o);
+  observations_poison(o);
   o->status[0] = t64_machine_save_info(machine, entry_save_kind, &o->save);
   o->status[1] = t64_video_info(machine, &o->video);
   o->status[2] = t64_audio_info(machine, &o->audio);

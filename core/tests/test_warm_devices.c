@@ -254,8 +254,8 @@ static bool advance_in_bounded_chunks(t64_machine *machine,
                                       uint64_t maximum_chunk_ticks,
                                       warm_dma_trace *observed,
                                       bool collect_trace) {
-  t64_stop_request request = {T64_STOP_GUEST_TICK, 0u};
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_request request = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, 0u);
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
 
   if (machine == NULL || maximum_chunk_ticks == 0u || target_tick < machine->tick) {
     return false;
@@ -334,8 +334,8 @@ static bool warm_sp_dmem_zero_fill_checks(
     const t64_profile_descriptor *profile,
     const uint8_t authored_rom[TEST_HELLO_BYTES]) {
   t64_machine *machine = NULL;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, 0u};
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_request request = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, 0u);
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
   uint64_t completion_tick;
   bool passed = true;
 
@@ -586,8 +586,8 @@ static bool warm_sp_queue_reset_checks(
     const t64_profile_descriptor *profile,
     const uint8_t authored_rom[TEST_HELLO_BYTES]) {
   t64_machine *machine = NULL;
-  t64_stop_request request = {T64_STOP_GUEST_TICK, 0u};
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_request request = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, 0u);
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
   uint64_t active_end;
   uint64_t pending_end;
   size_t queue_before_refusal;
@@ -678,13 +678,15 @@ int main(void) {
   uint8_t authored_rom[TEST_HELLO_BYTES];
   uint8_t malformed_rom[TEST_HELLO_BYTES + 4u];
   uint8_t variant_rom[TEST_HELLO_BYTES];
-  const t64_host_allocator allocator = {test_allocate, test_release, NULL};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, NULL);
   const t64_profile_descriptor *profile = NULL;
   t64_machine *machine = NULL;
   t64_machine *interleaved_machine = NULL;
   uint32_t value = UINT32_C(0xdecafbad);
-  t64_stop_request request = {T64_STOP_GUEST_TICK, UINT64_C(100)};
-  t64_stop_result result = {UINT32_MAX, UINT64_MAX};
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(100));
+  t64_stop_result result = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
   bool image_ok;
   bool advanced_past_device;
   bool unsupported_stop_observed = false;
@@ -701,7 +703,10 @@ int main(void) {
   uint64_t loader_tick_limit = UINT64_C(530180);
   warm_dma_trace observed_dma = {0u};
   uint64_t next_tick;
-  t64_cpu_stop_detail stop_detail = {UINT64_MAX, UINT32_MAX, UINT32_MAX};
+  t64_cpu_stop_detail stop_detail = T64_CPU_STOP_DETAIL_INIT;
+  stop_detail.retired_instructions = UINT64_MAX;
+  stop_detail.pc = UINT32_MAX;
+  stop_detail.opcode = UINT32_MAX;
   static const struct {
     uint32_t mem_address;
     uint32_t dram_address;

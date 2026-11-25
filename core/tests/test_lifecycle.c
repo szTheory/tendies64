@@ -259,10 +259,12 @@ static void check_machine_snapshot(t64_machine *machine,
 
 static void test_invalid_creation_does_not_allocate(void) {
   allocator_state allocator = {0};
-  t64_host_allocator valid_allocator = {test_allocate, test_release,
-                                        &allocator};
-  t64_host_allocator missing_allocate = {NULL, test_release, &allocator};
-  t64_host_allocator missing_release = {test_allocate, NULL, &allocator};
+  t64_host_allocator valid_allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, &allocator);
+  t64_host_allocator missing_allocate =
+      T64_HOST_ALLOCATOR_INIT(NULL, test_release, &allocator);
+  t64_host_allocator missing_release =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, NULL, &allocator);
   t64_profile_descriptor invalid_profile;
   const t64_profile_descriptor *profile = NULL;
   t64_machine *machine = (t64_machine *)(uintptr_t)1u;
@@ -326,14 +328,15 @@ static void test_invalid_creation_does_not_allocate(void) {
 
 static void test_admission_alias_and_descriptor_refusals(void) {
   allocator_state allocator = {0};
-  const t64_host_allocator host_allocator = {test_allocate, test_release,
-                                              &allocator};
+  const t64_host_allocator host_allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, &allocator);
   uint8_t image[TEST_ROM_BYTES];
   uint8_t replacement[TEST_ROM_BYTES];
   const t64_profile_descriptor *profile = NULL;
   t64_machine *machine = NULL;
-  t64_stop_request tick_request = {T64_STOP_GUEST_TICK, UINT64_C(41)};
-  t64_stop_result tick_result = {0u, 0u};
+  t64_stop_request tick_request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(41));
+  t64_stop_result tick_result = T64_STOP_RESULT_INIT;
   void *machine_storage;
   size_t machine_storage_size;
   void *image_storage;
@@ -435,8 +438,8 @@ static void test_admission_alias_and_descriptor_refusals(void) {
 
 static void test_zero_capacity_aliases_are_not_released(void) {
   allocator_state allocator = {0};
-  const t64_host_allocator host_allocator = {test_allocate, test_release,
-                                              &allocator};
+  const t64_host_allocator host_allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, &allocator);
   uint8_t image[TEST_ROM_BYTES];
   const t64_profile_descriptor *profile = NULL;
   t64_machine *machine = NULL;
@@ -480,8 +483,8 @@ static void test_zero_capacity_aliases_are_not_released(void) {
 
 static void test_adjacent_candidate_and_replacement_order(void) {
   allocator_state allocator = {0};
-  const t64_host_allocator host_allocator = {test_allocate, test_release,
-                                              &allocator};
+  const t64_host_allocator host_allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, &allocator);
   uint8_t *arena = (uint8_t *)malloc(TEST_ROM_BYTES * 2u);
   uint8_t replacement[TEST_ROM_BYTES];
   uint8_t expected_digest[T64_DIGEST_SIZE];
@@ -491,9 +494,11 @@ static void test_adjacent_candidate_and_replacement_order(void) {
   const t64_profile_descriptor *profile = NULL;
   const t64_profile_descriptor *observed = NULL;
   t64_machine *machine = NULL;
-  t64_stop_request later_tick = {T64_STOP_GUEST_TICK, UINT64_C(99)};
-  t64_stop_request reset_tick = {T64_STOP_GUEST_TICK, UINT64_C(0)};
-  t64_stop_result result = {0u, 0u};
+  t64_stop_request later_tick =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(99));
+  t64_stop_request reset_tick =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(0));
+  t64_stop_result result = T64_STOP_RESULT_INIT;
   void *old_image;
 
   T64_CHECK(arena != NULL);
@@ -654,10 +659,10 @@ static void test_adjacent_candidate_and_replacement_order(void) {
 static void test_two_instances_have_disjoint_storage(void) {
   allocator_state first_allocator = {0};
   allocator_state second_allocator = {0};
-  const t64_host_allocator first_host = {test_allocate, test_release,
-                                         &first_allocator};
-  const t64_host_allocator second_host = {test_allocate, test_release,
-                                          &second_allocator};
+  const t64_host_allocator first_host =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, &first_allocator);
+  const t64_host_allocator second_host =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, &second_allocator);
   uint8_t image[TEST_ROM_BYTES];
   const t64_profile_descriptor *profile = NULL;
   t64_machine *first = NULL;

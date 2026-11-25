@@ -44,8 +44,8 @@ static void test_release(void *context, t64_host_storage storage) {
   free(storage.data);
 }
 
-static const t64_host_allocator allocator = {test_allocate, test_release,
-                                             NULL};
+static const t64_host_allocator allocator =
+    T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, NULL);
 
 /* Predicate bits, in the order of the plan's predicate list. */
 #define P_AI (1u << 0)
@@ -370,8 +370,8 @@ static void expect_status(const char *label, t64_status got,
 static void expect_refused_everywhere(const char *label,
                                       const t64_profile_descriptor *profile) {
   counting_state state = {0u, 0u, 0u};
-  const t64_host_allocator host = {counting_allocate, counting_release,
-                                   &state};
+  const t64_host_allocator host =
+      T64_HOST_ALLOCATOR_INIT(counting_allocate, counting_release, &state);
   uint8_t digest[T64_DIGEST_SIZE];
   uint8_t serialized[SERIALIZED_CAPACITY];
   size_t length = 0u;
@@ -408,8 +408,8 @@ static void expect_pinned_at_create(const char *label,
                                     const uint8_t *original_bytes,
                                     size_t original_length) {
   counting_state state = {0u, 0u, 0u};
-  const t64_host_allocator host = {counting_allocate, counting_release,
-                                   &state};
+  const t64_host_allocator host =
+      T64_HOST_ALLOCATOR_INIT(counting_allocate, counting_release, &state);
   uint8_t digest[T64_DIGEST_SIZE];
   uint8_t serialized[SERIALIZED_CAPACITY];
   size_t length = 0u;
@@ -556,8 +556,8 @@ static void check_legacy_pins(void) {
 static void check_family_identity(size_t index, const uint8_t ai_hash[T64_DIGEST_SIZE]) {
   const t64_profile_descriptor *profile = lookup_profile(si_ids[index]);
   counting_state state = {0u, 0u, 0u};
-  const t64_host_allocator host = {counting_allocate, counting_release,
-                                   &state};
+  const t64_host_allocator host =
+      T64_HOST_ALLOCATOR_INIT(counting_allocate, counting_release, &state);
   uint8_t digest[T64_DIGEST_SIZE];
   uint8_t reference[T64_DIGEST_SIZE];
   uint8_t serialized[SERIALIZED_CAPACITY];
@@ -727,8 +727,8 @@ static void check_unregistered_family_id(void) {
   const t64_profile_descriptor *profile = lookup_profile(SI_STEM);
   t64_profile_descriptor changed;
   counting_state state = {0u, 0u, 0u};
-  const t64_host_allocator host = {counting_allocate, counting_release,
-                                   &state};
+  const t64_host_allocator host =
+      T64_HOST_ALLOCATOR_INIT(counting_allocate, counting_release, &state);
   t64_machine *machine = NULL;
   uint8_t digest[T64_DIGEST_SIZE];
 
@@ -751,8 +751,8 @@ static void check_unregistered_family_id(void) {
 static void check_legacy_refuses_numeric_at_create(void) {
   const t64_profile_descriptor *profile = lookup_profile("ntsc-cart-4m-skeleton");
   counting_state state = {0u, 0u, 0u};
-  const t64_host_allocator host = {counting_allocate, counting_release,
-                                   &state};
+  const t64_host_allocator host =
+      T64_HOST_ALLOCATOR_INIT(counting_allocate, counting_release, &state);
   t64_profile_descriptor changed;
   uint8_t digest[T64_DIGEST_SIZE];
   uint8_t baseline[T64_DIGEST_SIZE];
@@ -861,8 +861,8 @@ static void case_quantum_identity(void) {
   for (index = 0u; index < SI_FAMILY_COUNT; index++) {
     const t64_profile_descriptor *profile = lookup_profile(si_ids[index]);
     counting_state state = {0u, 0u, 0u};
-    const t64_host_allocator host = {counting_allocate, counting_release,
-                                     &state};
+    const t64_host_allocator host =
+        T64_HOST_ALLOCATOR_INIT(counting_allocate, counting_release, &state);
     t64_profile_descriptor changed;
     t64_machine *machine = NULL;
     char label[160];
@@ -971,8 +971,8 @@ static t64_machine *create_admitted(const t64_host_allocator *host,
 static void check_inherited_devices(const t64_host_allocator *host,
                                     const char *profile_id) {
   t64_machine *machine = create_admitted(host, profile_id);
-  t64_stop_request request;
-  t64_stop_result stop = {0u, 0u};
+  t64_stop_request request = T64_STOP_REQUEST_INIT(0u, 0u);
+  t64_stop_result stop = T64_STOP_RESULT_INIT;
   uint8_t asset[IPL3_ASSET_BYTES];
   size_t index;
 
@@ -984,7 +984,8 @@ static void check_inherited_devices(const t64_host_allocator *host,
   machine->ram[UINT32_C(0x1003)] = 0x07u;
   machine->cpu.pc = UINT32_C(0x80001000);
   machine->cpu.pc_full = t64_cpu_canonical_address(machine->cpu.pc);
-  request = (t64_stop_request){T64_STOP_GUEST_TICK, machine->tick + 1u};
+  request = (t64_stop_request)T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK,
+                                                    machine->tick + 1u);
   T64_CHECK_INT(t64_machine_advance(machine, &request, &stop), T64_STATUS_OK);
   T64_CHECK_INT(machine->cpu.gpr[8], 7u);
   T64_CHECK(machine->cpu.retired_instructions > 0u);
@@ -1054,6 +1055,7 @@ static void run_ai_dma(const t64_host_allocator *host, const char *profile_id,
   size_t i;
 
   (void)memset(run, 0, sizeof *run);
+  run->info = (t64_audio_packet_info)T64_AUDIO_PACKET_INFO_INIT;
   if (machine == NULL) return;
   (void)memcpy(machine->ram + UINT32_C(0x100), literal_pcm, sizeof literal_pcm);
   run->control_write = t64_machine_bus_write(machine, AI_CONTROL, 4u, 1u);
@@ -1074,8 +1076,8 @@ static void run_ai_dma(const t64_host_allocator *host, const char *profile_id,
   machine->cpu.pc_full = t64_cpu_canonical_address(machine->cpu.pc);
   for (i = 0u; i < AI_PCM_BYTES / 4u; i++) {
     uint64_t tick = 0u;
-    t64_stop_request request = {T64_STOP_GUEST_TICK, 0u};
-    t64_stop_result stop = {0u, 0u};
+    t64_stop_request request = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, 0u);
+    t64_stop_result stop = T64_STOP_RESULT_INIT;
 
     if (!next_ai_sample_tick(machine, &tick)) break;
     request.value = tick;
@@ -1124,8 +1126,8 @@ static void check_ai_equivalence(const t64_host_allocator *host,
 static void case_family_devices(void) {
   size_t index;
   counting_state state = {0u, 0u, 0u};
-  const t64_host_allocator host = {counting_allocate, counting_release,
-                                   &state};
+  const t64_host_allocator host =
+      T64_HOST_ALLOCATOR_INIT(counting_allocate, counting_release, &state);
   ai_run reference;
   ai_run old_profile;
 

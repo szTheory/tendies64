@@ -138,9 +138,8 @@ static bool make_instance(instance *item, const char *profile_id,
   const t64_profile_descriptor *profile = NULL;
 
   (void)memset(item, 0, sizeof *item);
-  item->allocator.allocate = counting_allocate;
-  item->allocator.release = counting_release;
-  item->allocator.context = &item->counts;
+  item->allocator = (t64_host_allocator)T64_HOST_ALLOCATOR_INIT(
+      counting_allocate, counting_release, &item->counts);
   T64_CHECK_INT(t64_profile_lookup(profile_id, &profile), T64_STATUS_OK);
   if (profile == NULL) return false;
   T64_CHECK_INT(t64_machine_create(&item->allocator, profile, &item->machine),
@@ -175,8 +174,8 @@ static uint32_t advance_to(t64_machine *machine, uint64_t tick) {
   unsigned attempt;
 
   for (attempt = 0u; attempt < 200000u; attempt++) {
-    t64_stop_request request;
-    t64_stop_result result;
+    t64_stop_request request = T64_STOP_REQUEST_INIT(0u, 0u);
+    t64_stop_result result = T64_STOP_RESULT_INIT;
     t64_status status;
 
     request.kind = T64_STOP_GUEST_TICK;
@@ -207,6 +206,125 @@ static bool same_digest(const uint8_t a[T64_DIGEST_SIZE],
   return memcmp(a, b, T64_DIGEST_SIZE) == 0;
 }
 
+/* ---- sentinels for the in/out records ----------------------------------
+ * A poisoned record is the INIT form of its type first, so a leading
+ * struct_size stays valid, and then a non-zero value in every other member by
+ * name (the values a byte fill of 0xA5 gave). A byte fill would also clobber a
+ * leading struct_size, and a plain INIT assignment would let a callee that
+ * writes zeros, or leaves a member alone, pass the checks of the fields it must
+ * overwrite. */
+#define POISON_U32 UINT32_C(0xa5a5a5a5)
+#define POISON_U64 UINT64_C(0xa5a5a5a5a5a5a5a5)
+#define POISON_SIZE ((size_t)POISON_U64)
+
+static void poison_stop_result(t64_stop_result *value) {
+  *value = (t64_stop_result)T64_STOP_RESULT_INIT_WITH(POISON_U32, POISON_U64);
+}
+
+static void poison_cpu_stop_detail(t64_cpu_stop_detail *value) {
+  *value = (t64_cpu_stop_detail)T64_CPU_STOP_DETAIL_INIT;
+  value->retired_instructions = POISON_U64;
+  value->pc = POISON_U32;
+  value->opcode = POISON_U32;
+}
+
+static void poison_drain_result(t64_output_drain_result *value) {
+  *value = (t64_output_drain_result)T64_OUTPUT_DRAIN_RESULT_INIT;
+  value->copied_bytes = POISON_SIZE;
+  value->required_bytes = POISON_SIZE;
+  value->total_attempted_bytes = POISON_U64;
+  (void)memset(value->captured_sha256, 0xa5, sizeof value->captured_sha256);
+  value->lost_output = true;
+  value->total_attempted_bytes_exact = true;
+}
+
+static void poison_import_report(t64_state_import_report *value) {
+  *value = (t64_state_import_report)T64_STATE_IMPORT_REPORT_INIT;
+  value->status = POISON_U32;
+  value->reason = POISON_U32;
+  value->section_id = POISON_U32;
+  value->rule = POISON_U32;
+  value->position = POISON_U64;
+}
+
+static void poison_save_info(t64_save_info *value) {
+  *value = (t64_save_info)T64_SAVE_INFO_INIT;
+  value->kind = POISON_U32;
+  value->size_bytes = POISON_U32;
+  value->flags = POISON_U32;
+  value->write_generation = POISON_U64;
+}
+
+static void poison_output_status(t64_output_status *value) {
+  *value = (t64_output_status)T64_OUTPUT_STATUS_INIT;
+  value->video_queued = POISON_U32;
+  value->video_free = POISON_U32;
+  value->reserved0 = POISON_U32;
+  value->video_next_bytes = POISON_U64;
+  value->audio_queued = POISON_U32;
+  value->audio_free = POISON_U32;
+  value->audio_next_bytes = POISON_U64;
+  value->text_pending_bytes = POISON_U64;
+}
+
+static void poison_audio_info(t64_audio_packet_info *value) {
+  *value = (t64_audio_packet_info)T64_AUDIO_PACKET_INFO_INIT;
+  value->sequence = POISON_U64;
+  value->first_sample_index = POISON_U64;
+  value->first_tick = POISON_U64;
+  value->last_tick = POISON_U64;
+  value->frame_count = POISON_U32;
+  value->rate_numerator = POISON_U64;
+  value->rate_denominator = POISON_U64;
+  value->channels = POISON_U32;
+  value->bits_per_sample = POISON_U32;
+  value->encoding = POISON_U32;
+  value->byte_length = POISON_SIZE;
+  (void)memset(value->profile_id, 0xa5, sizeof value->profile_id);
+  (void)memset(value->build_id, 0xa5, sizeof value->build_id);
+}
+
+static void poison_video_info(t64_video_packet_info *value) {
+  *value = (t64_video_packet_info)T64_VIDEO_PACKET_INFO_INIT;
+  value->width = POISON_U32;
+  value->height = POISON_U32;
+  value->stride_bytes = POISON_U32;
+  value->source_address = POISON_U32;
+  value->source_format = POISON_U32;
+  value->output_encoding = POISON_U32;
+  value->field = POISON_U32;
+  value->parity = POISON_U32;
+  value->control = POISON_U32;
+  value->burst = POISON_U32;
+  value->h_sync = POISON_U32;
+  value->v_sync = POISON_U32;
+  value->h_start = POISON_U32;
+  value->h_end = POISON_U32;
+  value->v_start = POISON_U32;
+  value->v_end = POISON_U32;
+  value->source_width = POISON_U32;
+  value->source_pitch_bytes = POISON_U32;
+  value->source_x_offset = POISON_U32;
+  value->source_y_offset = POISON_U32;
+  value->x_scale = POISON_U32;
+  value->y_scale = POISON_U32;
+  value->filter = POISON_U32;
+  value->start_tick = POISON_U64;
+  value->end_tick = POISON_U64;
+  value->sequence = POISON_U64;
+  value->commands_completed = POISON_U64;
+  value->fullsync_completed = POISON_U64;
+  value->last_command_word = POISON_U64;
+  value->last_command_byte = POISON_U32;
+  value->last_opcode_field = POISON_U32;
+  value->source_bytes = POISON_SIZE;
+  value->packet_bytes = POISON_SIZE;
+  (void)memset(value->profile_id, 0xa5, sizeof value->profile_id);
+  (void)memset(value->build_id, 0xa5, sizeof value->build_id);
+  (void)memset(value->vi_clock_policy, 0xa5, sizeof value->vi_clock_policy);
+  (void)memset(value->vi_output_policy, 0xa5, sizeof value->vi_output_policy);
+}
+
 /* ISViewer: the hello guest prints a 30-byte transcript, left undrained; reset
  * must bring back the first-admit state and an empty drain cursor. */
 static void reset_isviewer_scenario(void) {
@@ -216,12 +334,12 @@ static void reset_isviewer_scenario(void) {
   uint8_t after_reset[T64_DIGEST_SIZE];
   uint8_t after_second_run[T64_DIGEST_SIZE];
   uint8_t drained[HELLO_BYTES + 2u];
-  t64_output_drain_result drain;
-  t64_cpu_stop_detail detail;
+  t64_output_drain_result drain = T64_OUTPUT_DRAIN_RESULT_INIT;
+  t64_cpu_stop_detail detail = T64_CPU_STOP_DETAIL_INIT;
 
   if (!make_instance(&item, HELLO_PROFILE, hello_rom, hello_length)) return;
   T64_CHECK(digest_of(item.machine, first_admit));
-  (void)memset(&drain, 0, sizeof drain);
+  drain = (t64_output_drain_result)T64_OUTPUT_DRAIN_RESULT_INIT;
   T64_CHECK_INT(t64_machine_output_drain(item.machine, NULL, 0u, &drain),
                 T64_STATUS_OK);
   T64_CHECK_INT(drain.copied_bytes, 0);
@@ -232,7 +350,7 @@ static void reset_isviewer_scenario(void) {
                 T64_STOP_REASON_GUEST_COMPLETION);
   T64_CHECK(digest_of(item.machine, after_run));
   T64_CHECK(!same_digest(first_admit, after_run));
-  (void)memset(&drain, 0, sizeof drain);
+  drain = (t64_output_drain_result)T64_OUTPUT_DRAIN_RESULT_INIT;
   T64_CHECK_INT(t64_machine_output_drain(item.machine, NULL, 0u, &drain),
                 T64_STATUS_BUFFER_TOO_SMALL);
   T64_CHECK_INT(drain.required_bytes, HELLO_BYTES);
@@ -243,10 +361,10 @@ static void reset_isviewer_scenario(void) {
   T64_CHECK_INT(t64_machine_reset(item.machine), T64_STATUS_OK);
   T64_CHECK(digest_of(item.machine, after_reset));
   T64_CHECK(same_digest(first_admit, after_reset));
-  (void)memset(&detail, 0xa5, sizeof detail);
+  poison_cpu_stop_detail(&detail);
   T64_CHECK_INT(t64_machine_cpu_stop_detail(item.machine, &detail),
                 T64_STATUS_NOT_READY);
-  (void)memset(&drain, 0xa5, sizeof drain);
+  poison_drain_result(&drain);
   T64_CHECK_INT(
       t64_machine_output_drain(item.machine, drained, sizeof drained, &drain),
       T64_STATUS_OK);
@@ -260,7 +378,7 @@ static void reset_isviewer_scenario(void) {
   T64_CHECK(digest_of(item.machine, after_second_run));
   T64_CHECK(same_digest(after_run, after_second_run));
   (void)memset(drained, 0, sizeof drained);
-  (void)memset(&drain, 0, sizeof drain);
+  drain = (t64_output_drain_result)T64_OUTPUT_DRAIN_RESULT_INIT;
   T64_CHECK_INT(
       t64_machine_output_drain(item.machine, drained, sizeof drained, &drain),
       T64_STATUS_OK);
@@ -271,7 +389,7 @@ static void reset_isviewer_scenario(void) {
   T64_CHECK_INT(t64_machine_reset(item.machine), T64_STATUS_OK);
   T64_CHECK(digest_of(item.machine, after_reset));
   T64_CHECK(same_digest(first_admit, after_reset));
-  (void)memset(&drain, 0xa5, sizeof drain);
+  poison_drain_result(&drain);
   T64_CHECK_INT(
       t64_machine_output_drain(item.machine, drained, sizeof drained, &drain),
       T64_STATUS_OK);
@@ -340,23 +458,23 @@ static void reset_rings_scenario(void) {
   uint8_t first_admit[T64_DIGEST_SIZE];
   uint8_t after_reset[T64_DIGEST_SIZE];
   uint8_t packet[320u * 240u * 4u];
-  t64_video_packet_info first_info;
-  t64_video_packet_info replay_info;
-  t64_video_packet_info untouched;
-  t64_audio_packet_info audio;
+  t64_video_packet_info first_info = T64_VIDEO_PACKET_INFO_INIT;
+  t64_video_packet_info replay_info = T64_VIDEO_PACKET_INFO_INIT;
+  t64_video_packet_info untouched = T64_VIDEO_PACKET_INFO_INIT;
+  t64_audio_packet_info audio = T64_AUDIO_PACKET_INFO_INIT;
   size_t length = 0u;
 
   if (!make_instance(&item, VI_PROFILE, fill_rom, fill_length)) return;
   T64_CHECK(digest_of(item.machine, first_admit));
   T64_CHECK(enable_video(item.machine));
-  (void)memset(&first_info, 0, sizeof first_info);
+  first_info = (t64_video_packet_info)T64_VIDEO_PACKET_INFO_INIT;
   T64_CHECK(run_until_video_packet(item.machine, &first_info));
   T64_CHECK(first_info.packet_bytes != 0u);
 
   T64_CHECK_INT(t64_machine_reset(item.machine), T64_STATUS_OK);
   T64_CHECK(digest_of(item.machine, after_reset));
   T64_CHECK(same_digest(first_admit, after_reset));
-  (void)memset(&untouched, 0xa5, sizeof untouched);
+  poison_video_info(&untouched);
   (void)memcpy(&replay_info, &untouched, sizeof replay_info);
   T64_CHECK_INT(t64_video_info(item.machine, &replay_info),
                 T64_STATUS_NOT_READY);
@@ -365,12 +483,12 @@ static void reset_rings_scenario(void) {
   T64_CHECK_INT(t64_video_copy(item.machine, packet, sizeof packet, &length),
                 T64_STATUS_NOT_READY);
   T64_CHECK_INT(length, 0xa5a5);
-  (void)memset(&audio, 0xa5, sizeof audio);
+  poison_audio_info(&audio);
   T64_CHECK_INT(t64_audio_info(item.machine, &audio), T64_STATUS_NOT_READY);
 
   /* The same authored setup after reset gives the same first packet. */
   T64_CHECK(enable_video(item.machine));
-  (void)memset(&replay_info, 0, sizeof replay_info);
+  replay_info = (t64_video_packet_info)T64_VIDEO_PACKET_INFO_INIT;
   T64_CHECK(run_until_video_packet(item.machine, &replay_info));
   T64_CHECK_INT(replay_info.sequence, first_info.sequence);
   T64_CHECK_INT(replay_info.start_tick, first_info.start_tick);
@@ -561,6 +679,21 @@ typedef struct {
   t64_output_status output_status;
 } scratch;
 
+/* The whole record at 0xA5, then every in/out member of a public struct type
+ * re-poisoned from its INIT form (see the sentinels above), so a leading
+ * struct_size stays valid and the members still hold a non-zero sentinel. */
+static void scratch_poison(scratch *s) {
+  (void)memset(s, 0xa5, sizeof *s);
+  poison_stop_result(&s->stop_result);
+  poison_import_report(&s->report);
+  poison_cpu_stop_detail(&s->detail);
+  poison_drain_result(&s->drain);
+  poison_video_info(&s->video_info);
+  poison_save_info(&s->save_info);
+  poison_audio_info(&s->audio_info);
+  poison_output_status(&s->output_status);
+}
+
 enum {
   E_ADMIT_ROM,
   E_ADVANCE,
@@ -649,7 +782,7 @@ static uint32_t table_save_kind = 1u;
 
 static t64_status call_table_entry(unsigned entry, t64_machine *machine,
                                    scratch *s) {
-  t64_stop_request request;
+  t64_stop_request request = T64_STOP_REQUEST_INIT(0u, 0u);
   uint8_t blob[64];
 
   request.kind = T64_STOP_GUEST_TICK;
@@ -763,8 +896,8 @@ static void table_for_profile(const char *profile_id) {
     T64_CHECK_INT(t64_machine_unload(item.machine), T64_STATUS_OK);
     allocations = item.counts.allocations;
     releases = item.counts.releases;
-    (void)memset(&actual, 0xa5, sizeof actual);
-    (void)memset(&expected, 0xa5, sizeof expected);
+    scratch_poison(&actual);
+    (void)memcpy(&expected, &actual, sizeof expected);
     status = call_table_entry(table[row].entry, item.machine, &actual);
     if (status != table[row].after_unload) {
       fprintf(stderr, "%s unloaded %s: status %u, table says %u\n", profile_id,
@@ -792,7 +925,7 @@ static void table_for_profile(const char *profile_id) {
     /* Unload leaves no image-derived state: an instance that never admitted
      * an image gives the same answer to the same call. */
     if (make_instance(&item, profile_id, NULL, 0u)) {
-      (void)memset(&fresh_scratch, 0xa5, sizeof fresh_scratch);
+      scratch_poison(&fresh_scratch);
       T64_CHECK_INT(
           call_table_entry(table[row].entry, item.machine, &fresh_scratch),
           table[row].after_unload);
@@ -832,14 +965,14 @@ static bool read_status(const t64_machine *machine, t64_output_status *out) {
  * the two rings account for their full capacity. */
 static void check_status_against_rings(t64_machine *machine,
                                        const t64_output_status *status) {
-  t64_video_packet_info video;
-  t64_audio_packet_info audio;
+  t64_video_packet_info video = T64_VIDEO_PACKET_INFO_INIT;
+  t64_audio_packet_info audio = T64_AUDIO_PACKET_INFO_INIT;
   size_t required = 0u;
 
   T64_CHECK_INT(status->video_queued + status->video_free, RING_CAPACITY);
   T64_CHECK_INT(status->audio_queued + status->audio_free, RING_CAPACITY);
-  (void)memset(&video, 0, sizeof video);
-  (void)memset(&audio, 0, sizeof audio);
+  video = (t64_video_packet_info)T64_VIDEO_PACKET_INFO_INIT;
+  audio = (t64_audio_packet_info)T64_AUDIO_PACKET_INFO_INIT;
   if (status->video_queued != 0u) {
     T64_CHECK_INT(t64_video_info(machine, &video), T64_STATUS_OK);
     T64_CHECK_INT(status->video_next_bytes, video.packet_bytes);
@@ -866,7 +999,7 @@ static void check_status_against_rings(t64_machine *machine,
 static void status_empty(const char *profile_id, const uint8_t *image,
                          size_t image_length) {
   instance item;
-  t64_output_status status;
+  t64_output_status status = T64_OUTPUT_STATUS_INIT;
   uint8_t before[T64_DIGEST_SIZE];
   uint8_t after[T64_DIGEST_SIZE];
 
@@ -892,8 +1025,8 @@ static void status_empty(const char *profile_id, const uint8_t *image,
  * the VI and AI profile. */
 static void status_tracks_rings(void) {
   instance item;
-  t64_output_status status;
-  t64_output_status again;
+  t64_output_status status = T64_OUTPUT_STATUS_INIT;
+  t64_output_status again = T64_OUTPUT_STATUS_INIT;
   uint8_t before[T64_DIGEST_SIZE];
   uint8_t after[T64_DIGEST_SIZE];
   uint8_t bytes[320u * 240u * 4u];
@@ -959,9 +1092,9 @@ static void status_tracks_rings(void) {
 /* ISViewer: the pending text counts down to 0 on a drain. */
 static void status_text_pending(void) {
   instance item;
-  t64_output_status status;
+  t64_output_status status = T64_OUTPUT_STATUS_INIT;
   uint8_t drained[HELLO_BYTES + 2u];
-  t64_output_drain_result drain;
+  t64_output_drain_result drain = T64_OUTPUT_DRAIN_RESULT_INIT;
 
   if (!make_instance(&item, HELLO_PROFILE, hello_rom, hello_length)) return;
   if (read_status(item.machine, &status)) {
@@ -972,7 +1105,7 @@ static void status_text_pending(void) {
   if (read_status(item.machine, &status)) {
     T64_CHECK_INT(status.text_pending_bytes, HELLO_BYTES);
   }
-  (void)memset(&drain, 0, sizeof drain);
+  drain = (t64_output_drain_result)T64_OUTPUT_DRAIN_RESULT_INIT;
   T64_CHECK_INT(
       t64_machine_output_drain(item.machine, drained, sizeof drained, &drain),
       T64_STATUS_OK);
@@ -988,8 +1121,8 @@ static void status_text_pending(void) {
  * a larger caller struct is written only up to the known size. */
 static void status_refused(void) {
   instance item;
-  t64_output_status status;
-  t64_output_status sentinel;
+  t64_output_status status = T64_OUTPUT_STATUS_INIT;
+  t64_output_status sentinel = T64_OUTPUT_STATUS_INIT;
   struct {
     t64_output_status known;
     uint8_t tail[24];
@@ -1005,14 +1138,14 @@ static void status_refused(void) {
   T64_CHECK(digest_of(item.machine, before));
 
   for (index = 0u; index < sizeof sizes / sizeof sizes[0]; index++) {
-    (void)memset(&status, 0xa5, sizeof status);
+    poison_output_status(&status);
     status.struct_size = sizes[index];
     (void)memcpy(&sentinel, &status, sizeof sentinel);
     T64_CHECK_INT(t64_machine_output_status(item.machine, &status),
                   T64_STATUS_STRUCT_TOO_SMALL);
     T64_CHECK(memcmp(&status, &sentinel, sizeof status) == 0);
   }
-  (void)memset(&status, 0xa5, sizeof status);
+  poison_output_status(&status);
   status.struct_size = T64_OUTPUT_STATUS_V1_SIZE;
   (void)memcpy(&sentinel, &status, sizeof sentinel);
   T64_CHECK_INT(t64_machine_output_status(item.machine, NULL),
@@ -1023,7 +1156,8 @@ static void status_refused(void) {
 
   /* A caller struct larger than v1: the members it knows are filled, the
    * struct_size and the bytes past the known size are not touched. */
-  (void)memset(&larger, 0xa5, sizeof larger);
+  poison_output_status(&larger.known);
+  (void)memset(larger.tail, 0xa5, sizeof larger.tail);
   larger.known.struct_size = (uint32_t)sizeof larger;
   T64_CHECK_INT(t64_machine_output_status(item.machine, &larger.known),
                 T64_STATUS_OK);

@@ -85,8 +85,8 @@ static void test_release(void *context, t64_host_storage storage) {
   free(storage.data);
 }
 
-static const t64_host_allocator allocator = {test_allocate, test_release,
-                                             NULL};
+static const t64_host_allocator allocator =
+    T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, NULL);
 
 /* Provenance: core/tests/test_sched_ledger.c read_openipl3_asset. */
 static bool read_openipl3_asset(uint8_t bytes[IPL3_ASSET_BYTES]) {
@@ -351,8 +351,8 @@ static bool ctx_advance_to(run_ctx *ctx, uint64_t tick) {
   size_t calls = 0u;
 
   for (;;) {
-    t64_stop_request request = {T64_STOP_GUEST_TICK, tick};
-    t64_stop_result stop = {0u, 0u};
+    t64_stop_request request = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, tick);
+    t64_stop_result stop = T64_STOP_RESULT_INIT;
     progress_mark before = mark_of(ctx->machine);
     t64_status status = t64_machine_advance(ctx->machine, &request, &stop);
 
@@ -1286,8 +1286,8 @@ static void check_cpu_si_sequences(void) {
   run_ctx ctx;
   uint64_t q;
   uint32_t saved_budget;
-  t64_stop_request request;
-  t64_stop_result stop = {0u, 0u};
+  t64_stop_request request = T64_STOP_REQUEST_INIT(0u, 0u);
+  t64_stop_result stop = T64_STOP_RESULT_INIT;
   const t64_event *front;
 
   if (machine == NULL) return;
@@ -2032,8 +2032,8 @@ static void check_counter_stop(uint32_t stop_kind, uint64_t target,
                                uint32_t reason, const observation *reference) {
   static observation run;
   t64_machine *machine = build_midtick();
-  t64_stop_request request = {stop_kind, target};
-  t64_stop_result stop = {0u, 0u};
+  t64_stop_request request = T64_STOP_REQUEST_INIT(stop_kind, target);
+  t64_stop_result stop = T64_STOP_RESULT_INIT;
   run_ctx ctx;
   const char *label;
 
@@ -2134,7 +2134,7 @@ static t64_machine *build_ai_backpressure(uint64_t *blocked_tick_out) {
 static void drain_one_audio_packet(t64_machine *machine) {
   uint8_t packet[16];
   size_t copied = 0u;
-  t64_audio_packet_info info;
+  t64_audio_packet_info info = T64_AUDIO_PACKET_INFO_INIT;
 
   T64_CHECK_INT(t64_audio_info(machine, &info), T64_STATUS_OK);
   T64_CHECK_INT(t64_audio_copy(machine, packet, sizeof packet, &copied),
@@ -2149,8 +2149,8 @@ static void check_backpressure(void) {
   uint64_t stall_tick;
   uint64_t horizon;
   t64_machine *machine = build_ai_backpressure(&blocked_tick);
-  t64_stop_request request;
-  t64_stop_result stop = {0u, 0u};
+  t64_stop_request request = T64_STOP_REQUEST_INIT(0u, 0u);
+  t64_stop_result stop = T64_STOP_RESULT_INIT;
   progress_mark first;
   progress_mark second;
   run_ctx ctx;
@@ -2563,8 +2563,8 @@ static bool count_matches(const t64_machine *machine,
 }
 
 static bool direct_advance(t64_machine *machine, uint64_t tick) {
-  t64_stop_request request = {T64_STOP_GUEST_TICK, tick};
-  t64_stop_result stop = {0u, 0u};
+  t64_stop_request request = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, tick);
+  t64_stop_result stop = T64_STOP_RESULT_INIT;
   t64_status status = t64_machine_advance(machine, &request, &stop);
 
   T64_CHECK_INT(status, T64_STATUS_OK);

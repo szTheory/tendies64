@@ -439,7 +439,8 @@ static void test_country_metadata_and_test_contrast(
   uint8_t state_country_changed[T64_DIGEST_SIZE];
   t64_profile_descriptor contrast = *profile;
   allocator_state alloc = {0};
-  const t64_host_allocator host = {test_allocate, test_release, &alloc};
+  const t64_host_allocator host =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, &alloc);
   const t64_profile_descriptor *selected_default = NULL;
   const t64_profile_descriptor *selected_contrast = NULL;
   const t64_profile_descriptor *selected_country_changed = NULL;
@@ -826,7 +827,8 @@ static void test_rdp_profile_metadata_binding(bool run_mutations) {
     size_t text_count = index < 2u ? 6u : (index < 4u ? 7u :
                          (index < 7u ? 8u : 9u));
     allocator_state state = {0};
-    t64_host_allocator allocator = {test_allocate, test_release, &state};
+    t64_host_allocator allocator =
+        T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, &state);
     T64_CHECK_INT(t64_profile_lookup(ids[index], &profile), T64_STATUS_OK);
     if (profile == NULL) continue;
     T64_CHECK_STR(profile->profile_id, ids[index]);

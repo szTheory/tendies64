@@ -89,8 +89,8 @@ static void test_release(void *context, t64_host_storage storage) {
   free(storage.data);
 }
 
-static const t64_host_allocator allocator = {test_allocate, test_release,
-                                             NULL};
+static const t64_host_allocator allocator =
+    T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, NULL);
 
 /* Allocator that counts every call so a refusal can prove it allocated
  * nothing and released nothing. */
@@ -220,8 +220,8 @@ static void expect_status(const char *label, t64_status got,
 static void expect_refused_everywhere(const char *label,
                                       const t64_profile_descriptor *profile) {
   counting_state state = {0u, 0u, 0u};
-  const t64_host_allocator host = {counting_allocate, counting_release,
-                                   &state};
+  const t64_host_allocator host =
+      T64_HOST_ALLOCATOR_INIT(counting_allocate, counting_release, &state);
   uint8_t digest[T64_DIGEST_SIZE];
   uint8_t serialized[SERIALIZED_CAPACITY];
   size_t length = 0u;
@@ -254,8 +254,8 @@ static void expect_pinned_at_create(const char *label,
                                     const uint8_t *original_bytes,
                                     size_t original_length) {
   counting_state state = {0u, 0u, 0u};
-  const t64_host_allocator host = {counting_allocate, counting_release,
-                                   &state};
+  const t64_host_allocator host =
+      T64_HOST_ALLOCATOR_INIT(counting_allocate, counting_release, &state);
   uint8_t digest[T64_DIGEST_SIZE];
   uint8_t serialized[SERIALIZED_CAPACITY];
   size_t length = 0u;
@@ -552,8 +552,8 @@ static void check_family_row(size_t index) {
   const v2_row *row = &rows[index];
   const t64_profile_descriptor *profile = lookup_profile(row->id);
   counting_state state = {0u, 0u, 0u};
-  const t64_host_allocator host = {counting_allocate, counting_release,
-                                   &state};
+  const t64_host_allocator host =
+      T64_HOST_ALLOCATOR_INIT(counting_allocate, counting_release, &state);
   uint8_t digest[T64_DIGEST_SIZE];
   uint8_t reference[T64_DIGEST_SIZE];
   uint8_t serialized[SERIALIZED_CAPACITY];
@@ -640,8 +640,8 @@ static void check_unregistered_ids(void) {
   for (i = 0u; i < sizeof names / sizeof names[0]; i++) {
     t64_profile_descriptor changed = *v2;
     counting_state state = {0u, 0u, 0u};
-    const t64_host_allocator host = {counting_allocate, counting_release,
-                                     &state};
+    const t64_host_allocator host =
+        T64_HOST_ALLOCATOR_INIT(counting_allocate, counting_release, &state);
     t64_machine *machine = NULL;
     uint8_t digest[T64_DIGEST_SIZE];
 
@@ -661,8 +661,8 @@ static void check_unregistered_ids(void) {
   {
     t64_profile_descriptor changed = *v1;
     counting_state state = {0u, 0u, 0u};
-    const t64_host_allocator host = {counting_allocate, counting_release,
-                                     &state};
+    const t64_host_allocator host =
+        T64_HOST_ALLOCATOR_INIT(counting_allocate, counting_release, &state);
     t64_machine *machine = NULL;
 
     (void)memset(changed.profile_id, 0, sizeof changed.profile_id);
@@ -676,8 +676,8 @@ static void check_unregistered_ids(void) {
   {
     t64_profile_descriptor changed = *v2;
     counting_state state = {0u, 0u, 0u};
-    const t64_host_allocator host = {counting_allocate, counting_release,
-                                     &state};
+    const t64_host_allocator host =
+        T64_HOST_ALLOCATOR_INIT(counting_allocate, counting_release, &state);
     t64_machine *machine = NULL;
 
     (void)memset(changed.profile_id, 0, sizeof changed.profile_id);
