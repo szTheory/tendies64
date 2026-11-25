@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 10
 current_phase_name: Carry-in Closure Before the Freeze
 status: executing
-stopped_at: Completed 10-14-PLAN.md
-last_updated: "2026-11-25T02:45:48.356Z"
+stopped_at: Completed 10-15-PLAN.md
+last_updated: "2026-11-25T03:25:15.535Z"
 last_activity: 2026-11-23
 last_activity_desc: Phase 10 execution started
-state_head: ffc08c1285c5008cd2f93be8cdfa8408808be592
+state_head: 054b2c12ea58d39ca14bed9d79513bf41b8af3ec
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 19
-  completed_plans: 14
+  completed_plans: 15
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 ## Current Position
 
 Phase: 10 (Carry-in Closure Before the Freeze) — EXECUTING
-Plan: 15 of 19
+Plan: 16 of 19
 Status: Ready to execute
 Last activity: 2026-11-23 — Phase 10 execution started
 
@@ -74,6 +74,7 @@ Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
 | Phase 10 P12 | 38 min | 4 tasks | 11 files |
 | Phase 10 P13 | 31 min | 3 tasks | 3 files |
 | Phase 10 P14 | 26 min | 4 tasks | 11 files |
+| Phase 10 P15 | 41 min | 4 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -166,6 +167,9 @@ Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
 - [Phase 10]: Plan 10-13 hosted gate-macos warm sample 496 s is the highest so far (cold projection 682 s, margin 218 s, F-122); plan 10-17 re-reads the total before the cold run of plan 10-19
 - [Phase 10]: 10-14: composite guest sources (419275d) and rows (f027b05) are two commits so source.revision names a commit holding the source; f027b05 is the one commit touching fixtures/manifest.json since the Wave 3 base
 - [Phase 10]: 10-14: composite runner rows use the long guest-tick cap (guest completes at tick 599,357, 643 below the default cap); plan 10-15 passes --input-size and --input-sha256 for composite.input.json
+- [Phase 10]: 10-15: the runner pairs the container format string with the profile in one function, state_request_admitted, called from the prelaunch guard (export (25, v1) or (26, v2), import state 25 only, every other pair the existing prelaunch refusal at guest tick 0); the supervisor validator stays profile-blind and accepts the closed set {v1, v2}
+- [Phase 10]: 10-15: the wrong-byte composite ROM cannot publish a save (export only after a pass), so controls.real.composite-wrong-rom compares the record the guest read back (the SR transcript line) through the same save comparator, first difference at offset 271 equal to the oracle's wrong.save_first_difference
+- [Phase 10]: 10-15: the Phase 9 wrong-format control of runner.state-export uses t64.state-container.v3 because v2 joined the closed set (one literal in test_state_runner.c, case list unchanged); a CMake helper may register only literal TIMEOUT numbers (harness.phase09-qualification scans every CMakeLists.txt)
 
 ### Pending Todos
 
@@ -191,8 +195,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-25T02:45:48.331Z
-Stopped at: Completed 10-14-PLAN.md
+Last session: 2026-11-25T03:25:15.511Z
+Stopped at: Completed 10-15-PLAN.md
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
