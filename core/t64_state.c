@@ -446,7 +446,7 @@ t64_status t64_machine_state_export(const t64_machine *machine,
   }
   status = write_container(machine, &layout, bytes_out);
   if (status != T64_STATUS_OK) {
-    /* Only a defect reaches here (the instance is already poisoned); a
+    /* Only a defect reaches here (it has already marked the instance); a
      * refusal returned before write_container and never touched the buffer.
      * write_container clears the area itself when a defect follows a write. */
     return status;

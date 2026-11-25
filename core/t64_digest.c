@@ -340,7 +340,7 @@ t64_status t64_digest_stream(const t64_machine *machine,
      * Every family machine owns its coverage table from creation. A walker
      * that skipped the bytes would return a digest that no longer covers the
      * member plan 09-10 added, so the stream refuses instead (re-check R1
-     * RC-01). An internal inconsistency: T64_STATUS_INTERNAL_DEFECT, poisoned.
+     * RC-01). An internal inconsistency: T64_STATUS_INTERNAL_DEFECT.
      */
     return t64_internal_defect(machine);
   }
