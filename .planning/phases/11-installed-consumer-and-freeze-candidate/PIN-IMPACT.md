@@ -629,6 +629,11 @@ Task 1 commit (102.6 s, start load 8.9) and 270 of 270 before the Task 2 commit 
 `build/gate/11-10-task2/red.txt` shows 10 of the 17 selftest cases failing before the rules existed
 (the four mandatory seeds, the positional descriptor, the two memset forms, the two array forms and
 the oracle-bound flag case) and the seven clean-case seeds passing; the selftest then passes 17 of 17.
+The full `sh scripts/preflight-phase11.sh` at the Task 2 commit (clean tree) reports PASS in 101 s: the
+ctest counts (`^repo\.api-init-guard` 2), the guards step (172 files, 0 findings, `--exclude-oracle-bound` as
+registered), the 231-unit `linux-compile` with the act image gcc 13.3.0 (it covers the converted
+`runner/tests` sources) and the post-gate replay; its host-load step warned at load 18 (unrelated host
+processes), which never fails.
 Evidence tier: unit-tested, authored scope; a software-interface claim only.
 
 ### 11-05 to 11-10 codemod
