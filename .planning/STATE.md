@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 10
 current_phase_name: Carry-in Closure Before the Freeze
 status: executing
-stopped_at: Completed 10-15-PLAN.md
-last_updated: "2026-11-25T03:25:15.535Z"
+stopped_at: Completed 10-16-PLAN.md
+last_updated: "2026-11-25T03:37:03.516Z"
 last_activity: 2026-11-23
 last_activity_desc: Phase 10 execution started
-state_head: 054b2c12ea58d39ca14bed9d79513bf41b8af3ec
+state_head: aa8ae55fa065b315f2d95c5247e20b40c8a6e417
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 19
-  completed_plans: 15
+  completed_plans: 16
   percent: 0
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 ## Current Position
 
 Phase: 10 (Carry-in Closure Before the Freeze) — EXECUTING
-Plan: 16 of 19
+Plan: 17 of 19
 Status: Ready to execute
 Last activity: 2026-11-23 — Phase 10 execution started
 
@@ -75,6 +75,7 @@ Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
 | Phase 10 P13 | 31 min | 3 tasks | 3 files |
 | Phase 10 P14 | 26 min | 4 tasks | 11 files |
 | Phase 10 P15 | 41 min | 4 tasks | 12 files |
+| Phase 10 P16 | 12 min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -170,6 +171,9 @@ Progress: [░░░░░░░░░░] 0% (0 of 3 v1.2 phases complete)
 - [Phase 10]: 10-15: the runner pairs the container format string with the profile in one function, state_request_admitted, called from the prelaunch guard (export (25, v1) or (26, v2), import state 25 only, every other pair the existing prelaunch refusal at guest tick 0); the supervisor validator stays profile-blind and accepts the closed set {v1, v2}
 - [Phase 10]: 10-15: the wrong-byte composite ROM cannot publish a save (export only after a pass), so controls.real.composite-wrong-rom compares the record the guest read back (the SR transcript line) through the same save comparator, first difference at offset 271 equal to the oracle's wrong.save_first_difference
 - [Phase 10]: 10-15: the Phase 9 wrong-format control of runner.state-export uses t64.state-container.v3 because v2 joined the closed set (one literal in test_state_runner.c, case list unchanged); a CMake helper may register only literal TIMEOUT numbers (harness.phase09-qualification scans every CMakeLists.txt)
+- [Phase 10]: 10-16: only the container format strings t64.state-container.v1 and v2 and their pairing with states 25 and 26 are settled in Phase 10; every other provisional name in the 7 live spec docs (15 sites plus two settle rows) now reads provisional until the Phase 11 freeze candidate (final ABI bind at the end of Phase 12); the relabel gate prints stale 0 and no closed record or pin moved
+- [Phase 10]: 10-16: Phase 9 triage in PIN-IMPACT.md section 13: unit.core.state.import split, replay-driver duplication and the stale production comments deferred to Phase 11; the dead t64_artifact_publisher.c link dropped from test_replay (3deee7d, case inventory unchanged); the deferred comments are 20 lines in 8 files by a wrap-aware search, not 19 (git grep -n -i -E 'until (the )?Phase 10' -- core runner tools must print nothing in Phase 11)
+- [Phase 10]: 10-16: W2-01 (Z product bound unpinned), W2-02 (two exact-tuple predicates are not membership tokens) and DEF-W1-01 (three unpinned perspective-floor copies) are recorded as deferred to the Phase 11 freeze-candidate review and named in the ROADMAP Phase 11 Carry-ins line; this plan fixed none of them
 
 ### Pending Todos
 
@@ -195,8 +199,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-25T03:25:15.511Z
-Stopped at: Completed 10-15-PLAN.md
+Last session: 2026-11-25T03:37:03.483Z
+Stopped at: Completed 10-16-PLAN.md
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
