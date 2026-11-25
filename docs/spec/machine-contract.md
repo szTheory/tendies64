@@ -504,8 +504,8 @@ changes the canonical digest.
 ## Composite SI profile family
 
 This section is provisional. The ids, descriptor fields, constants and section
-numbers below are revisable until the Phase 10 interface review; nothing here is
-an API or ABI freeze.
+numbers below are revisable until the Phase 11 freeze candidate (final ABI bind at
+the end of Phase 12); nothing here is an API or ABI freeze.
 
 Four registered profile ids form one family. All share descriptor version 12,
 machine model version 20 and state serialization version 25, and they extend
@@ -546,7 +546,8 @@ either field for a version below 12 before any allocation.
 The save device requests answer three status values, `T64_STATUS_SAVE_UNKNOWN_DEVICE`
 (20), `T64_STATUS_SAVE_UNSUPPORTED_DEVICE` (21) and `T64_STATUS_SAVE_DEVICE_MISMATCH`
 (22), through `t64_machine_save_info`; the values and that function are provisional
-until the Phase 10 interface review. Host import and export of the save bytes
+until the Phase 11 freeze candidate (final ABI bind at the end of Phase 12). Host
+import and export of the save bytes
 (`t64_machine_save_import`, `t64_machine_save_export`, the three byte-order
 selections, the statuses 23 to 25 and the observer-only import generation) are
 specified in `docs/spec/save-media.md` under Host import and export; they are
@@ -629,7 +630,8 @@ the commit that adds its site.
 ## F0 identity record
 
 This record freezes the identity slice of the composite family at its first
-point (F0). It is provisional until Phase 10 and implies no API or ABI freeze.
+point (F0). It is provisional until the Phase 11 freeze candidate (final ABI bind at
+the end of Phase 12) and implies no API or ABI freeze.
 
 * Profile ids: `ntsc-cart-4m-openipl3-rdram-b-t1-si-v1`, and the same id with
   the suffixes `-e4k`, `-e16k` and `-s32k`.
@@ -721,7 +723,8 @@ must extend this snapshot and preserve the same no-change refusal guarantee.
 
 This section records what the ordering matrix (`core/test_sched_matrix`, CTest
 name `unit.core.sched.matrix`, plan 09-06) shows and what it does not. It is
-provisional until Phase 10 and implies no API or ABI freeze.
+provisional until the Phase 11 freeze candidate (final ABI bind at the end of
+Phase 12) and implies no API or ABI freeze.
 
 **Order and its evidence limit.** Events dispatch by guest tick and then by
 reservation sequence, first in first out (`tick-sequence-fifo-v1`); no device has
@@ -849,7 +852,8 @@ record below.
 
 This record freezes the content of the v25 state stream at its second point
 (F1), after the SI and PIF section (10) and the save-media section (11) exist.
-It is provisional until Phase 10 and implies no API or ABI freeze.
+It is provisional until the Phase 11 freeze candidate (final ABI bind at the end of
+Phase 12) and implies no API or ABI freeze.
 
 F1 statement: the section ids, the framing and the per-section content of the
 stream frozen here equal the F0 table above plus the section 10 and 11 bodies

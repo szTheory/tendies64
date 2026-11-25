@@ -21,8 +21,12 @@ si-v1 ids); container version 2 carries state 26 (the four si-v2 ids, plan
   facts of one build family, not public API; they may change with the next
   state serialization version without a compatibility path. Blobs stay private
   0600 artifacts and are never committed.
-- Name, layout, format string, flag names and detail names are provisional until
-  Phase 10. No API or ABI freeze is implied.
+- The container format strings `t64.state-container.v1` (state 25) and
+  `t64.state-container.v2` (state 26) and their pairing with the state versions
+  are settled in Phase 10 (plans 10-11 and 10-15), as state-format constants
+  outside the ABI promise. Name, layout, flag names and detail names are
+  provisional until the Phase 11 freeze candidate (final ABI bind at the end of
+  Phase 12). No API or ABI freeze is implied.
 - The evidence is the independent decoders: the literal-offset decoder in
   `core/tests/test_state_export.c` (cases `export-layout`, `decoder-controls`,
   `states-and-ids`, `observer-continuity`, `idempotence-shape`,
@@ -409,7 +413,8 @@ the container is a recorded defect fix with regenerated goldens.
 `t64_status t64_machine_state_import(t64_machine *machine, const uint8_t *bytes,
 size_t length, uint32_t flags, t64_state_import_report *report_out)`. The name,
 the flag, the report record, the statuses (26 to 33), the reason names and the
-rule names are provisional until Phase 10; no API or ABI freeze is implied.
+rule names are provisional until the Phase 11 freeze candidate (final ABI bind at the
+end of Phase 12); no API or ABI freeze is implied.
 
 ### Scope and contract
 
@@ -783,7 +788,8 @@ them. The runner accepts only an unlinked read-only regular file as a descriptor
 (it cannot know where the descriptor came from); the declared size and the SHA-256 are
 verified by the supervisor only, so a directly started child checks the shape of the
 descriptor and, for a save image, the exact kind size, and skips the rest. Like every
-Phase 9 flag name they are provisional until the Phase 10 interface review.
+Phase 9 flag name they are provisional until the Phase 11 freeze candidate (final ABI
+bind at the end of Phase 12).
 
 ## Boundary matrix
 

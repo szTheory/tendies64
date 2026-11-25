@@ -543,7 +543,8 @@ further restrict those pairs:
   malformed report cannot become a guest outcome. `host-error` accepts host,
   wall-backstop, supervisor and runner process details. `report-error` accepts
   report, no-result and capture-invalid details.
-- The artifact publisher details (plan 09-05, provisional until Phase 10) are
+- The artifact publisher details (plan 09-05, provisional until the Phase 11
+  freeze candidate (final ABI bind at the end of Phase 12)) are
   the closed list `artifact-cap`, `artifact-dir-unsafe`, `artifact-exists`,
   `artifact-leaf-name`, `artifact-no-replace-unsupported`, `artifact-rename`,
   `artifact-stage`, `artifact-substitution` and `artifact-write`. Each maps to
@@ -551,7 +552,8 @@ further restrict those pairs:
   31 characters). A save export records no key, count or format in the closed
   record: nothing but the publisher error name can appear, and save bytes never
   appear in the record or in any log.
-- The state export details (plan 09-08, provisional until Phase 10) are the
+- The state export details (plan 09-08, provisional until the Phase 11 freeze
+  candidate (final ABI bind at the end of Phase 12)) are the
   closed list `state-export-alloc`, `state-export-cap`, `state-export-core`,
   `state-export-incomplete-terminal`, `state-export-open` and
   `state-export-publish`. Each maps to `harness-error` and is accepted only for

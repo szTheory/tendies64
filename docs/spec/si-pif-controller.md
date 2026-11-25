@@ -247,9 +247,10 @@ big-endian and in the new-span class, in this order:
 The fields `next_token` and `token_exhausted` are part of the section so that no
 state that decides later behavior is left out of the digest. The test suite carries an independent encoder written from this table, compares
 it with the production bytes in five states, and flips each field family once to
-show that every one changes the digest. The section content is provisional until
-the state content freeze at the end of plan 09-06; nothing here is an API or ABI
-freeze.
+show that every one changes the digest. The section content is the state content
+frozen by state versions 25 and 26 (the F1 record of
+[machine-contract.md](machine-contract.md); state 26 keeps this section and its
+framing); nothing here is an API or ABI freeze.
 
 ## Authored tracer
 

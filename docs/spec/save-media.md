@@ -27,8 +27,9 @@ byte images named there, autodetection of a format, and persistence by the core.
 Nothing here is an API or ABI freeze; the status values, the kind and format
 constants, `t64_save_info`, `t64_machine_save_info`, `t64_machine_save_import`,
 `t64_machine_save_export`, the flag names and the detail names are provisional
-until the Phase 10 interface review, and only the kind numbering above and the
-`save_policy` label stay fixed for the rest of Phase 9.
+until the Phase 11 freeze candidate (final ABI bind at the end of Phase 12), and
+only the kind numbering above and the `save_policy` label stay fixed for the rest
+of Phase 9.
 
 ## Profile selection
 
@@ -205,8 +206,10 @@ The test suite carries an independent encoder written from this table and
 compares it with the production bytes for the blank, written, mid-deadline,
 stale, word-written and mid-DMA states, and flips each field family once to show
 that every one changes the digest. The strip differential against the Phase 8
-stream still holds for the three save ids. The section content is provisional
-until the state content freeze at the end of plan 09-06.
+stream still holds for the three save ids. The section content is the state content
+frozen by state versions 25 and 26 (the F1 record of
+[machine-contract.md](machine-contract.md); state 26 keeps this section and its
+framing); nothing here is an API or ABI freeze.
 
 ## Authored fixtures and transcript oracle
 
@@ -333,7 +336,7 @@ SWAP16 vector declared as WORDREV32 (and the reverse) stores `02 03 00 01 06 07
 
 `write_generation` is an observer-only counter that lives in the machine and is
 outside the canonical digest. It counts successful imports since creation or the
-last replacement; guest writes do not increment it (a Phase 10 follow-up). A
+last replacement; guest writes do not increment it (a Phase 11 item). A
 successful state import (`t64_machine_state_import`) into a profile with a save
 device adds exactly one, saturating, as the last write of its commit, because it
 replaces the save bytes as a save import does; a refused state import never

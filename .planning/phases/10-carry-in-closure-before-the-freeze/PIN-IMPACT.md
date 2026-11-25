@@ -664,3 +664,42 @@ Phase 11 and 12 can find every site with one search.
 | # | Site at the plan start (file:line) | Old phrase | New phrase or settlement |
 |---|-----------------------------------|------------|--------------------------|
 | 1 | `docs/spec/raw-capture.md:132` (artifact pair, Phase 9) | provisional until Phase 10 | provisional until the Phase 11 freeze candidate (final ABI bind at the end of Phase 12) |
+| 2 | `docs/spec/result-protocol.md:546` (artifact publisher detail names, plan 09-05) | provisional until Phase 10 | provisional until the Phase 11 freeze candidate (final ABI bind at the end of Phase 12) |
+| 3 | `docs/spec/result-protocol.md:554` (state export detail names, plan 09-08) | provisional until Phase 10 | provisional until the Phase 11 freeze candidate (final ABI bind at the end of Phase 12); Phase 10 added no detail name (plan 10-15 pairing refusals are the existing prelaunch refusal), so nothing here was decided |
+| 4 | `docs/spec/machine-contract.md:507` (Composite SI profile family: ids, descriptor fields, constants, section numbers) | revisable until the Phase 10 interface review | revisable until the Phase 11 freeze candidate (final ABI bind at the end of Phase 12) |
+| 5 | `docs/spec/machine-contract.md:548-549` (save device statuses 20 to 22 and `t64_machine_save_info`) | provisional until the Phase 10 interface review | provisional until the Phase 11 freeze candidate (final ABI bind at the end of Phase 12) |
+| 6 | `docs/spec/machine-contract.md:632` (F0 identity record) | provisional until Phase 10 | provisional until the Phase 11 freeze candidate (final ABI bind at the end of Phase 12) |
+| 7 | `docs/spec/machine-contract.md:724` (CORE-02 ordering evidence) | provisional until Phase 10 | provisional until the Phase 11 freeze candidate (final ABI bind at the end of Phase 12) |
+| 8 | `docs/spec/machine-contract.md:852` (F1 state content record) | provisional until Phase 10 | provisional until the Phase 11 freeze candidate (final ABI bind at the end of Phase 12) |
+| 9 | `docs/spec/replay.md:11` (format keys, flag names, module API, fixture row fields) | provisional until Phase 10 | provisional until the Phase 11 freeze candidate (final ABI bind at the end of Phase 12) |
+| 10 | `docs/spec/replay.md:198` (naming the recorder failures in the closed result vocabulary) | a Phase 10 item | a Phase 11 item, same sentence and content (the 09-REVIEW-FIX L3 IN-01 owner item) |
+| 11 | `docs/spec/state-container.md:24-25` (stability list: name, layout, format string, flag names, detail names) | provisional until Phase 10 | settled in Phase 10 (plans 10-11 and 10-15): the container format strings `t64.state-container.v1` (state 25) and `t64.state-container.v2` (state 26) and their pairing with the state versions, as state-format constants outside the ABI promise; name, layout, flag names and detail names are provisional until the Phase 11 freeze candidate (final ABI bind at the end of Phase 12) |
+| 12 | `docs/spec/state-container.md:412` (`t64_machine_state_import`: name, flag, report record, statuses 26 to 33, reason and rule names) | provisional until Phase 10 | provisional until the Phase 11 freeze candidate (final ABI bind at the end of Phase 12) |
+| 13 | `docs/spec/state-container.md:786` (runner descriptor option names `--input-fd`, `--save-import-fd`, `--replay-fd`, `--state-import-fd`) | provisional until the Phase 10 interface review | provisional until the Phase 11 freeze candidate (final ABI bind at the end of Phase 12) |
+| 14 | `docs/spec/save-media.md:29-30` (statuses, kind and format constants, `t64_save_info`, import and export calls, flag and detail names) | provisional until the Phase 10 interface review | provisional until the Phase 11 freeze candidate (final ABI bind at the end of Phase 12); the clause "only the kind numbering above and the `save_policy` label stay fixed for the rest of Phase 9" is unchanged |
+| 15 | `docs/spec/save-media.md:336` (guest writes do not increment `write_generation`) | a Phase 10 follow-up | a Phase 11 item, same content |
+
+Settle rows (a statement that waited for the "state content freeze at the end of plan
+09-06"; the regex of the gate does not count them):
+
+| # | Site at the plan start | Old sentence | New sentence |
+|---|------------------------|--------------|--------------|
+| S1 | `docs/spec/si-pif-controller.md:250-252` (SI and PIF section content, the plan's settle row) | The section content is provisional until the state content freeze at the end of plan 09-06; nothing here is an API or ABI freeze. | The section content is the state content frozen by state versions 25 and 26 (the F1 record of machine-contract.md; state 26 keeps this section and its framing); nothing here is an API or ABI freeze. |
+| S2 | `docs/spec/save-media.md:208-209` (save-media section content; the identical sentence for section 11, not named by the plan, found by the same search over the 7 docs and settled with the same rule) | The section content is provisional until the state content freeze at the end of plan 09-06. | The same sentence as S1 (state versions 25 and 26, F1 record, state 26 keeps this section and its framing, no API or ABI freeze). |
+
+Result. Every one of the 15 stale sites is relabeled or settled and S1 and S2 are settled:
+the gate prints `stale 0` (raw-capture 0, result-protocol 0, machine-contract 0, replay 0,
+state-container 0, si-pif-controller 0, save-media 0); `grep "Phase 10"` over the seven docs
+finds only the one settlement sentence of row 11. `sh scripts/check-docs.sh` prints
+`check-docs: ok` and `sh scripts/check-claims.sh` prints `errors=0`.
+`git diff --quiet -- docs/claims docs/evidence` exits 0, so no closed-phase record moved
+(`docs/claims/phase09.md:32` and `docs/evidence/phase09-qualification.md:276` each still
+carry one "until the Phase 10 freeze" statement and are left untouched by rule). The edit is a
+relabel: no sentence changes its claim, no API or ABI freeze statement is added, and no
+build id, sealed body or pin moves (no `core/`, `runner/` or `tools/` file is touched).
+
+Where Phase 10 decided an item (the settled set): only the container format strings and
+their pairing with the state versions (row 11). The other names the lens list R8 names
+(state flag names, closed recorder-failure detail names, the third SI trace kind name,
+`T64_REAL_KEEP_WORKSET`, the info call) were not decided by Phase 10 and are provisional
+until the Phase 11 freeze candidate.

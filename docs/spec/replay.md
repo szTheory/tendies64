@@ -8,7 +8,8 @@ report record and the runner flags that drive them (plan 09-07, D-34 and D-35).
 Everything here is runner-side: the core knows nothing of replays and no core
 source, public header or result record key is added. No API or ABI freeze is
 implied; format keys, flag names, the module API and fixture row fields are
-provisional until Phase 10.
+provisional until the Phase 11 freeze candidate (final ABI bind at the end of
+Phase 12).
 
 What the evidence is. The behavior is regression-pinned and unit-tested: an
 authored ROM, driven by an independently authored input script, is recorded
@@ -195,7 +196,7 @@ first practical limit for a dense interval, the checkpoint cap the second. The r
 the stated limit `floor(T / interval) <= 4096`: choose an interval of at least `T / 4096`
 (`T` at most the bound) and an artifact maximum that holds the document. The byte cap
 (4,194,304) and the op cap (65,536) are not reachable first. Naming the recorder failures
-in the closed result vocabulary is a Phase 10 item (it adds closed detail names to the
+in the closed result vocabulary is a Phase 11 item (it adds closed detail names to the
 result protocol and the checker).
 
 Mapping onto the existing `t64.result`: a record run is the ordinary result and
