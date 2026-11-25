@@ -345,6 +345,7 @@ t64_status t64_machine_state_export(const t64_machine *machine,
   state_layout layout;
   t64_status status;
 
+  T64_ENTRY_GUARD(machine);
   if (machine == NULL || length_out == NULL ||
       !t64_internal_make_range(length_out, sizeof *length_out,
                                &length_range) ||
@@ -3280,6 +3281,7 @@ t64_status t64_machine_state_import(t64_machine *machine,
   bool report_usable = report_out != NULL;
   t64_status status;
 
+  T64_ENTRY_GUARD(machine);
   (void)memset(&report, 0, sizeof report);
   status = state_import_attempt(machine, bytes, length, flags, report_out,
                                 &report, &report_usable);

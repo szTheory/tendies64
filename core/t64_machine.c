@@ -2354,6 +2354,42 @@ const char *t64_source_revision(void) { return T64_SOURCE_REVISION; }
 
 uint32_t t64_abi_version(void) { return T64_ABI_VERSION; }
 
+/*
+ * The one function that sets the poisoned flag (plan 11-03, DR-10). It takes
+ * a const pointer because const entries (t64_machine_digest and
+ * t64_machine_state_export) find internal defects too. The poisoned member is
+ * the one machine member a const entry may write: the instance lives in host
+ * storage the core allocated writable, the flag is outside the digest and the
+ * state container, and the address goes through uintptr_t so the cast is not a
+ * qualifier-dropping pointer cast. Idempotent; never called for a caller fault.
+ */
+t64_status t64_internal_defect(const t64_machine *machine) {
+  if (machine != NULL) {
+    t64_machine *writable = (t64_machine *)(uintptr_t)machine;
+
+    writable->poisoned = 1u;
+  }
+  return T64_STATUS_INTERNAL_DEFECT;
+}
+
+void t64_test_force_defect(t64_machine *machine) {
+  (void)t64_internal_defect(machine);
+}
+
+t64_status t64_machine_is_poisoned(const t64_machine *machine,
+                                   uint32_t *poisoned_out) {
+  t64_address_range output_range;
+
+  if (machine == NULL || poisoned_out == NULL ||
+      !t64_internal_make_range(poisoned_out, sizeof *poisoned_out,
+                               &output_range) ||
+      !t64_internal_observation_range_is_disjoint(machine, output_range)) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  *poisoned_out = machine->poisoned != 0u ? 1u : 0u;
+  return T64_STATUS_OK;
+}
+
 t64_status t64_profile_lookup(const char *profile_id,
                               const t64_profile_descriptor **profile_out) {
   static const char skeleton_profile_id[] = "ntsc-cart-4m-skeleton";
@@ -2914,6 +2950,10 @@ void t64_machine_destroy(t64_machine *machine) {
   machine_storage = machine->machine_storage;
   video_storage = machine->video_storage;
   audio_storage = machine->audio_storage;
+  /* Destroy works on a poisoned instance and has no poison guard; the in-call
+   * flag turns a call made from one of the release callbacks into a refusal
+   * for as long as the instance memory is still valid. */
+  machine->in_call = 1u;
   if (machine->has_image) {
     allocator.release(allocator.context, machine->image_storage);
   }
@@ -2933,9 +2973,7 @@ t64_status t64_machine_admit_rom(t64_machine *machine, const uint8_t *bytes,
   uint8_t current_profile_digest[T64_DIGEST_SIZE];
   t64_status status;
 
-  if (machine == NULL) {
-    return T64_STATUS_INVALID_ROM;
-  }
+  T64_ENTRY_GUARD(machine);
   if (t64_profile_hash(&machine->profile, current_profile_digest) !=
           T64_STATUS_OK ||
       memcmp(current_profile_digest, machine->profile_digest,
@@ -2955,10 +2993,15 @@ t64_status t64_machine_admit_rom(t64_machine *machine, const uint8_t *bytes,
       return T64_STATUS_INVALID_ROM;
     }
   }
+  /* The candidate allocation (and its failure-path release) are allocator
+   * callbacks made on behalf of this instance: core/t64_rom.c receives the
+   * allocator, not the instance, so the in-call flag is raised here. */
+  machine->in_call = 1u;
   status = t64_rom_candidate_prepare(
       &machine->allocator, &machine->profile, bytes, length,
       machine->machine_storage, machine->image_storage, machine->has_image,
       &candidate);
+  machine->in_call = 0u;
   if (status != T64_STATUS_OK) {
     return status;
   }
@@ -2980,16 +3023,19 @@ t64_status t64_machine_admit_rom(t64_machine *machine, const uint8_t *bytes,
   status = reset_guest_state(machine);
   t64_trace_emit(machine, machine->tick, T64_TRACE_DEVICE_MACHINE,
                  T64_TRACE_KIND_ROM_ADMITTED, (uint64_t)candidate.length);
+  machine->in_call = 1u;
   t64_rom_candidate_discard(&machine->allocator, &candidate);
   if (previous.data != NULL) {
     machine->allocator.release(machine->allocator.context, previous);
   }
+  machine->in_call = 0u;
   return status;
 }
 
 t64_status t64_machine_advance(t64_machine *machine,
                                const t64_stop_request *request,
                                t64_stop_result *result_out) {
+  T64_ENTRY_GUARD(machine);
   if (machine == NULL || request == NULL || result_out == NULL) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
@@ -3003,6 +3049,7 @@ t64_status t64_machine_content_digest(
     const t64_machine *machine, uint8_t digest_out[T64_DIGEST_SIZE]) {
   t64_address_range output_range;
 
+  T64_ENTRY_GUARD(machine);
   if (machine == NULL || digest_out == NULL ||
       !t64_internal_make_range(digest_out, T64_DIGEST_SIZE, &output_range) ||
       !t64_internal_observation_range_is_disjoint(machine, output_range)) {
@@ -3020,6 +3067,7 @@ t64_status t64_machine_rom_size(const t64_machine *machine,
                                 size_t *size_out) {
   t64_address_range output_range;
 
+  T64_ENTRY_GUARD(machine);
   if (machine == NULL || size_out == NULL ||
       !t64_internal_make_range(size_out, sizeof *size_out, &output_range) ||
       !t64_internal_observation_range_is_disjoint(machine, output_range)) {
@@ -3038,6 +3086,7 @@ t64_status t64_machine_rom_header(const t64_machine *machine,
   t64_address_range length_range;
   t64_address_range header_range;
 
+  T64_ENTRY_GUARD(machine);
   if (machine == NULL || length_out == NULL ||
       (header_out == NULL && capacity != 0u) ||
       !t64_internal_make_range(length_out, sizeof *length_out, &length_range) ||
@@ -3065,13 +3114,11 @@ t64_status t64_machine_rom_header(const t64_machine *machine,
 
 t64_status t64_machine_profile(
     const t64_machine *machine, const t64_profile_descriptor **profile_out) {
+  T64_ENTRY_GUARD(machine);
   if (profile_out == NULL) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
   *profile_out = NULL;
-  if (machine == NULL) {
-    return T64_STATUS_INVALID_ARGUMENT;
-  }
   *profile_out = &machine->profile;
   return T64_STATUS_OK;
 }
@@ -3081,6 +3128,7 @@ t64_status t64_machine_cpu_stop_detail(
   t64_address_range output_range;
   t64_cpu_stop_detail detail;
 
+  T64_ENTRY_GUARD(machine);
   if (machine == NULL || detail_out == NULL ||
       !t64_internal_make_range(detail_out, sizeof *detail_out, &output_range) ||
       !t64_internal_observation_range_is_disjoint(machine, output_range)) {

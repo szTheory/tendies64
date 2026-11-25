@@ -30,9 +30,7 @@ static bool output_range_is_valid(const t64_machine *machine, void *output,
 }
 
 t64_status t64_machine_trace_set_enabled(t64_machine *machine, bool enabled) {
-  if (machine == NULL) {
-    return T64_STATUS_INVALID_ARGUMENT;
-  }
+  T64_ENTRY_GUARD(machine);
   machine->trace_enabled = enabled;
   return T64_STATUS_OK;
 }
@@ -48,6 +46,7 @@ t64_status t64_machine_trace_drain(
   size_t copy_count;
   size_t i;
 
+  T64_ENTRY_GUARD(machine);
   if (machine == NULL || count_out == NULL || dropped_out == NULL ||
       drop_count_saturated_out == NULL ||
       (records_out == NULL && capacity != 0u) ||

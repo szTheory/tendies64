@@ -1128,6 +1128,16 @@ struct t64_machine {
   uint8_t rom_version;
   bool has_image;
   bool halted;
+  /*
+   * Defect and reentrancy flags (plan 11-03, DR-10). Both are outside the
+   * digest, the state container and every walker (those emit named members,
+   * never struct bytes), and neither is touched by replacement or import.
+   * poisoned is set only by t64_internal_defect at an internal invariant
+   * violation and is never cleared; in_call is non-zero while the core calls
+   * the host allocator on behalf of this instance.
+   */
+  uint8_t poisoned;
+  uint8_t in_call;
   t64_event events[T64_EVENT_QUEUE_CAPACITY];
   size_t queue_head;
   size_t queue_count;
@@ -1156,6 +1166,46 @@ struct t64_machine {
    * the digest, the export and replacement. */
   t64_state_summary state_summary;
 };
+
+/*
+ * Entry guard of every public entry that takes a machine except
+ * t64_machine_destroy and t64_machine_is_poisoned (plan 11-03, DR-10). The
+ * order is observable: a NULL machine is INVALID_ARGUMENT, a poisoned
+ * instance is POISONED, a call made while the core is inside a host allocator
+ * callback for the same instance is REENTRANT; only then do the entry's own
+ * checks run. A guard refusal returns before the entry reads or writes
+ * anything else, so every output stays byte for byte as the caller left it.
+ */
+static inline t64_status t64_internal_entry_guard(
+    const t64_machine *machine) {
+  if (machine == NULL) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  if (machine->poisoned != 0u) {
+    return T64_STATUS_POISONED;
+  }
+  if (machine->in_call != 0u) {
+    return T64_STATUS_REENTRANT;
+  }
+  return T64_STATUS_OK;
+}
+
+#define T64_ENTRY_GUARD(machine_)                                           \
+  do {                                                                      \
+    const t64_status t64_guard_status_ = t64_internal_entry_guard(machine_); \
+    if (t64_guard_status_ != T64_STATUS_OK) {                               \
+      return t64_guard_status_;                                             \
+    }                                                                       \
+  } while (0)
+
+/*
+ * Poisons the instance and returns T64_STATUS_INTERNAL_DEFECT. This is the
+ * only function that sets the poisoned flag, and it is called only where the
+ * core finds one of its own invariants broken, never for a caller fault. It
+ * takes a const pointer because const entries (digest, state export) detect
+ * defects; the definition documents the cast.
+ */
+t64_status t64_internal_defect(const t64_machine *machine);
 
 static inline bool t64_has_ai_profile(const t64_machine *machine) {
   return machine != NULL && machine->profile.descriptor_version == 11u &&
@@ -1490,6 +1540,9 @@ t64_status t64_test_reserve_synthetic(t64_machine *machine, uint64_t tick,
                                       t64_event_reservation *reservation_out);
 bool t64_test_event_handler_matches(const t64_machine *machine,
                                     size_t logical_offset);
+/* In-tree trigger of the defect class: poisons the instance exactly as an
+ * internal invariant violation does (plan 11-03, DR-10). */
+void t64_test_force_defect(t64_machine *machine);
 void t64_machine_reset_execution_state(t64_machine *machine);
 void t64_trace_reset(t64_machine *machine);
 void t64_trace_emit(t64_machine *machine, uint64_t tick, uint32_t device,

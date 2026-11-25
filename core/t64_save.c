@@ -299,6 +299,7 @@ t64_status t64_machine_save_info(const t64_machine *machine,
   t64_address_range output_range;
   t64_status status;
 
+  T64_ENTRY_GUARD(machine);
   if (machine == NULL || info_out == NULL ||
       !t64_internal_make_range(info_out, sizeof *info_out, &output_range) ||
       !t64_internal_observation_range_is_disjoint(machine, output_range)) {
@@ -372,9 +373,7 @@ t64_status t64_machine_save_export(const t64_machine *machine,
   t64_status status;
   size_t size;
 
-  if (machine == NULL) {
-    return T64_STATUS_INVALID_ARGUMENT;
-  }
+  T64_ENTRY_GUARD(machine);
   if (!machine->has_image) {
     return T64_STATUS_NOT_READY;
   }
@@ -429,9 +428,7 @@ t64_status t64_machine_save_import(t64_machine *machine, uint32_t device_kind,
   t64_status status;
   size_t size;
 
-  if (machine == NULL) {
-    return T64_STATUS_INVALID_ARGUMENT;
-  }
+  T64_ENTRY_GUARD(machine);
   if (!machine->has_image) {
     return T64_STATUS_NOT_READY;
   }

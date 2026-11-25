@@ -24,6 +24,7 @@ t64_status t64_machine_output_drain(t64_machine *machine, uint8_t *bytes_out,
   t64_sha256_ctx digest_context;
   size_t pending_bytes;
 
+  T64_ENTRY_GUARD(machine);
   if (machine == NULL || result_out == NULL ||
       !t64_internal_make_range(result_out, sizeof *result_out, &result_range) ||
       !observation_span_is_disjoint(machine, result_range)) {
@@ -107,6 +108,7 @@ t64_status t64_machine_queue_input(t64_machine *machine, uint64_t tick,
   uint64_t value;
   t64_status status;
 
+  T64_ENTRY_GUARD(machine);
   if (machine == NULL || port != 0u || axis_x < T64_INPUT_AXIS_MIN ||
       axis_x > T64_INPUT_AXIS_MAX || axis_y < T64_INPUT_AXIS_MIN ||
       axis_y > T64_INPUT_AXIS_MAX) {

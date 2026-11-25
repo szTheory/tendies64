@@ -846,6 +846,28 @@ set_tests_properties(unit.core.api.abi-version PROPERTIES
   TIMEOUT 30
   COST 1)
 
+# Defect class and entry guards (plan 11-03). White-box: the test includes
+# core/t64_internal.h so it can force a defect and corrupt members the public
+# surface cannot reach.
+add_executable(test_api_poison tests/test_api_poison.c)
+target_include_directories(test_api_poison PRIVATE
+  "${CMAKE_SOURCE_DIR}/tests"
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_SOURCE_DIR}/tools/common")
+target_link_libraries(test_api_poison PRIVATE t64_core t64_sha256)
+t64_target_warnings(test_api_poison)
+add_dependencies(test_api_poison t64-boot-fixtures)
+add_test(NAME unit.core.api.poison
+  COMMAND test_api_poison --case poison)
+add_test(NAME unit.core.api.refusals-never-poison
+  COMMAND test_api_poison --case refusals-never-poison)
+set_tests_properties(unit.core.api.poison
+  unit.core.api.refusals-never-poison PROPERTIES
+  LABELS "unit;phase11"
+  TIMEOUT 60
+  COST 1
+  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
+
 # Descriptor 13 family (plan 10-09): the four registered si-v2 ids with their
 # pinned profile hashes, and ISViewer activity on the eight SI family ids; plan
 # 10-10 adds the predicate matrix over all 25 registered ids.

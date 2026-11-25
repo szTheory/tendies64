@@ -279,7 +279,9 @@ harness.phase10-qualification'
 PHASE11_TESTS='repo.abi-header
 repo.abi-status-classes
 repo.abi-selftest
-unit.core.api.abi-version'
+unit.core.api.abi-version
+unit.core.api.poison
+unit.core.api.refusals-never-poison'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

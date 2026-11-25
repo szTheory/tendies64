@@ -405,6 +405,28 @@ T64_API t64_status t64_machine_create(const t64_host_allocator *allocator,
                                       const t64_profile_descriptor *profile,
                                       t64_machine **machine_out);
 T64_API void t64_machine_destroy(t64_machine *machine);
+/*
+ * Defect class and poison query (plan 11-03). A call that finds an internal
+ * invariant of the core broken returns T64_STATUS_INTERNAL_DEFECT and poisons
+ * the instance; a caller fault never poisons. On a poisoned instance every
+ * entry that takes a machine except t64_machine_destroy and this query returns
+ * T64_STATUS_POISONED and leaves every output buffer and out-struct exactly as
+ * the caller left it, and t64_machine_destroy still releases every host
+ * allocation. A NULL machine is T64_STATUS_INVALID_ARGUMENT with every output
+ * untouched on each entry that takes a machine, and t64_machine_destroy(NULL)
+ * does nothing. A call made on an instance from inside one of its own host
+ * allocator callbacks (admission and destruction call the host) is refused with
+ * T64_STATUS_REENTRANT before it reads or writes anything. One instance still
+ * needs external serialization; distinct instances are independent.
+ *
+ * This query reports 1 in *poisoned_out for a poisoned instance and 0
+ * otherwise. It is the one entry other than destroy with no poison or
+ * reentrancy guard; a NULL machine, a NULL poisoned_out or an output span that
+ * overlaps the instance is T64_STATUS_INVALID_ARGUMENT with *poisoned_out
+ * untouched.
+ */
+T64_API t64_status t64_machine_is_poisoned(const t64_machine *machine,
+                                           uint32_t *poisoned_out);
 T64_API t64_status t64_machine_admit_rom(t64_machine *machine, const uint8_t *bytes,
                                          size_t length);
 T64_API t64_status t64_machine_advance(t64_machine *machine,

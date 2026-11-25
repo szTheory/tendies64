@@ -1092,6 +1092,7 @@ t64_status t64_machine_digest(const t64_machine *machine,
   t64_address_range output_range;
   t64_status status;
 
+  T64_ENTRY_GUARD(machine);
   if (machine == NULL || digest_out == NULL ||
       !t64_internal_make_range(digest_out, T64_DIGEST_SIZE, &output_range) ||
       !t64_internal_observation_range_is_disjoint(machine, output_range)) {

@@ -1003,10 +1003,12 @@ t64_status t64_bus_writeback_dcache_line(
 
 t64_status t64_machine_bus_read(t64_machine *machine, uint32_t address,
                                 uint32_t width, uint32_t *value_out) {
+  T64_ENTRY_GUARD(machine);
   return t64_bus_read(machine, address, width, value_out);
 }
 
 t64_status t64_machine_bus_write(t64_machine *machine, uint32_t address,
                                  uint32_t width, uint32_t value) {
+  T64_ENTRY_GUARD(machine);
   return t64_bus_write(machine, address, width, value);
 }
