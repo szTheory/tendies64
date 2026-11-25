@@ -1,11 +1,11 @@
 /*
- * Tendies64 core facade (PROVISIONAL).
+ * Tendies64 synthetic-guest runner header (PROVISIONAL, in-tree only).
  *
  * This header was one of the two placeholder paths allowed under core/ before
- * ADR-0002 was accepted (CONTEXT A-1). ADR-0002 is accepted; the header stays
- * PROVISIONAL and is NOT an ABI promise: the API freeze is Phase 10. The
- * synthetic runner guest implements it now; the real core implements it in
- * Phase 3.
+ * ADR-0002 was accepted (CONTEXT A-1). It declares the facade the synthetic
+ * runner guest implements. It is not installed, is not part of the ABI and is
+ * not in the freeze record: the public C API is tendies64/t64_machine.h, a 0.x
+ * freeze candidate bound by Phase 11 (final ABI bind at the end of Phase 12).
  *
  * Semantics:
  *  - advance() runs guest time up to and including bound_tick. It returns
@@ -15,9 +15,9 @@
  *    their record tick, and returns 0 when empty.
  *  - No global state: everything lives in the instance pointer.
  *
- * Undefined today (PROVISIONAL; each case must be defined, with its refused-
- * operation effect, before the API freeze; callers must not rely on any of
- * them, and what the synthetic guest happens to do is not a promise):
+ * Undefined (PROVISIONAL; this header is outside the freeze record, so no case
+ * is defined here; callers must not rely on any of them, and what the
+ * synthetic guest happens to do is not a promise):
  *  - advance() with bound_tick below the current tick. The synthetic guest
  *    clamps it to the current tick and reports T64_STOP_BOUND there.
  *  - advance() when the guest halts exactly at bound_tick: whether
@@ -30,7 +30,7 @@
  *    told apart from an empty queue.
  *  - NULL inst, tick_out or buf. Nothing checks them.
  *  - The width of t64_stop_reason: an enum's size is implementation-defined.
- *    A fixed-width integer replaces it in t64_advance_result at the freeze.
+ *    The public header uses fixed-width integers instead.
  */
 #ifndef TENDIES64_T64_FACADE_H
 #define TENDIES64_T64_FACADE_H

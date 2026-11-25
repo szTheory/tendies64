@@ -7,8 +7,8 @@
  * The tokens are closed lists. A format token carries its version suffix (the
  * D-35 per-format version string); there is no unversioned token, no default
  * and no autodetect. The byte-order selections are authored policy (assumption
- * A1), not a hardware fact. No API or ABI freeze is implied; names are
- * provisional until Phase 10.
+ * A1), not a hardware fact. The runner is not installed and is not part of the
+ * ABI or the freeze record; these names stay provisional.
  */
 #ifndef T64_SAVE_FLAGS_H
 #define T64_SAVE_FLAGS_H

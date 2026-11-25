@@ -1,7 +1,8 @@
 /*
- * Provisional deterministic machine seam. The public surface is not a frozen
- * ABI. Host callbacks own allocation and release; core execution never calls
- * back into the host.
+ * Public C API of the deterministic machine: a 0.x freeze candidate bound by
+ * Phase 11, with the final ABI bind at the end of Phase 12; it is not a frozen
+ * ABI yet. The ABI rules are in docs/spec/api.md. Host callbacks own
+ * allocation and release; core execution never calls back into the host.
  */
 #ifndef TENDIES64_T64_MACHINE_H
 #define TENDIES64_T64_MACHINE_H
@@ -52,7 +53,8 @@
 #define T64_TRACE_DEVICE_INPUT UINT32_C(6)
 #define T64_TRACE_DEVICE_RDP UINT32_C(7)
 #define T64_TRACE_DEVICE_VI UINT32_C(8)
-/* Provisional until Phase 10: serial interface execute and complete events. */
+/* Serial interface execute and complete events; provisional until the Phase 11
+ * freeze candidate (final ABI bind at the end of Phase 12). */
 #define T64_TRACE_DEVICE_SI UINT32_C(10)
 #define T64_TRACE_KIND_ROM_ADMITTED UINT32_C(1)
 #define T64_TRACE_KIND_CPU_ENTRY UINT32_C(2)
@@ -115,18 +117,21 @@
 #define T64_STATUS_BUS_ALIGNMENT UINT32_C(17)
 #define T64_STATUS_BUS_RANGE UINT32_C(18)
 #define T64_STATUS_BUS_DEVICE_REFUSED UINT32_C(19)
-/* Save device request refusals (plan 09-04); provisional until Phase 10. A
- * profile with no device answers any requested kind with DEVICE_MISMATCH. */
+/* Save device request refusals (plan 09-04); provisional until the Phase 11
+ * freeze candidate (final ABI bind at the end of Phase 12). A profile with no
+ * device answers any requested kind with DEVICE_MISMATCH. */
 #define T64_STATUS_SAVE_UNKNOWN_DEVICE UINT32_C(20)
 #define T64_STATUS_SAVE_UNSUPPORTED_DEVICE UINT32_C(21)
 #define T64_STATUS_SAVE_DEVICE_MISMATCH UINT32_C(22)
-/* Save import and export refusals (plan 09-05); provisional until Phase 10. */
+/* Save import and export refusals (plan 09-05); provisional until the Phase 11
+ * freeze candidate (final ABI bind at the end of Phase 12). */
 #define T64_STATUS_SAVE_BAD_FORMAT UINT32_C(23)
 #define T64_STATUS_SAVE_SIZE_MISMATCH UINT32_C(24)
 #define T64_STATUS_SAVE_BUSY UINT32_C(25)
-/* State import refusals (plan 09-09); provisional until Phase 10. Each status
- * names one family of refusal and carries a closed reason in the import
- * report (T64_STATE_REASON_*). */
+/* State import refusals (plan 09-09); provisional until the Phase 11 freeze
+ * candidate (final ABI bind at the end of Phase 12). Each status names one
+ * family of refusal and carries a closed reason in the import report
+ * (T64_STATE_REASON_*). */
 #define T64_STATUS_STATE_FORMAT UINT32_C(26)
 #define T64_STATUS_STATE_INTEGRITY UINT32_C(27)
 #define T64_STATUS_STATE_VERSION UINT32_C(28)
@@ -155,7 +160,8 @@
 #define T64_REGION_EUROPE UINT32_C(2)
 #define T64_MEDIA_CARTRIDGE UINT32_C(1)
 #define T64_SAVE_NONE UINT32_C(0)
-/* Provisional until the Phase 10 interface review; no API/ABI freeze. */
+/* Provisional until the Phase 11 freeze candidate (final ABI bind at the end
+ * of Phase 12). */
 #define T64_SAVE_EEPROM_4K UINT32_C(1)
 #define T64_SAVE_EEPROM_16K UINT32_C(2)
 #define T64_SAVE_SRAM_32K UINT32_C(3)
@@ -170,9 +176,10 @@
  * guest tick, or an SRAM DMA is in flight. */
 #define T64_SAVE_INFO_BUSY UINT32_C(1)
 /* Byte-order selections of save import and export (plan 09-05). Authored
- * policy, not a hardware fact; provisional until Phase 10. RAW is the identity;
- * SWAP16 swaps the two bytes inside every 16-bit unit; WORDREV32 reverses the
- * four bytes inside every 32-bit unit. */
+ * policy, not a hardware fact; provisional until the Phase 11 freeze candidate
+ * (final ABI bind at the end of Phase 12). RAW is the identity; SWAP16 swaps
+ * the two bytes inside every 16-bit unit; WORDREV32 reverses the four bytes
+ * inside every 32-bit unit. */
 #define T64_SAVE_FORMAT_RAW UINT32_C(1)
 #define T64_SAVE_FORMAT_SWAP16 UINT32_C(2)
 #define T64_SAVE_FORMAT_WORDREV32 UINT32_C(3)
@@ -292,7 +299,8 @@ typedef struct {
   /* Descriptor v11 field: deterministic AI DMA/sample policy. */
   char ai_policy[T64_PROFILE_TEXT_CAPACITY];
   /* Descriptor v12 fields: SI/joybus wire policy and explicit save-media
-   * policy. Older descriptor hashes ignore them. Provisional until Phase 10. */
+   * policy. Older descriptor hashes ignore them. Provisional until the Phase 11
+   * freeze candidate (final ABI bind at the end of Phase 12). */
   char si_policy[T64_PROFILE_TEXT_CAPACITY];
   char save_policy[T64_PROFILE_TEXT_CAPACITY];
   uint32_t descriptor_version;
@@ -554,8 +562,9 @@ T64_API t64_status t64_machine_digest(const t64_machine *machine,
                                       uint8_t digest_out[T64_DIGEST_SIZE]);
 
 /*
- * State export (provisional until Phase 10: the name, the container layout
- * and the format string are not frozen and no API or ABI freeze is implied).
+ * State export (provisional until the Phase 11 freeze candidate, final ABI
+ * bind at the end of Phase 12: the name, the container layout and the format
+ * string are not final).
  * The container is the versioned binary blob described in
  * docs/spec/state-container.md; it is an integrity-checked copy of the
  * canonical machine state plus the host observer cursors, not an
@@ -596,7 +605,8 @@ T64_API t64_status t64_machine_state_export(const t64_machine *machine,
 #define T64_STATE_CONTAINER_FORMAT_V2 "t64.state-container.v2"
 
 /*
- * State import (plan 09-09; provisional until Phase 10, no API or ABI freeze).
+ * State import (plan 09-09; provisional until the Phase 11 freeze candidate,
+ * final ABI bind at the end of Phase 12).
  * Import accepts a container produced by the same build for the same version,
  * profile and content. The contract is memory safety plus liveness: a blob
  * that passes validation cannot cause an out-of-range access, an unbounded
@@ -750,7 +760,8 @@ T64_API t64_status t64_video_copy(t64_machine *machine, uint8_t *bytes_out,
                                   size_t capacity, size_t *length_out);
 
 /*
- * Save device information (provisional until Phase 10; no API/ABI freeze).
+ * Save device information (provisional until the Phase 11 freeze candidate,
+ * final ABI bind at the end of Phase 12).
  * kind is the profile's device kind, size_bytes its storage size and flags
  * T64_SAVE_INFO_BUSY while a write window or a DMA is in flight.
  * write_generation counts successful save imports and successful state imports
@@ -786,7 +797,8 @@ T64_API t64_status t64_machine_save_info(const t64_machine *machine,
 
 /*
  * Host import and export of the save device bytes (plan 09-05; provisional
- * until Phase 10, no API/ABI freeze). Both move exactly the kind's size
+ * until the Phase 11 freeze candidate, final ABI bind at the end of Phase 12).
+ * Both move exactly the kind's size
  * (512, 2048 or 32,768 bytes, no padding, no container, no autodetect) in the
  * named byte order; the core never opens a file or loads or flushes a save on
  * its own. The check order is exact and every check precedes any read of
@@ -833,7 +845,8 @@ T64_API t64_status t64_audio_copy(t64_machine *machine, uint8_t *bytes_out,
  * axes are logical 8-bit values in [-128,127]. Events are scheduled and traced
  * in tick/sequence order. Legacy profiles do not consume them; the composite
  * family latches the value so a poll sampled at tick E sees the last input
- * stamped strictly before E (provisional until Phase 10). Calls must be
+ * stamped strictly before E (provisional until the Phase 11 freeze candidate,
+ * final ABI bind at the end of Phase 12). Calls must be
  * serialized with advance. Refusals do not change the queue or sequence.
  * Submission is accepted only for an admitted, nonterminal machine and a tick
  * at or after the current guest tick.

@@ -89,3 +89,28 @@ set_tests_properties(repo.abi-prefix PROPERTIES
   TIMEOUT 30
   COST 1
   ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
+# repo.stale-freeze-text (plan 11-11, DR-18): no production comment, header
+# banner or ADR-0002 line may say that the API freeze is, or comes, at Phase 10
+# (core/, runner/, tools/ and docs/adr/0002-language-build-and-abi.md; closed
+# Phase 9 and Phase 10 records are outside the scan). The deny phrases are in
+# the script header.
+add_test(NAME repo.stale-freeze-text
+  COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/check-stale-freeze-text.sh
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(repo.stale-freeze-text PROPERTIES
+  LABELS "repo;phase11"
+  TIMEOUT 30
+  COST 1)
+
+# repo.stale-freeze-text-selftest: seeded files in a temporary tree (the three
+# mandatory seeds plus the before, review, case-insensitive and ADR seeds, two
+# clean controls and the empty-scan error) must be reported or accepted exactly
+# as seeded.
+add_test(NAME repo.stale-freeze-text-selftest
+  COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/check-stale-freeze-text.sh --selftest
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(repo.stale-freeze-text-selftest PROPERTIES
+  LABELS "repo;phase11"
+  TIMEOUT 30
+  COST 1)

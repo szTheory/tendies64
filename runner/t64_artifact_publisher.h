@@ -10,7 +10,8 @@
  * cleanup. The delta is one published file instead of a bundle directory, a
  * leaf-name grammar, and a hard cap checked before every write.
  *
- * No API or ABI freeze is implied; names are provisional until Phase 10. */
+ * The runner is not installed and is not part of the ABI or the freeze record;
+ * these names stay provisional. */
 
 #include <stdbool.h>
 #include <stddef.h>

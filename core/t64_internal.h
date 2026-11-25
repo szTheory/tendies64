@@ -2031,7 +2031,8 @@ typedef struct {
 #define T64_STATE_SECTION_OBSERVER_CONTINUITY UINT32_C(16)
 
 /*
- * State container (plan 09-08, provisional until Phase 10). All integers are
+ * State container (plan 09-08, provisional until the Phase 11 freeze
+ * candidate, final ABI bind at the end of Phase 12). All integers are
  * big-endian. Layout, offsets from the blob start: a 0x120-byte header, a
  * table of 56-byte entries (id, flags, body offset, body length, body
  * SHA-256), the canonical region (exactly the v25 digest preimage), the

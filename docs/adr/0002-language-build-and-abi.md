@@ -51,8 +51,14 @@ Language and build (D1):
 
 ABI:
 
-- A C ABI behind opaque instances and ops tables. The facade header is provisional (CONTEXT amendment A-1);
-  the API freeze is Phase 10.
+- A C ABI behind opaque instances and ops tables. The facade header is provisional (CONTEXT amendment A-1),
+  stays in-tree, is not installed and is not part of the ABI; the public C API is
+  `core/include/tendies64/t64_machine.h`, bound as a 0.x freeze candidate in Phase 11 with the final bind at
+  the end of Phase 12.
+- Amendment (2026-11-25, Phase 11): the C API is bound as a 0.x freeze candidate in Phase 11 (installed
+  header, status and stop-reason class table, `struct_size` handshakes and an installed-consumer proof).
+  The language-reversal window of "Reversal evidence" closes at the Phase 12 final bind of that API, the one
+  the Phase 11 candidate binds. Nothing else in this record changes.
 - Memory comes from host callbacks. The core holds no file-scope mutable state.
 - Digest rules, fixed now so digests stay portable across hosts: fixed-width integer types, explicit endian
   serialization, no hashing of struct padding, no host floating point in the core.
@@ -88,7 +94,8 @@ Spike and acceptance rules:
   parser (Phase 2 success criterion), sanitizer builds of the tools, and review. The spike did not establish
   this mitigation (see "Evidence limits"). In Phase 1, code review, not the tests, found memory-safety bugs
   in the C tools (CR-01, WR-07).
-- Bad: the facade is provisional, so consumers must not treat it as an ABI promise before Phase 10.
+- Bad: the facade is provisional and not installed, so consumers must not treat it as an ABI promise; the
+  public header is a 0.x freeze candidate until the final bind at the end of Phase 12.
 
 ### Confirmation
 

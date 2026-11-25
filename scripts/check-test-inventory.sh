@@ -292,7 +292,9 @@ unit.core.api.not-ready-table
 unit.core.api.output-status
 repo.api-init-guard
 repo.api-init-guard-selftest
-repo.abi-prefix'
+repo.abi-prefix
+repo.stale-freeze-text
+repo.stale-freeze-text-selftest'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

@@ -2209,7 +2209,7 @@ static int case_import_bound_below_tick(void) {
 
 /* ======================================================================= */
 /* Plan 09-10 tracer: one real mutated state blob through the real runner   */
-/* (option --run-mutant ROW, not a case; provisional until Phase 10)        */
+/* (option --run-mutant ROW, not a case)                                   */
 /* ======================================================================= */
 
 #define TRACER_PRIVATE "build/gate/09-10-private"

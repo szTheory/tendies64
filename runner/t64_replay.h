@@ -2,8 +2,8 @@
  * t64.replay v1 operation log, the recorder that wraps the real accepted input
  * calls, identity binding, the stepwise player and in-process driver, and the
  * closed t64.replay-report v1 record. Runner side only: the core knows nothing
- * of replays. No API or ABI freeze is implied; names, keys and caps are
- * provisional until Phase 10.
+ * of replays. The runner is not installed and is not part of the ABI or the
+ * freeze record; names, keys and caps stay provisional.
  *
  * Boundaries owned here. Input: the replay bytes are untrusted and parsed with
  * explicit caps before any allocation. Time: ops carry guest ticks (the tick at

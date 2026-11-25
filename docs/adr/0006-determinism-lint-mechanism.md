@@ -95,6 +95,23 @@ Allowlist policy (`tools/lint/allowlist.txt`, rows `name|why|ADR/date|os`):
 - Every new row needs an ADR reference and the operating system it applies to.
 - A compiler-runtime helper needs an ADR-backed per-architecture row, and the preferred fix is to remove the
   construct.
+- Amendment (2026-11-25, Phase 11, DR-19): the installed-archive allowlist, the undefined names the shipped
+  `libt64_core.a` may reference when its members are checked as the installed object set, holds exactly three
+  rows, each with its platform and its reason, in `tools/lint/allowlist-installed.txt` (created with the
+  installed-object check). The source allowlist above and the lint's own compile, which stays
+  `-fno-stack-protector`, do not change; the shipped build stays hardened.
+
+  - `__stack_chk_fail`, platform any: the stack-protector failure handler, compiler runtime with no host
+    service, abort only.
+  - `__stack_chk_guard`, platform any: the stack-protector canary value, compiler runtime with no host service.
+  - `_GLOBAL_OFFSET_TABLE_`, platform ELF/Linux only: a position-independent-code artifact, a linker-defined
+    address symbol and not a host service.
+
+  The CONTEXT decision was revised on 2026-11-25 after the plan check (DR-31): research measured the Linux
+  need (the archive-level undefined set on x86_64 gcc 13.3 holds `_GLOBAL_OFFSET_TABLE_` and
+  `__stack_chk_fail` next to `memcmp`, `memcpy` and `memset`), so the third row is ELF only and Mach-O has two
+  rows.
+  Reversal: build with `-fno-stack-protector` and drop the rows.
 
 Runtime-helper avoidance: the Layer-1 rule `L1-RUNTIME-HELPER` flags `__int128` and `__builtin_popcount*`, and
 the core target compiles with `-Wframe-larger-than=2048` and `-Wdouble-promotion`.
