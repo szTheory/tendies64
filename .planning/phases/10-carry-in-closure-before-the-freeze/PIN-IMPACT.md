@@ -853,6 +853,10 @@ Findings of the rehearsal:
   commit message count "26 mutants and 2 controls"; the driver lists 25 mutants and 2
   controls (27 rows). The check itself is exact (rows equal `--list`); only the sentence is
   off by one. It is not edited here so that the rehearsal stays the run of the committed
-  code; plan 10-18 corrects it with the other audit edits, if any.
+  code; plan 10-18 corrects it with the other audit edits, if any. Corrected by plan 10-18
+  in commit `4dd936a` (the stage derivation now reads "25 mutants and 2 controls, 27 rows";
+  text only: the limit, the command and the exact row check are unchanged, and
+  `harness.phase10-qualification` passes). The rehearsal record above stays bound to
+  `da6af0d`; the one qualification of plan 10-19 runs fresh on the audited head.
 - The hermetic test `harness.phase10-qualification` took 5.2 to 6.4 s natively at load 8 to 13
   (8.99 s inside the loaded JUnit run), under the 10 s of the plan; its `TIMEOUT` is 120 s.
