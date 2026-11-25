@@ -636,3 +636,69 @@ one tuple, one domain and one container version value are new, the version pairi
 importer has no apply-before-validate path, 25 mutants are KILLED with both controls as expected, D10 is accepted
 (with the pin-strength warning W2-01) and the pushed head's hosted pair is green. Wave 3 (plans 10-14 to 10-18)
 may start at the Wave 3 base recorded in PIN-IMPACT.md "Wave bases".
+
+## Wave 3
+
+Plans 10-14 to 10-17 (phase-wave 3 RUN-07, the one manifest-moving commit, and the phase-wave 4 tooling: the
+provisional-name sweep and Phase 9 triage of 10-16, the qualifier of 10-17), reviewed by plan 10-18 (Tasks 1 and
+2 below), then the one final independent audit of the whole phase ("## Final audit", Task 3) and the push
+(Task 4). The review re-runs commands and reads the diffs instead of trusting the plan summaries.
+
+| Item | Value |
+|------|-------|
+| Wave 3 base | `1cded8de34b0c2f5c5bea903095ffc7f1e55d6fc` (extracted from PIN-IMPACT.md "Wave bases" with the 10-01 base extraction idiom: exactly one 40-hex line, an existing commit, an ancestor of the head) |
+| Wave 0 base | `4ac633e880e0c26005cb03092e8d8485e721034c` (same idiom, for the whole-phase checks) |
+| Reviewed head | `4dd936a41050f4fe4eebdea2f705dbe9ed4a7df0` (25 commits after the Wave 3 base; 27 files changed outside `.planning/`, 5,419 insertions and 50 deletions). It is the plan 10-17 head `856b1e9` plus one commit, `4dd936a`, that corrects one sentence of `scripts/qualify-phase10.py` (the mutants stage derivation said "26 mutants and 2 controls", the driver lists 25 and 2; text only, the limits, the command and the check are unchanged) so that the qualification base is taken after the last source edit. Every later commit of this plan changes only `.planning/` and `docs/ci-reviews/LOG.md`, so the reviewed tree is the pushed tree |
+| Host | Darwin arm64, 1-minute load 6.3 to 10.7 during the runs below (other sessions on the same machine, so every second count is an upper bound for a quiet host) |
+
+### Task 1: scratch gate and sanitizer selection of the final head
+
+Method: the W0-01 form of Wave 0, not a bare `git archive` tree. `git clone --no-checkout --no-hardlinks` of the
+main repository into `build/10-review/final/src`, `git checkout --detach 4dd936a...`, and a copy (not a symlink)
+of `build/tools/install` so the pinned Binutils 2.45 is reused. `git status --short` of the clone was empty, and
+`git archive HEAD` of the clone and of the main repository have the same SHA-256
+(`d2d9524616a88fe99c0a42d9921c0b09eb827a46c492db520716ef842b7a60a7`), so the scratch tree is exactly the archive of
+the head (the equality was checked again after the last command of this review). Every command ran in that clone
+with no `CI` or `GITHUB_*` variable; the shared tree was only read. The cold-boot attempt counters of the Phase 6
+tests (D-10-17-01) start at 01 in a fresh clone; the shared tree stands at 2 attempts of each family after the
+archive move of plan 10-17, so the 10-19 qualification has the full 99.
+
+**Gate.** `sh scripts/gate.sh`: `[gate] PASS`, `[gate] total 123s`, exit 0, first attempt. Steps in seconds: sh-n
+0, lint-selftest 3, fixture-qualification 1, configure 1, build 4, boot-evidence-selftest 11,
+test-inventory-selftest 20, test-inventory 1, ctest 72 (`100% tests passed out of 254`, `Total Test time (real) =
+72.73 sec`), core-lint 10. The CTest count is the 248 names of the Wave 2 head plus the five names of plan 10-15
+(`runner.composite-two-run`, `controls.real.composite-wrong-rom`, `runner.composite-state-v2`,
+`harness.composite-oracle`, `runner.state-format-v26`) and the qualifier's `harness.phase10-qualification`. The gate
+total is 36 s below the Wave 2 review (159 s) and 33 s below the rehearsal of plan 10-17 (155.88 s); those runs
+were at load 12 to 15, this one at 6.3 to 10.2, so the difference is mostly the host, not the code.
+
+The 30 `PHASE10_TESTS` names ran 23.23 s in total in that gate (one run each, `CTestCostData.txt` of the scratch
+gate, none carries `COST`; `ctest -N -L phase10` reports 30 and the block lists 30). The six names that Waves 3 and
+4 added are 9.50 s of it: `harness.phase10-qualification` 6.954 (the qualifier's own hermetic test, dominated by
+its subprocess runs), `runner.state-format-v26` 1.441, `runner.composite-two-run` 0.543, `controls.real.composite-wrong-rom`
+0.271, `runner.composite-state-v2` 0.249 and `harness.composite-oracle` 0.046. The slowest names of the whole gate in
+this run were `unit.core.state.import` 46.6 s, `harness.state-field-use-audit` 17.5 s, `runner.cpu-diagnostic` 15.5 s and
+`repo.rsp-no-hle` 14.8 s.
+
+**Sanitizer selection.** `cmake --preset asan` (0 s), `cmake --build --preset asan` (361 build steps, exit 0, 4 s
+with the compiler cache) and `ctest --preset asan -L phase10 --output-on-failure`: exit 0, `100% tests passed out of
+30`, `Total Test time (real) = 128.29 sec` (`phase10 = 280.87 sec*proc`). The `PHASE10_TESTS` block lists 30 names,
+so the run count equals the block. No sanitizer report: 0 lines matching `ERROR: AddressSanitizer` or `runtime
+error` in the log.
+
+| Phase 10 name (ASan preset) | seconds | | Phase 10 name (ASan preset) | seconds |
+|-----------------------------|---------|-|-----------------------------|---------|
+| `unit.core.state.import-v26-hostile` | 120.95 | | `unit.core.digest.v26-completeness` | 3.98 |
+| `unit.core.state.import-v26-roundtrip` | 36.75 | | `unit.core.k1.dispatch-refusal` | 3.69 |
+| `runner.state-format-v26` | 31.08 | | `unit.core.vg.ntsc-clock` | 2.28 |
+| `unit.core.state.export-v26` | 24.76 | | `unit.core.digest.v26-strip-differential` | 0.54 |
+| `unit.core.state.export-v26-bounds` | 16.22 | | `unit.core.rdp.depth-composite-sidecar` | 0.34 |
+| `runner.composite-two-run` | 13.46 | | `unit.core.vg.z-exponent-boundaries` | 0.33 |
+| `unit.core.k1.apply-refusal` | 7.34 | | `controls.real.composite-wrong-rom` | 6.54 |
+| `harness.phase10-qualification` | 6.64 | | `harness.composite-oracle` | 0.05 |
+| `runner.composite-state-v2` | 4.80 | | the other thirteen names | 0.05 to 0.19 each |
+
+The slowest sanitizer name is `unit.core.state.import-v26-hostile` at 120.95 s against its sanitizer TIMEOUT of 900
+s (7.4 times); of the Wave 3 and 4 names `runner.state-format-v26` is 31.08 s against 300 s (9.7 times),
+`runner.composite-two-run` 13.46 s against 120 s (8.9 times) and the other four are at least 17 times below their
+limits. All are above the 2 times line of F-108.
