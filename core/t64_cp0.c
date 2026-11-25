@@ -578,7 +578,11 @@ t64_status t64_cp0_synchronize_guest_time(t64_machine *machine,
   }
   phase = machine->cpu.count_half_clock_phase;
   if (phase > 1u) {
-    return T64_STATUS_INVALID_ARGUMENT;
+    /* The phase is internal state that only this function writes (0 or 1);
+     * any other value is a broken invariant, not a caller fault: the call
+     * answers T64_STATUS_INTERNAL_DEFECT and poisons the instance (AMBIG-A,
+     * DR-11). */
+    return t64_internal_defect(machine);
   }
 
   elapsed_ticks = tick - machine->cpu.count_sync_tick;

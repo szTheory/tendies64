@@ -487,11 +487,18 @@ static void test_vr4300_profile_entry(
   T64_CHECK(rejected_machine == NULL);
   T64_CHECK_INT(allocator_state_value.outstanding, 4u);
 
-  /* Exercise a corrupted in-machine descriptor as a transactional refusal. */
+  /* Exercise a corrupted in-machine descriptor. The stored profile digest no
+   * longer matches the profile bytes, which is an internal invariant
+   * violation (plan 11-03, AMBIG-A): the call answers INTERNAL_DEFECT and
+   * poisons the instance, and it still changes nothing else. The poison flag
+   * is the one member that moves; the white-box control clears it so the
+   * remaining storage can be compared bit for bit and the machine reused. */
   machine->profile.boot_policy_sha256[0] ^= UINT8_C(1);
   hash_machine_storage(machine, state_before);
   T64_CHECK_INT(t64_machine_admit_rom(machine, asset, IPL3_ASSET_BYTES),
-                T64_STATUS_INVALID_ARGUMENT);
+                T64_STATUS_INTERNAL_DEFECT);
+  T64_CHECK_INT(machine->poisoned, 1);
+  machine->poisoned = 0u;
   hash_machine_storage(machine, state_after);
   T64_CHECK(memcmp(state_before, state_after, sizeof state_before) == 0);
   machine->profile.boot_policy_sha256[0] ^= UINT8_C(1);

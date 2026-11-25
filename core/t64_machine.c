@@ -2980,7 +2980,11 @@ t64_status t64_machine_admit_rom(t64_machine *machine, const uint8_t *bytes,
              sizeof current_profile_digest) != 0 ||
       (has_pinned_openipl3_profile_id(&machine->profile) &&
        !is_pinned_openipl3_profile(&machine->profile))) {
-    return T64_STATUS_INVALID_ARGUMENT;
+    /* create stored the profile digest and refused a pinned id with other
+     * bytes, so a mismatch here means instance memory no longer holds what
+     * create put there: a defect (AMBIG-A, DR-11), found before any state
+     * change or allocation. */
+    return t64_internal_defect(machine);
   }
   if (is_pinned_openipl3_profile(&machine->profile)) {
     status = t64_rom_input_preflight(
@@ -3029,6 +3033,12 @@ t64_status t64_machine_admit_rom(t64_machine *machine, const uint8_t *bytes,
     machine->allocator.release(machine->allocator.context, previous);
   }
   machine->in_call = 0u;
+  if (status != T64_STATUS_OK) {
+    /* The image was already swapped in and the guest state is partly reset,
+     * so the instance cannot return to its previous state: a defect (DR-11).
+     * Every host allocation was released above, so destroy stays exact. */
+    return t64_internal_defect(machine);
+  }
   return status;
 }
 

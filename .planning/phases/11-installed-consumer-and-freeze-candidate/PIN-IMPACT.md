@@ -321,7 +321,7 @@ a software-interface claim only.
 | DR-09 | Public init macros in `t64_machine.h`, brace initializers valid in C99 and C++17 (no designated initializers): `T64_HOST_ALLOCATOR_INIT(allocate, release, context)`, `T64_STOP_REQUEST_INIT(kind, value)`, `T64_STOP_RESULT_INIT`, `T64_STOP_RESULT_INIT_WITH(reason, tick)`, `T64_CPU_STOP_DETAIL_INIT`, `T64_OUTPUT_DRAIN_RESULT_INIT`, `T64_VIDEO_PACKET_INFO_INIT`, `T64_AUDIO_PACKET_INFO_INIT`, `T64_STATE_IMPORT_REPORT_INIT`, `T64_SAVE_INFO_INIT`, `T64_OUTPUT_STATUS_INIT`, `T64_MACHINE_CREATE_INFO_INIT(allocator, profile)`. They land in 11-05 expanding to today's layouts (call sites converted by directory group in 11-05 to 11-10) and change only their bodies at the flip (11-12, which fills `struct_size` with `sizeof` of the type); `T64_MACHINE_CREATE_INFO_INIT` is born at the flip and `T64_OUTPUT_STATUS_INIT` is final since 11-04. | CTX autonomous (public initializer macros land first, then a mechanical codemod, compiling commits only) | costly (public names; bodies change once, at the flip) |
 | DR-10 | Poison scope: two members, `poisoned` and `in_call`, inside `struct t64_machine`, outside the digest and the state container (both emit named members, never struct bytes) and set only by one internal function at INTERNAL_DEFECT sites. Entry order for every machine-taking entry except destroy and the poison query (the 23 existing ones plus reset, unload and output status): NULL machine (`INVALID_ARGUMENT`), poisoned (`POISONED`), in_call (`REENTRANT`), then today's checks; `t64_machine_destroy` and `t64_machine_is_poisoned` have no poison guard, and destroy always releases the host allocator storage. A caller fault never poisons. The in-tree trigger is `t64_test_force_defect`, beside the four `t64_test` hooks (renamed `t64i_test_*` by DR-17). | CTX autonomous (poison scope) and CTX locked (defect class: only destroy and a poison query succeed) | costly (internal data shape, not serialized; the entry order is observable) |
 | DR-11 | Defect sites (AMBIG-A and AMBIG-B) as RESEARCH lists them: `core/t64_cp0.c:581` (corrupt `count_half_clock_phase`), `core/t64_machine.c:2943` (stored profile digest no longer matches the profile bytes in `admit_rom`) and the six internal-inconsistency sites of BAD_STORAGE (`core/t64_digest.c:345,350`, `core/t64_state.c:169,214,221,335`) return `T64_STATUS_INTERNAL_DEFECT` and poison; the allocator-contract sites of BAD_STORAGE (`core/t64_machine.c:2766,2804,2836`, `core/t64_rom.c:184`) stay refused. Also a defect: a failing `reset_guest_state` after the image swap in `admit_rom` (it leaves a replaced image with partial state). `t64_machine_admit_rom(NULL, ...)` answers `INVALID_ARGUMENT` (it answers `INVALID_ROM` today; moves no digest). State export no longer clears the output buffer on a refused status (header text lines 405 to 409). | CTX autonomous (AMBIG-A, AMBIG-B, NULL machine) | costly (class-table rows are re-bindable until the final bind; the status values are not) |
-| DR-12 | Handler-error masking (AMBIG-E): the poison hook in the scheduler fires only on handler statuses outside a whitelist of statuses that the existing dispatch paths return by design and mask as `RESOURCE_LIMIT` (the `RESOURCE_EXHAUSTED` backpressure signal inside `dispatch_front` is the known member); the whitelist is measured in 11-03 as a static table (status, returning function, file:line, class) and proven by zero new poisons across the 1,599-line digest sweep. | CTX autonomous (AMBIG-C/E) | reversible (an internal hook; table wording re-bindable) |
+| DR-12 | Handler-error masking (AMBIG-E): the poison hook in the scheduler fires only on handler statuses outside a whitelist of statuses that the existing dispatch paths return by design and mask as `RESOURCE_LIMIT` (the `RESOURCE_EXHAUSTED` backpressure signal inside `dispatch_front` is the known member); the whitelist is measured in 11-03 as a static table (status, returning function, file:line, class) and proven by zero new poisons across the 1,599-line digest sweep (recorded in section "DR-12 record" below). | CTX autonomous (AMBIG-C/E) | reversible (an internal hook; table wording re-bindable) |
 | DR-13 | Bus carve-out (AMBIG-D): `t64_machine_bus_write` is carved out of the refusal-is-a-no-op domain by a written, tested statement of exactly what a refusing device can latch (PI length and sticky error, SI sticky DMA error and a trace record, header text lines 655 to 665); address, width, alignment and range refusals change nothing; `BUS_DEVICE_REFUSED` stays in the refused class. | CTX autonomous (AMBIG-D) | reversible (a documented carve-out is re-bindable) |
 | DR-14 | `T64_STOP_REASON_RESOURCE_LIMIT` wording: a resumable guest-stop, resumable after drain or yield; a stall with no progress after a full drain is permanent (three causes: the per-advance event budget, an event that cannot dispatch for VI or AI output backpressure or counter overflow, and a masked non-OK handler status). `QUIESCENT` is a guest-stop resumable by queued input only. | CTX autonomous (AMBIG-C/E; stop reasons) | reversible (table wording, re-bindable until the final bind) |
 | DR-15 | Dead values stay reserved, with no renumbering: `T64_STATUS_UNSUPPORTED_ROM_ORDER` (6, never returned, the only occurrence is the `#define`) and `T64_STOP_REASON_HALT` (4, set only by the synthetic halt event scheduled through the in-tree `t64_test` hooks, so unreachable through the installed API); both are classified in the table with a reserved note (HALT: reserved, terminal until reset). | CTX autonomous (class table dead values) | reversible (nothing to migrate) |
@@ -342,6 +342,125 @@ a software-interface claim only.
 | DR-30 | `t64_profile_descriptor` takes a leading `struct_size`, not getters: 303 lines in 79 files copy a looked-up descriptor and edit its fields, so getters would rewrite each of them (the descriptor type is mentioned on 392 lines in 82 files by the "Public-struct call-site counts" measure), and the descriptor's `struct_size` stays out of the profile byte streams (DR-06). | CTX autonomous (descriptor struct: struct_size or getters, the planner picks the cheaper) | costly (one-way once bound) |
 | DR-31 | CONTEXT amendment record: the "Stack protector" decision was revised by the orchestrator on 2026-11-25 after the plan check to add the ELF-only `_GLOBAL_OFFSET_TABLE_` row (research measured the Linux need: archive-level undefined set `_GLOBAL_OFFSET_TABLE_`, `__stack_chk_fail`, `memcmp`, `memcpy`, `memset` on x86_64 gcc 13.3); DR-19 implements the revised text and plans 11-11 and 11-17 cite it. | orchestrator amendment 2026-11-25 (CONTEXT revised) | reversible |
 | DR-32 | Composite three-way scope (checker B-1): `composite.expected.json` is the independent source of the video packet bytes, the audio packets, the save, the transcript and the poll state; the completion tick, the stop reason, the final state digest and the video packet count have no independent source and are committed as `fixtures/composite/composite.runner-pins.json`, labeled "runner-recorded pin, not independent" with the citation Phase 10 PIN-IMPACT.md section 11.3 (plan 10-14 supervised runs). The installed consumer agrees with the in-tree runner on all values and with the independent literals on the values that have an independent source; no claim calls the runner-recorded pins independent. | CTX locked (three-way agreement) refined by the checker finding B-1 | reversible |
+
+### DR-12 record: handler-error whitelist, defect sites and measured set (plan 11-03)
+
+Written by plan 11-03 Task 3 before the scheduler hook was edited (the static derivation and
+the measurement both precede the code change). Evidence tier: unit-tested, authored scope; a
+software-interface claim only.
+
+**Handlers.** `dispatch_front` (`core/t64_scheduler.c`) returns the status of
+`t64_cp0_synchronize_guest_time` (`core/t64_cp0.c:558`) or of `event.handler`. The closed handler
+table of `t64_state_handler_lookup` (`core/t64_state.c:815`) names the ten production handlers:
+`t64_cpu_step` (`core/t64_cpu.c:2106`), `t64_pi_complete` (`core/t64_pi.c:286`), `t64_sp_complete`
+(`core/t64_sp.c:921`), `t64_rsp_issue_event` (`core/t64_rsp.c:1341`, reached through
+`t64_rsp_issue_event_handler`), `t64_rdp_event` (`core/t64_rdp.c:776`), `t64_vi_event`
+(`core/t64_vi.c:1164`), `t64_ai_event` (`core/t64_ai.c:457`), `t64_input_event_handler`
+(`core/t64_observe.c:87`), `t64_si_execute_event` (`core/t64_si.c:266`) and
+`t64_si_complete_event` (`core/t64_si.c:291`). The five synthetic test handlers
+(`core/t64_scheduler.c:28-60`) return OK. The set of statuses each can return was derived by a
+throwaway scratch script (not committed) that walks every function body reachable from the handler
+(comments and strings stripped) and lists each `T64_STATUS_*` token with its function and line; the
+full per-site list is retained locally in `build/gate/11-03-task3/whitelist-sites.txt` and the
+per-status summary below carries every non-bus site and a per-file count for the bus statuses.
+Over-approximation: a callee that converts a status into a guest-visible effect without returning
+it is still counted, so the whitelist can only be wider than the truth, never narrower.
+
+**Static whitelist.** Statuses found in the closure of the eleven functions (12 values; the other
+27 values of 0 to 38 never occur in it):
+
+| Status | Class | Returning function and file:line (sites in files) |
+|--------|-------|---------------------------------------------------|
+| RESOURCE_EXHAUSTED | whitelisted: backpressure, CPU stop signal, DMA range outcome | 50 sites in 8 files: `t64_cpu_step` returns it at `t64_cpu.c:2157-2575` when it stops the CPU or cannot continue (18 sites), `t64_pi_complete:309,321`, `t64_sp_complete:940,962`, `t64_vi_event:1190,1201,1208`, `t64_ai_event:484`, `t64_si_complete_event:307`, `start_dma` of pi (`t64_pi.c:101,102`), sp (`t64_sp.c:256`) and si (`t64_si.c:163`), `vi_v8_event` (`t64_vi.c:958-1143`), `t64_save_sram_dma_apply:226`, `t64_schedule_cancel:239` |
+| QUEUE_FULL | whitelisted: event queue exhaustion | 6 sites: `t64_schedule_reserve:107`, `t64_schedule_check_capacity:163` (`t64_scheduler.c`), `t64_vi_event:1186`, `vi_v8_event:990`, `t64_ai_event:488`, `submit_dma:206` |
+| SEQUENCE_EXHAUSTED | whitelisted: sequence counter exhaustion (terminal until reset) | 10 sites: `t64_schedule_reserve:110,113`, `t64_schedule_check_capacity:173`, `t64_ai_event:493,502`, `activate_queued_descriptor:134`, `submit_dma:209,225`, `t64_rsp_schedule_next:22`, `t64_sp_rsp_dma_preflight:484` |
+| TICK_OVERFLOW | whitelisted: tick counter overflow | 6 sites: `t64_schedule_reserve_after:142`, `t64_schedule_check_capacity:176`, `reserve_sample_event:100` (ai), `start_dma:108,109` (pi), `decode_descriptor:148` (sp) |
+| TIME_REVERSED | whitelisted: event or synchronization time before the machine time (can follow earlier state changes inside a dispatch) | 3 sites: `t64_cp0_synchronize_guest_time:577`, `t64_schedule_reserve:104`, `t64_schedule_cancel:246` |
+| NOT_READY | whitelisted: absent or not ready device (AI or SI register access on a profile without the device, no image, an unfound event to cancel, an unsupported softfloat operation) | 8 sites: `t64_ai_read_register:260`, `t64_ai_write_register:304`, `t64_si_read_register:104`, `t64_si_write_register:245`, `t64_rsp_ensure_opportunity:45`, `t64_schedule_reserve:101`, `t64_schedule_cancel:245`, `t64_softfloat_execute:146` |
+| BUS_UNMAPPED, BUS_UNSUPPORTED, BUS_ALIGNMENT, BUS_RANGE, BUS_DEVICE_REFUSED | whitelisted: guest bus access and device refusal outcomes | 13, 97, 13, 25 and 126 sites: `t64_bus.c` 7/26/5/14/11, `t64_rdram.c` 0/14/0/0/27, `t64_sp.c` 0/5/0/0/26, `t64_rsp.c` 0/0/0/0/14, `t64_vi.c` 0/6/2/0/13 and the cache, cpu, memory, isviewer, mi, pi, rdp, save, si, ai and warm-device files |
+| INVALID_ARGUMENT | internal invariant: poisons | 78 sites in 22 files, all argument preconditions that no guest input reaches: NULL `machine`, `event` or output pointers (`t64_pi_complete:293`, `t64_sp_complete:932`, `t64_rdp_event:789`, `t64_vi_event:1178`, `t64_ai_event:473`, `t64_input_event_handler:91`, `t64_si_execute_event:272`, `t64_si_complete_event:297`, `t64_rsp_issue_event:1423`, `t64_cpu_step:2154` and the bus, cache, memory, device-register and scheduler entry checks), widths and masks the CPU derives from decoded instructions (`validate_access` `t64_bus.c:205`, `t64_bus_write_masked:790,795`, `t64_cpu_dcache_write:380,385`), register addresses already decoded into a device window by the bus (`t64_pi_read_register:164`, `t64_sp_write_register:858,874`, `t64_mi_register_write:124`), unreachable switch defaults (`t64_cpu_cache_operation:634`) and the `T64_CPU_ATTEMPT_HOST_ERROR` returns of `t64_cpu.c` (`1390,1697,1709,1740,1750,2208`) |
+| INTERNAL_DEFECT | internal invariant: poisons | returned only by `t64_internal_defect`; poisons at the call site and again in the scheduler hook |
+| every other value (BAD_STORAGE, STATE_*, SAVE_*, ABI_MISMATCH, STRUCT_TOO_SMALL, REENTRANT, POISONED, ...) | internal invariant: poisons | no handler or callee returns them; a future return would be an invariant violation |
+
+The hook (`handler_status_is_whitelisted` and `handler_status_is_defect`, `core/t64_scheduler.c`)
+checks the status in both masking blocks of `advance_time_bound` and `advance_counter_bound`: a
+status of the whitelist keeps today's `RESOURCE_LIMIT` stop (or the CPU stop reason when the CPU
+stopped); `INTERNAL_DEFECT`, or any non-OK status outside the whitelist with the CPU not stopped,
+calls `t64_internal_defect` and `advance` returns `INTERNAL_DEFECT` with `result_out` untouched.
+
+**Measured set.** Command: a throwaway edit (not committed, reverted by `git apply -R`) of the two
+masking blocks that appended `<block> <status> <cpu stopped>` to the file named by an environment
+variable, run over (1) `ctest --preset gate` at commit `7592675` (262 of 262 tests passed) and (2)
+`python3 -B scripts/digest-sweep.py --base <Wave 0 base> --head WORKTREE` (1,599 shared lines, 0
+differences) with the same variable set (the head printer is the instrumented tree):
+
+| Run | Status (value) | Count | CPU stopped | Whitelisted |
+|-----|----------------|-------|-------------|-------------|
+| ctest gate | RESOURCE_EXHAUSTED (14) | 262 + 4 | 262 yes, 4 no | yes |
+| ctest gate | SEQUENCE_EXHAUSTED (12) | 6 | no | yes |
+| ctest gate | QUEUE_FULL (11) | 2 | no | yes |
+| digest sweep | RESOURCE_EXHAUSTED (14) | 97 | 97 yes | yes |
+
+Measured set {11, 12, 14} is a subset of the static whitelist; no INVALID_ARGUMENT, no non-whitelisted
+status and no status 37 or 38 reached either masking block. Counts per status: 274 lines over the
+gate run, 97 over the sweep.
+
+**Zero new poisons, proven after the hook.** `python3 -B scripts/digest-sweep.py --base <Wave 0
+base> --head WORKTREE` after the hook reports `0 differences` and the head output holds no
+status 37 or 38 (the line is recorded in "Shape steps"); the full `ctest --preset gate` passes 263 of
+263. `unit.core.api.defect-sites` drives one real handler per whitelisted value that a public
+sequence can reach, through `dispatch_front`, and asserts today's stop reason and a clear poison
+query: `cpu-stop` (the boot asset runs to `CPU_UNSUPPORTED`, 400 advances), `sequence-exhausted`
+(narrow sequence width set white-box, the CPU step handler cannot reschedule), `queue-full`
+(queue capacity set white-box to the count of far-future synthetic events), `tick-overflow`
+(machine tick set to `UINT64_MAX - 1`), `time-reversed` (CP0 synchronization tick ahead of the
+event) and `pi-refusal` (authored PI register stores; the device refuses a source beyond the cart
+window, a bus outcome that never poisons, and the machine then advances). Not driven by an
+authored program, and why: NOT_READY and the BUS_* values reach `dispatch_front` only through
+guest CPU or RSP stores that this test layer has no program loader for, and the PI and SP
+completion ranges cannot be made invalid after a valid start without editing the image
+mid-flight; they stay covered by the static whitelist alone, which is the conservative side.
+
+**Defect sites (DR-11) and their triggers.**
+
+| Site | Now returns | Trigger in `unit.core.api.defect-sites` |
+|------|-------------|-----------------------------------------|
+| `core/t64_cp0.c:584` (count half-clock phase above 1) | INTERNAL_DEFECT, poisons | `defect-cp0-phase`: phase set to 7, then `advance` |
+| `core/t64_machine.c:2987` (stored profile digest or pinned-id re-check in `admit_rom`) | INTERNAL_DEFECT, poisons, before any allocation | `defect-profile-digest`: one byte of the stored digest flipped (admitted and not admitted) |
+| `core/t64_machine.c:3040` (failing `reset_guest_state` after the image swap) | INTERNAL_DEFECT, poisons, after every host allocation is released | no trigger: `reset_guest_state` can fail only through `t64_cpu_schedule` on a queue that was just emptied; covered by `t64_test_force_defect` and by the entry-guard cases |
+| `core/t64_digest.c:345` (coverage table missing, v25 framing) | INTERNAL_DEFECT, poisons | `defect-sites`: `rdp_memory_coverage` set to NULL, through `t64_machine_digest` and through `t64_machine_state_export` (buffer untouched) |
+| `core/t64_digest.c:350` (hidden depth table missing, state 26) | INTERNAL_DEFECT, poisons | same case on the si-v2 profile with `rdp_depth_hidden` NULL |
+| `core/t64_state.c:171` (`plan_layout`, markers out of order) | INTERNAL_DEFECT, poisons, before any write | no trigger: the walker would have to record markers out of order; force hook only |
+| `core/t64_state.c:224,231` (`emit_canonical`, stream differs from the plan) | INTERNAL_DEFECT, poisons | no trigger: the walker would have to stream differently on consecutive passes over a const machine; force hook only |
+| `core/t64_state.c:389,399` (`layout_is_writable`, container writers) | INTERNAL_DEFECT, poisons | no trigger: geometry derived from the same layout; force hook only |
+
+The allocator-contract sites of BAD_STORAGE (`core/t64_machine.c` create and admit, `core/t64_rom.c`)
+are unchanged and stay refused.
+
+**State export order (outputs untouched).** The checks that need no write now run before the first
+byte of the caller buffer changes: `plan_layout` (no write), then a verify pass of the canonical
+region (`emit_canonical` with a NULL buffer: hash only, markers and length against the plan), then
+`layout_is_writable` (the geometry every writer relies on, with three `_Static_assert`s that the
+fixed container sizes hold the stored fields), and only then the header and table are zeroed and the
+write pass copies the region. The three post-write checks that remain (`emit_canonical` in the write
+pass and the four writers) can fire only if the const machine streams differently on two
+consecutive passes; they poison, return INTERNAL_DEFECT and clear the first `total` bytes so a
+defect never publishes a partial container. No refused status reaches the write path, so state
+export no longer clears the buffer on a refusal (`export-refusal-untouched`: BUFFER_TOO_SMALL,
+NOT_READY and an unsupported profile leave a 4,096-byte sentinel intact). This keeps the locked
+rule for every defect that can be found without writing; the residual post-write branch is the
+recorded exception and has no input that triggers it. Cost: one more pass over the canonical region
+on export (plan, verify, write instead of plan, write), measured as not observable in the export
+tests.
+
+**Known limit, for the review plan 11-15.** A caller-supplied descriptor that `t64_machine_create`
+accepts but that cannot schedule its first CPU event (for example `event_queue_capacity` 0) makes the
+admission fail in `reset_guest_state` after the image swap. That outcome used to be a refusal
+status with a half-reset instance; it is now INTERNAL_DEFECT with a poisoned instance, which is the
+honest class for a state that cannot be rolled back, but the cause is a caller fault that create
+does not refuse. Refusing such descriptors at create is a one-line follow-up of the next plan
+that touches `profile_fields_are_valid` (not done here: it changes the set of accepted
+descriptors).
 
 ## Carry-in triage
 

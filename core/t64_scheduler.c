@@ -385,6 +385,47 @@ static t64_status dispatch_front(t64_machine *machine) {
   return status;
 }
 
+/*
+ * Handler-error whitelist (plan 11-03, DR-12). dispatch_front returns the
+ * status of an event handler (or of the guest time synchronization before it),
+ * and both advance loops mask every non-OK status into a RESOURCE_LIMIT stop
+ * (or the CPU stop reason when the CPU stopped). The whitelist below names the
+ * statuses that the handlers and t64_cp0_synchronize_guest_time return by
+ * design, as derived statically from the code in PIN-IMPACT.md DR-12: queue and
+ * sequence exhaustion, tick overflow and reversal, backpressure and device and
+ * DMA outcomes (RESOURCE_EXHAUSTED and the BUS_* statuses), and an absent or
+ * not ready device (NOT_READY). Any other non-OK status is an internal invariant
+ * violation (a broken argument precondition, INVALID_ARGUMENT, or an explicit
+ * INTERNAL_DEFECT): the instance is poisoned and advance returns
+ * INTERNAL_DEFECT. The CPU stop precedence of the masking is unchanged for
+ * whitelisted statuses.
+ */
+static bool handler_status_is_whitelisted(t64_status status) {
+  switch (status) {
+  case T64_STATUS_NOT_READY:
+  case T64_STATUS_TIME_REVERSED:
+  case T64_STATUS_QUEUE_FULL:
+  case T64_STATUS_SEQUENCE_EXHAUSTED:
+  case T64_STATUS_TICK_OVERFLOW:
+  case T64_STATUS_RESOURCE_EXHAUSTED:
+  case T64_STATUS_BUS_UNMAPPED:
+  case T64_STATUS_BUS_UNSUPPORTED:
+  case T64_STATUS_BUS_ALIGNMENT:
+  case T64_STATUS_BUS_RANGE:
+  case T64_STATUS_BUS_DEVICE_REFUSED:
+    return true;
+  default:
+    return false;
+  }
+}
+
+/* True when the non-OK handler status must poison the instance. */
+static bool handler_status_is_defect(const t64_machine *machine,
+                                     t64_status status) {
+  return status == T64_STATUS_INTERNAL_DEFECT ||
+         (!machine->cpu.stopped && !handler_status_is_whitelisted(status));
+}
+
 static void set_stop_result(t64_stop_result *result_out, uint32_t reason,
                             uint64_t tick) {
   result_out->reason = reason;
@@ -442,6 +483,9 @@ static t64_status advance_time_bound(t64_machine *machine,
     status = dispatch_front(machine);
     dispatched++;
     if (status != T64_STATUS_OK) {
+      if (handler_status_is_defect(machine, status)) {
+        return t64_internal_defect(machine);
+      }
       set_stop_result(result_out,
                       machine->cpu.stopped
                           ? cpu_stop_result_reason(machine)
@@ -508,6 +552,9 @@ static t64_status advance_counter_bound(t64_machine *machine,
     status = dispatch_front(machine);
     dispatched++;
     if (status != T64_STATUS_OK) {
+      if (handler_status_is_defect(machine, status)) {
+        return t64_internal_defect(machine);
+      }
       set_stop_result(result_out,
                       machine->cpu.stopped
                           ? cpu_stop_result_reason(machine)

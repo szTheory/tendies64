@@ -25,10 +25,10 @@
 #
 # statuses
 T64_STATUS_OK :: 0 :: ok :: n/a :: success; every call that completes.
-T64_STATUS_INVALID_ARGUMENT :: 1 :: refused :: n/a :: NULL, overlap, width and range checks; a NULL machine answers it and every output stays untouched.
+T64_STATUS_INVALID_ARGUMENT :: 1 :: refused :: n/a :: NULL, overlap, width and range checks; a NULL machine answers it and every output stays untouched. The two internal invariant violations that used to answer it (a corrupt CP0 count phase and a stored profile digest that no longer matches at admission) answer INTERNAL_DEFECT.
 T64_STATUS_UNKNOWN_PROFILE :: 2 :: refused :: n/a :: profile lookup found no descriptor; no instance exists.
 T64_STATUS_ALLOCATION_FAILED :: 3 :: refused :: n/a :: the host allocator refused storage at create or admit.
-T64_STATUS_BAD_STORAGE :: 4 :: refused :: n/a :: the host allocator broke its contract at create or admit; internal inconsistency sites answer INTERNAL_DEFECT instead.
+T64_STATUS_BAD_STORAGE :: 4 :: refused :: n/a :: the host allocator broke its contract at create or admit (a refusal); the internal inconsistency sites of the digest stream and the state export answer INTERNAL_DEFECT and poison instead, and state export never clears the caller buffer on a refusal.
 T64_STATUS_INVALID_ROM :: 5 :: refused :: n/a :: the image failed admission checks.
 T64_STATUS_UNSUPPORTED_ROM_ORDER :: 6 :: reserved :: n/a :: never returned; the value is kept and not renumbered.
 T64_STATUS_NOT_READY :: 7 :: refused :: n/a :: no admitted image, or no terminal CPU stop for the query.
@@ -62,7 +62,7 @@ T64_STATUS_ABI_MISMATCH :: 34 :: refused :: n/a :: returned by create only: the 
 T64_STATUS_STRUCT_TOO_SMALL :: 35 :: refused :: n/a :: a caller-filled struct_size is below the v1 minimum; state and outputs unchanged.
 T64_STATUS_REENTRANT :: 36 :: refused :: n/a :: a call while a call on the same instance is in progress (for example from an allocator callback).
 T64_STATUS_POISONED :: 37 :: defect :: n/a :: the answer of every call on a poisoned instance except destroy and the poison query.
-T64_STATUS_INTERNAL_DEFECT :: 38 :: defect :: n/a :: returned by the call that detects an internal invariant violation; the instance is then poisoned.
+T64_STATUS_INTERNAL_DEFECT :: 38 :: defect :: n/a :: returned by the call that detects an internal invariant violation; the instance is then poisoned. Defect sites: the CP0 count phase, the stored profile digest at admission, a failing reset after the image swap, the digest stream and state export inconsistency sites, and a handler status outside the DR-12 whitelist during advance.
 #
 # stop reasons (advance result)
 T64_STOP_REASON_BOUND :: 1 :: guest-stop :: resumable :: the guest tick bound was reached.
@@ -70,6 +70,6 @@ T64_STOP_REASON_INSTRUCTION_COUNT :: 2 :: guest-stop :: resumable :: the instruc
 T64_STOP_REASON_FRAME_EVENT_COUNT :: 3 :: guest-stop :: resumable :: the frame event count limit was reached.
 T64_STOP_REASON_HALT :: 4 :: reserved :: terminal :: unreachable through the installed API (set only by the in-tree synthetic halt event); terminal until reset.
 T64_STOP_REASON_QUIESCENT :: 5 :: guest-stop :: resumable :: counter bound reached with an empty event queue; resumable by queued input only.
-T64_STOP_REASON_RESOURCE_LIMIT :: 6 :: guest-stop :: resumable :: resumable after drain or yield; causes: the per-advance event budget, an event that cannot dispatch for VI or AI output backpressure or counter overflow, and a masked non-OK handler status; a stall with no progress after a full drain is permanent.
+T64_STOP_REASON_RESOURCE_LIMIT :: 6 :: guest-stop :: resumable :: resumable after drain or yield; causes: the per-advance event budget, an event that cannot dispatch for VI or AI output backpressure or counter overflow, and a masked handler status from the whitelist of DR-12 (any other handler status poisons and advance answers INTERNAL_DEFECT); a stall with no progress after a full drain is permanent.
 T64_STOP_REASON_CPU_UNSUPPORTED :: 7 :: guest-stop :: terminal :: the CPU met an instruction it does not implement; neither poisons nor claims the guest chose to stop; an emulator limitation.
 T64_STOP_REASON_GUEST_COMPLETION :: 8 :: guest-stop :: terminal :: software debug-stop convention, not a guest pass or CPU exception.

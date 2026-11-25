@@ -865,10 +865,13 @@ add_test(NAME unit.core.api.reentrant
   COMMAND test_api_poison --case reentrant)
 add_test(NAME unit.core.api.null-machine
   COMMAND test_api_poison --case null-machine)
+add_test(NAME unit.core.api.defect-sites
+  COMMAND test_api_poison --case defect-sites)
 set_tests_properties(unit.core.api.poison
   unit.core.api.refusals-never-poison
   unit.core.api.reentrant
-  unit.core.api.null-machine PROPERTIES
+  unit.core.api.null-machine
+  unit.core.api.defect-sites PROPERTIES
   LABELS "unit;phase11"
   TIMEOUT 60
   COST 1

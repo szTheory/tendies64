@@ -469,10 +469,13 @@ T64_API t64_status t64_machine_digest(const t64_machine *machine,
  * not overlap each other or any machine-owned storage (INVALID_ARGUMENT); no
  * admitted image is NOT_READY; a profile outside the composite family is
  * INVALID_ARGUMENT; a container beyond the size ceiling is RESOURCE_EXHAUSTED.
- * Every refusal leaves *length_out and the machine intact and leaves the caller
- * bytes intact except one case: an internal inconsistency found while writing
- * (BAD_STORAGE, unreachable for a const machine) clears the first total bytes of
- * the buffer, so a defect never publishes a partial container.
+ * Every refusal leaves *length_out, the machine and every byte of the caller
+ * buffer intact. An internal inconsistency of the core is not a refusal: it
+ * answers T64_STATUS_INTERNAL_DEFECT and poisons the instance (see
+ * t64_machine_is_poisoned). The inconsistency checks that need no write run
+ * before the first byte of bytes_out changes; if a check that follows a write
+ * ever fires (unreachable for a const machine) the first total bytes of the
+ * buffer are cleared, so a defect never publishes a partial container.
  */
 #define T64_STATE_CONTAINER_FORMAT "t64.state-container.v1"
 T64_API t64_status t64_machine_state_export(const t64_machine *machine,

@@ -725,9 +725,320 @@ static void case_null_machine(void) {
   T64_CHECK(true);
 }
 
+/* ---- defect sites (AMBIG-A, AMBIG-B, AMBIG-C/E) ---------------------- */
+
+#define SI_V2_PROFILE_ID "ntsc-cart-4m-openipl3-rdram-b-t1-si-v2-e4k"
+
+static t64_status advance_to(t64_machine *machine, uint32_t kind,
+                             uint64_t value, t64_stop_result *result_out) {
+  t64_stop_request request;
+
+  request.kind = kind;
+  request.value = value;
+  return t64_machine_advance(machine, &request, result_out);
+}
+
+/* AMBIG-A: an internal phase that is neither 0 nor 1 is a defect, not an
+ * argument fault. */
+static void defect_cp0_phase(void) {
+  instance item;
+  t64_stop_result result;
+  t64_stop_result expected;
+
+  if (!make_instance(&item, SAVE_PROFILE_ID, true)) return;
+  (void)memset(&result, 0xa5, sizeof result);
+  (void)memset(&expected, 0xa5, sizeof expected);
+  item.machine->cpu.count_half_clock_phase = 7u;
+  T64_CHECK_INT(advance_to(item.machine, T64_STOP_GUEST_TICK, 100000u, &result),
+                T64_STATUS_INTERNAL_DEFECT);
+  T64_CHECK(memcmp(&result, &expected, sizeof result) == 0);
+  T64_CHECK(is_poisoned(item.machine));
+  T64_CHECK_INT(advance_to(item.machine, T64_STOP_GUEST_TICK, 200000u, &result),
+                T64_STATUS_POISONED);
+  T64_CHECK(memcmp(&result, &expected, sizeof result) == 0);
+  destroy_and_check(&item);
+}
+
+/* AMBIG-A: a stored profile digest that no longer matches the profile bytes
+ * is a defect at admission; nothing is allocated and the image is kept. */
+static void defect_profile_digest(void) {
+  instance item;
+  uint8_t content_before[T64_DIGEST_SIZE];
+  uint8_t content_after[T64_DIGEST_SIZE];
+  size_t allocations_before;
+
+  if (!make_instance(&item, SAVE_PROFILE_ID, true)) return;
+  T64_CHECK_INT(t64_machine_content_digest(item.machine, content_before),
+                T64_STATUS_OK);
+  allocations_before = item.counts.allocations;
+  item.machine->profile_digest[3] ^= 0x10u;
+  T64_CHECK_INT(t64_machine_admit_rom(item.machine, asset_bytes,
+                                      sizeof asset_bytes),
+                T64_STATUS_INTERNAL_DEFECT);
+  T64_CHECK(is_poisoned(item.machine));
+  T64_CHECK_INT(item.counts.allocations, allocations_before);
+  T64_CHECK(item.machine->has_image);
+  T64_CHECK(memcmp(content_before, item.machine->content_digest,
+                   sizeof content_before) == 0);
+  T64_CHECK_INT(t64_machine_content_digest(item.machine, content_after),
+                T64_STATUS_POISONED);
+  destroy_and_check(&item);
+
+  /* An instance with no image yet takes the same path. */
+  if (!make_instance(&item, SAVE_PROFILE_ID, false)) return;
+  item.machine->profile_digest[31] ^= 0x01u;
+  T64_CHECK_INT(t64_machine_admit_rom(item.machine, asset_bytes,
+                                      sizeof asset_bytes),
+                T64_STATUS_INTERNAL_DEFECT);
+  T64_CHECK(is_poisoned(item.machine));
+  T64_CHECK(!item.machine->has_image);
+  destroy_and_check(&item);
+}
+
+/* AMBIG-B: the internal inconsistency sites of the digest stream (the
+ * coverage table and the hidden depth table every family machine owns)
+ * answer INTERNAL_DEFECT and poison; state export finds them before it
+ * writes a byte of the caller buffer. */
+static void defect_digest_tables(void) {
+  static const char *const ids[2] = {SAVE_PROFILE_ID, SI_V2_PROFILE_ID};
+  unsigned which;
+
+  for (which = 0u; which < 2u; which++) {
+    unsigned entry_point;
+
+    for (entry_point = 0u; entry_point < 2u; entry_point++) {
+      instance item;
+      uint8_t digest[T64_DIGEST_SIZE];
+      uint8_t digest_expected[T64_DIGEST_SIZE];
+      uint8_t export_bytes[256];
+      uint8_t export_expected[256];
+      size_t length = 0x5a5a5a5au;
+
+      if (!make_instance(&item, ids[which], true)) return;
+      if (which == 0u) {
+        item.machine->rdp_memory_coverage = NULL;
+      } else {
+        item.machine->rdp_depth_hidden = NULL;
+      }
+      (void)memset(digest, 0xa5, sizeof digest);
+      (void)memset(digest_expected, 0xa5, sizeof digest_expected);
+      (void)memset(export_bytes, 0xa5, sizeof export_bytes);
+      (void)memset(export_expected, 0xa5, sizeof export_expected);
+      if (entry_point == 0u) {
+        T64_CHECK_INT(t64_machine_digest(item.machine, digest),
+                      T64_STATUS_INTERNAL_DEFECT);
+        T64_CHECK(memcmp(digest, digest_expected, sizeof digest) == 0);
+      } else {
+        T64_CHECK_INT(t64_machine_state_export(item.machine, export_bytes,
+                                               sizeof export_bytes, &length),
+                      T64_STATUS_INTERNAL_DEFECT);
+        T64_CHECK(memcmp(export_bytes, export_expected,
+                         sizeof export_bytes) == 0);
+        T64_CHECK_INT(length, 0x5a5a5a5au);
+      }
+      T64_CHECK(is_poisoned(item.machine));
+      T64_CHECK_INT(t64_machine_digest(item.machine, digest),
+                    T64_STATUS_POISONED);
+      destroy_and_check(&item);
+    }
+  }
+}
+
+/* AMBIG-B: state export no longer touches the buffer on a refusal. The
+ * buffer is larger than any header or table so a stray clear would show. */
+static void export_refusal_untouched(void) {
+  instance main_item;
+  instance fresh_item;
+  instance legacy_item;
+  enum { BUFFER_BYTES = 4096 };
+  uint8_t bytes[BUFFER_BYTES];
+  uint8_t expected[BUFFER_BYTES];
+  size_t length;
+  size_t total = 0u;
+
+  if (!make_instance(&main_item, SAVE_PROFILE_ID, true)) return;
+  if (!make_instance(&fresh_item, SAVE_PROFILE_ID, false)) return;
+  if (!make_instance(&legacy_item, LEGACY_PROFILE_ID, true)) return;
+  (void)memset(expected, 0xa5, sizeof expected);
+
+  (void)memset(bytes, 0xa5, sizeof bytes);
+  length = 0x5a5a5a5au;
+  T64_CHECK_INT(t64_machine_state_export(main_item.machine, bytes,
+                                         sizeof bytes, &length),
+                T64_STATUS_BUFFER_TOO_SMALL);
+  total = length;
+  T64_CHECK(total > sizeof bytes);
+  T64_CHECK(memcmp(bytes, expected, sizeof bytes) == 0);
+
+  (void)memset(bytes, 0xa5, sizeof bytes);
+  length = 0x5a5a5a5au;
+  T64_CHECK_INT(t64_machine_state_export(main_item.machine, NULL, 0u,
+                                         &length),
+                T64_STATUS_BUFFER_TOO_SMALL);
+  T64_CHECK_INT(length, total);
+
+  (void)memset(bytes, 0xa5, sizeof bytes);
+  length = 0x5a5a5a5au;
+  T64_CHECK_INT(t64_machine_state_export(fresh_item.machine, bytes,
+                                         sizeof bytes, &length),
+                T64_STATUS_NOT_READY);
+  T64_CHECK(memcmp(bytes, expected, sizeof bytes) == 0);
+  T64_CHECK_INT(length, 0x5a5a5a5au);
+
+  (void)memset(bytes, 0xa5, sizeof bytes);
+  length = 0x5a5a5a5au;
+  T64_CHECK_INT(t64_machine_state_export(legacy_item.machine, bytes,
+                                         sizeof bytes, &length),
+                T64_STATUS_INVALID_ARGUMENT);
+  T64_CHECK(memcmp(bytes, expected, sizeof bytes) == 0);
+  T64_CHECK_INT(length, 0x5a5a5a5au);
+
+  T64_CHECK(not_poisoned(main_item.machine));
+  T64_CHECK(not_poisoned(fresh_item.machine));
+  T64_CHECK(not_poisoned(legacy_item.machine));
+  destroy_and_check(&main_item);
+  destroy_and_check(&fresh_item);
+  destroy_and_check(&legacy_item);
+}
+
+/* AMBIG-C/E: every status a real handler returns by design is masked into
+ * today's RESOURCE_LIMIT stop (or the CPU stop reason) and never poisons.
+ * Each scenario sets the state that makes one real handler return one
+ * whitelisted status through dispatch_front. */
+typedef enum {
+  SCENARIO_CPU_STOP,
+  SCENARIO_SEQUENCE_EXHAUSTED,
+  SCENARIO_QUEUE_FULL,
+  SCENARIO_TICK_OVERFLOW,
+  SCENARIO_TIME_REVERSED,
+  SCENARIO_PI_REFUSAL,
+  SCENARIO_COUNT
+} handler_scenario;
+
+static const char *const scenario_names[SCENARIO_COUNT] = {
+    "cpu-stop", "sequence-exhausted", "queue-full", "tick-overflow",
+    "time-reversed", "pi-refusal"};
+
+static void guest_driven_case(handler_scenario scenario) {
+  instance item;
+  t64_stop_result result;
+  t64_status status;
+  uint32_t reason_wanted = T64_STOP_REASON_RESOURCE_LIMIT;
+  uint64_t bound = UINT64_C(4000000);
+  uint64_t tick_before = 0u;
+  size_t queue_before = 0u;
+  unsigned index;
+
+  if (!make_instance(&item, SAVE_PROFILE_ID, true)) return;
+  (void)memset(&result, 0xa5, sizeof result);
+  queue_before = item.machine->queue_count;
+  switch (scenario) {
+  case SCENARIO_CPU_STOP:
+    /* The cleared boot asset runs to a terminal CPU stop; the step that stops
+     * the CPU returns a status the scheduler masks into the CPU stop reason.
+     * Several advances are needed because each is bounded by the event
+     * budget (a RESOURCE_LIMIT stop that is not a handler error). */
+    bound = UINT64_C(2000000000);
+    reason_wanted = 0u;
+    for (index = 0u; index < 400u && !item.machine->cpu.stopped; index++) {
+      status = advance_to(item.machine, T64_STOP_GUEST_TICK, bound, &result);
+      T64_CHECK_INT(status, T64_STATUS_OK);
+    }
+    T64_CHECK(item.machine->cpu.stopped);
+    break;
+  case SCENARIO_SEQUENCE_EXHAUSTED:
+    item.machine->profile.sequence_width_bits = 8u;
+    item.machine->next_sequence = UINT64_C(253);
+    break;
+  case SCENARIO_QUEUE_FULL:
+    for (index = 0u; index < 2u; index++) {
+      T64_CHECK_INT(t64_test_schedule_synthetic(item.machine,
+                                                UINT64_C(900000000),
+                                                T64_TEST_EVENT_NOOP, index),
+                    T64_STATUS_OK);
+    }
+    item.machine->profile.event_queue_capacity = 2u;
+    break;
+  case SCENARIO_TICK_OVERFLOW:
+    item.machine->tick = UINT64_MAX - 1u;
+    item.machine->events[item.machine->queue_head].tick = UINT64_MAX - 1u;
+    item.machine->cpu.count_sync_tick = UINT64_MAX - 1u;
+    bound = UINT64_MAX;
+    break;
+  case SCENARIO_TIME_REVERSED:
+    item.machine->cpu.count_sync_tick = UINT64_C(0x7fffffff00000000);
+    break;
+  case SCENARIO_PI_REFUSAL:
+    /* Authored register stores: a cart-to-RDRAM request with a source beyond
+     * the cart window is refused by the device (a device refusal is a bus
+     * outcome that never poisons); the second request is accepted and runs. */
+    T64_CHECK_INT(t64_machine_bus_write(item.machine, UINT32_C(0x04600000), 4u,
+                                        UINT32_C(0x1000)),
+                  T64_STATUS_OK);
+    T64_CHECK_INT(t64_machine_bus_write(item.machine, UINT32_C(0x04600004), 4u,
+                                        UINT32_C(0x10100000)),
+                  T64_STATUS_OK);
+    T64_CHECK_INT(t64_machine_bus_write(item.machine, UINT32_C(0x0460000c), 4u,
+                                        UINT32_C(0x3f)),
+                  T64_STATUS_BUS_DEVICE_REFUSED);
+    T64_CHECK(not_poisoned(item.machine));
+    break;
+  default:
+    break;
+  }
+  tick_before = item.machine->tick;
+  queue_before = item.machine->queue_count;
+  status = advance_to(item.machine, T64_STOP_GUEST_TICK, bound, &result);
+  printf("scenario %s: status %u reason %u tick %llu->%llu queue %zu->%zu "
+         "sequence_exhausted %d stopped %d\n",
+         scenario_names[scenario], (unsigned)status, (unsigned)result.reason,
+         (unsigned long long)tick_before, (unsigned long long)result.tick,
+         queue_before, item.machine->queue_count,
+         (int)item.machine->sequence_exhausted, (int)item.machine->cpu.stopped);
+  T64_CHECK_INT(status, T64_STATUS_OK);
+  if (reason_wanted != 0u) {
+    T64_CHECK_INT(result.reason, reason_wanted);
+  } else {
+    T64_CHECK(result.reason == T64_STOP_REASON_GUEST_COMPLETION ||
+              result.reason == T64_STOP_REASON_CPU_UNSUPPORTED);
+  }
+  switch (scenario) {
+  case SCENARIO_SEQUENCE_EXHAUSTED:
+    T64_CHECK(item.machine->sequence_exhausted);
+    break;
+  case SCENARIO_QUEUE_FULL:
+    /* The step event ran and its successor could not be queued. */
+    T64_CHECK(item.machine->tick > tick_before ||
+              item.machine->instruction_count > 0u);
+    break;
+  case SCENARIO_TIME_REVERSED:
+    /* The time synchronization refused before the event was dequeued. */
+    T64_CHECK_INT(item.machine->queue_count, queue_before);
+    T64_CHECK_INT(item.machine->tick, tick_before);
+    break;
+  default:
+    break;
+  }
+  T64_CHECK(not_poisoned(item.machine));
+  destroy_and_check(&item);
+}
+
+static void case_defect_sites(void) {
+  unsigned scenario;
+
+  defect_cp0_phase();
+  defect_profile_digest();
+  defect_digest_tables();
+  export_refusal_untouched();
+  for (scenario = 0u; scenario < (unsigned)SCENARIO_COUNT; scenario++) {
+    guest_driven_case((handler_scenario)scenario);
+  }
+}
+
 int main(int argc, char **argv) {
   static const char *const cases[] = {"poison", "refusals-never-poison",
-                                      "reentrant", "null-machine"};
+                                      "reentrant", "null-machine",
+                                      "defect-sites"};
   const char *selected = NULL;
   size_t index;
   bool ran = false;
@@ -764,6 +1075,10 @@ int main(int argc, char **argv) {
     case_null_machine();
     ran = true;
   }
+  if (selected == NULL || strcmp(selected, "defect-sites") == 0) {
+    case_defect_sites();
+    ran = true;
+  }
   if (!ran) {
     fprintf(stderr, "unknown case: %s\n", selected);
     return 2;
@@ -779,6 +1094,9 @@ int main(int argc, char **argv) {
   }
   if (strcmp(selected, "null-machine") == 0) {
     return T64_TEST_FINISH("unit.core.api.null-machine");
+  }
+  if (strcmp(selected, "defect-sites") == 0) {
+    return T64_TEST_FINISH("unit.core.api.defect-sites");
   }
   return T64_TEST_FINISH("unit.core.api.refusals-never-poison");
 }

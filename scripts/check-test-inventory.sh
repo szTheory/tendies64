@@ -283,7 +283,8 @@ unit.core.api.abi-version
 unit.core.api.poison
 unit.core.api.refusals-never-poison
 unit.core.api.reentrant
-unit.core.api.null-machine'
+unit.core.api.null-machine
+unit.core.api.defect-sites'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

@@ -166,7 +166,10 @@ static t64_status plan_layout(const t64_machine *machine,
         (index > 0u &&
          sink.section_ids[index] <= sink.section_ids[index - 1u]) ||
         end < body) {
-      return T64_STATUS_BAD_STORAGE;
+      /* The walker recorded markers out of order: the stream disagrees with
+       * its own framing, a T64_STATUS_INTERNAL_DEFECT found before any byte is
+       * written. */
+      return t64_internal_defect(machine);
     }
     layout->entries[index].id = sink.section_ids[index];
     layout->entries[index].flags = 0u;
@@ -186,10 +189,15 @@ static t64_status plan_layout(const t64_machine *machine,
 }
 
 /*
- * Emit pass for the canonical region: stream the same bytes into the caller
- * buffer while hashing them, and require that the stream matches the plan
- * (length, no overflow, the same markers at the same offsets). The sink and
- * the hash context live only in this frame.
+ * Canonical-region pass. With bytes NULL it is the verify pass: the stream is
+ * hashed, nothing is written, and the declared hash comes back. With bytes set
+ * it is the write pass: the stream is copied into the caller buffer and no hash
+ * is taken. Both passes require that the stream matches the plan (length, no
+ * overflow, the same markers at the same offsets); a mismatch means the walker
+ * disagrees with itself over a const machine, an internal defect. The verify
+ * pass runs before the first byte of the caller buffer is touched, so the
+ * defect checks that can be made without writing are made before any write.
+ * The sink and the hash context live only in this frame.
  */
 static t64_status emit_canonical(const t64_machine *machine,
                                  const state_layout *layout, uint8_t *bytes,
@@ -200,10 +208,13 @@ static t64_status emit_canonical(const t64_machine *machine,
   size_t index;
 
   (void)memset(&sink, 0, sizeof sink);
-  t64_sha256_init(&context);
-  sink.buffer = bytes + (size_t)layout->canonical_offset;
-  sink.capacity = (size_t)layout->canonical_length;
-  sink.hash = &context;
+  if (bytes != NULL) {
+    sink.buffer = bytes + (size_t)layout->canonical_offset;
+    sink.capacity = (size_t)layout->canonical_length;
+  } else {
+    t64_sha256_init(&context);
+    sink.hash = &context;
+  }
   status = t64_digest_stream(machine, &sink);
   if (status != T64_STATUS_OK) {
     return status;
@@ -211,17 +222,19 @@ static t64_status emit_canonical(const t64_machine *machine,
   if (sink.overflow || sink.section_overflow ||
       (uint64_t)sink.offset != layout->canonical_length ||
       (uint64_t)sink.section_count + 1u != layout->count) {
-    return T64_STATUS_BAD_STORAGE;
+    return t64_internal_defect(machine);
   }
   for (index = 0u; index < sink.section_count; index++) {
     if (sink.section_ids[index] != layout->entries[index].id ||
         layout->canonical_offset + (uint64_t)sink.section_offsets[index] +
                 4u !=
             layout->entries[index].offset) {
-      return T64_STATUS_BAD_STORAGE;
+      return t64_internal_defect(machine);
     }
   }
-  t64_sha256_final(&context, declared);
+  if (bytes == NULL) {
+    t64_sha256_final(&context, declared);
+  }
   return T64_STATUS_OK;
 }
 
@@ -316,25 +329,80 @@ static bool write_trailer(const state_layout *layout, uint8_t *bytes) {
                    sizeof digest);
 }
 
-/* All of the container around the canonical region and the region itself. */
+/*
+ * The layout geometry every put in write_observer, write_table, write_header
+ * and write_trailer relies on, checked without writing so the defect that its
+ * failure would be is found before the first byte of the buffer changes. The
+ * fixed container sizes must hold the fields those writers store.
+ */
+_Static_assert(T64_STATE_HEADER_BYTES >= 0xA0u + T64_STATE_BUILD_ID_BYTES,
+               "the header holds the fixed fields and the build id text");
+_Static_assert(T64_STATE_ENTRY_BYTES >= 24u + T64_DIGEST_SIZE,
+               "a table entry holds its fields and the body digest");
+_Static_assert(T64_STATE_OBSERVER_BYTES >= 40u,
+               "the observer region holds its five cursors");
+
+static bool layout_is_writable(const state_layout *layout) {
+  uint32_t index;
+
+  if (layout->count == 0u || layout->count > T64_STATE_MAX_SECTIONS ||
+      layout->total < T64_STATE_TRAILER_BYTES ||
+      layout->canonical_offset != (uint64_t)T64_STATE_HEADER_BYTES +
+                                      (uint64_t)T64_STATE_ENTRY_BYTES *
+                                          layout->count ||
+      layout->canonical_length > layout->total ||
+      layout->canonical_offset > layout->total - layout->canonical_length ||
+      layout->canonical_offset + layout->canonical_length +
+              T64_STATE_OBSERVER_BYTES >
+          layout->total - T64_STATE_TRAILER_BYTES) {
+    return false;
+  }
+  for (index = 0u; index < layout->count; index++) {
+    const state_entry *entry = &layout->entries[index];
+
+    if (entry->offset > layout->total ||
+        entry->length > layout->total - entry->offset) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/*
+ * All of the container around the canonical region and the region itself.
+ * Every defect check that does not need a write runs first (the verify pass
+ * and the layout geometry), so a defect found there leaves the caller buffer
+ * untouched. The checks after the first write can only fire if a const
+ * machine streams differently on consecutive passes; if one does, the first
+ * total bytes are cleared so a defect never publishes a partial container.
+ */
 static t64_status write_container(const t64_machine *machine,
                                   const state_layout *layout,
                                   uint8_t *bytes) {
   uint8_t declared[T64_DIGEST_SIZE];
   t64_status status;
 
-  /* The header and the table are zeroed first so padding is deterministic. */
-  (void)memset(bytes, 0, (size_t)layout->canonical_offset);
-  status = emit_canonical(machine, layout, bytes, declared);
+  status = emit_canonical(machine, layout, NULL, declared);
   if (status != T64_STATUS_OK) {
     return status;
   }
-  if (!write_observer(machine, layout, bytes) || !write_table(layout, bytes) ||
-      !write_header(machine, layout, declared, bytes) ||
-      !write_trailer(layout, bytes)) {
-    return T64_STATUS_BAD_STORAGE;
+  if (!layout_is_writable(layout)) {
+    return t64_internal_defect(machine);
   }
-  return T64_STATUS_OK;
+  /* The header and the table are zeroed first so padding is deterministic. */
+  (void)memset(bytes, 0, (size_t)layout->canonical_offset);
+  status = emit_canonical(machine, layout, bytes, NULL);
+  if (status == T64_STATUS_OK &&
+      (!write_observer(machine, layout, bytes) ||
+       !write_table(layout, bytes) ||
+       !write_header(machine, layout, declared, bytes) ||
+       !write_trailer(layout, bytes))) {
+    status = t64_internal_defect(machine);
+  }
+  if (status != T64_STATUS_OK) {
+    (void)memset(bytes, 0, (size_t)layout->total);
+  }
+  return status;
 }
 
 t64_status t64_machine_state_export(const t64_machine *machine,
@@ -378,9 +446,9 @@ t64_status t64_machine_state_export(const t64_machine *machine,
   }
   status = write_container(machine, &layout, bytes_out);
   if (status != T64_STATUS_OK) {
-    /* Unreachable for a const machine: a defect must never publish a partial
-     * container, so the whole container area is cleared before refusing. */
-    (void)memset(bytes_out, 0, (size_t)layout.total);
+    /* Only a defect reaches here (the instance is already poisoned); a
+     * refusal returned before write_container and never touched the buffer.
+     * write_container clears the area itself when a defect follows a write. */
     return status;
   }
   *length_out = (size_t)layout.total;

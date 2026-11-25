@@ -340,14 +340,14 @@ t64_status t64_digest_stream(const t64_machine *machine,
      * Every family machine owns its coverage table from creation. A walker
      * that skipped the bytes would return a digest that no longer covers the
      * member plan 09-10 added, so the stream refuses instead (re-check R1
-     * RC-01).
+     * RC-01). An internal inconsistency: T64_STATUS_INTERNAL_DEFECT, poisoned.
      */
-    return T64_STATUS_BAD_STORAGE;
+    return t64_internal_defect(machine);
   }
   if (has_v26_state && machine->rdp_depth_hidden == NULL) {
     /* The hidden depth table is owned from creation on every descriptor 13
      * machine, and the v26 walker must not stream a missing table. */
-    return T64_STATUS_BAD_STORAGE;
+    return t64_internal_defect(machine);
   }
 
   if (has_v26_state) {

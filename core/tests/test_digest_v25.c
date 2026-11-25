@@ -1353,8 +1353,13 @@ static void check_digest_refuses_missing_coverage_table(void) {
     machine->rdp_memory_coverage = NULL;
     (void)memset(refused, 0xA5, sizeof refused);
     T64_CHECK_INT(t64_machine_digest(machine, refused),
-                  T64_STATUS_BAD_STORAGE);
+                  T64_STATUS_INTERNAL_DEFECT);
+    /* The missing table is an internal inconsistency (plan 11-03, AMBIG-B):
+     * the digest answers INTERNAL_DEFECT and poisons the instance. The control
+     * restores the member and clears the flag white-box to re-digest. */
+    T64_CHECK_INT(machine->poisoned, 1);
     machine->rdp_memory_coverage = table;
+    machine->poisoned = 0u;
     T64_CHECK_INT(t64_machine_digest(machine, restored), T64_STATUS_OK);
     T64_CHECK(memcmp(baseline, restored, T64_DIGEST_SIZE) == 0);
     t64_machine_destroy(machine);
