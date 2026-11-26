@@ -232,4 +232,4 @@ add_test(NAME repo.api07-evaluation
 set_tests_properties(repo.api07-evaluation PROPERTIES
   LABELS "repo;phase12"
   TIMEOUT 30
-  COST 1.25)
+  COST 1.34)
