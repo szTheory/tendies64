@@ -259,8 +259,57 @@ Plans:
   2. The host pump (ring draining, injected clock, input mapping, scripted input) is unit-tested in the required gate; scripted input gives byte-identical video, audio and save results to the headless run at two fake-clock speeds; a virtual joystick under SDL dummy drivers exercises button and axis mapping
   3. The SDL3 shell is optional, off by default and in a non-gating lane; the core builds and links with no SDL dependency and a build without the host target succeeds
   4. A written LibFuturo fit evaluation pinned to a commit SHA exists with an expected no-adapter-now conclusion, and the final ABI bind is made, or each defect-driven amendment is recorded with evidence and a re-run installed-consumer suite
-**Plans**: TBD
+**Plans:** 15 plans (linear chain; phase-waves W0 12-01, TITLE 12-02 to 12-05 reviewed by 12-06, HOST 12-07 to 12-11 reviewed by 12-12, BIND 12-13, QUALIFY 12-14 and 12-15; 12-11 is a conditional amendment slot that closes with a one-line SUMMARY and no code unless 12-10 records a host-found API defect with disposition amend; the cold gate-macos run after the 12-15 push is orchestrator-only)
 **UI hint**: no (a development window only; skip UI-SPEC and UI-review steps)
+
+Plans:
+
+**Wave 1**
+- [ ] 12-01-PLAN.md — W0: scripted preflight, Wave 0 base, registration and bind pin-site maps, LibFuturo re-pin, decision record (DR-01 to DR-32), carry-in triage, Phase 12 G4 exception
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 12-02-PLAN.md — TITLE: title spec, independent oracle (before the guest), input scripts, checkpoint expectations, harness.title-oracle
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 12-03-PLAN.md — TITLE: authored 128x96 title guest, builder copy, fixture target, probe against the oracle, manifest rows (two commits)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [ ] 12-04-PLAN.md — TITLE: runner rows, two supervised runs, wrong-input and refused-frame controls, runner-recorded pins
+
+**Wave 5** *(blocked on Wave 4 completion)*
+- [ ] 12-05-PLAN.md — TITLE: installed-consumer title and title-persist cases, generated literals, consumer-recorded pins
+
+**Wave 6** *(blocked on Wave 5 completion)*
+- [ ] 12-06-PLAN.md — TITLE review in a scratch clone, push, hosted pair, Host base
+
+**Wave 7** *(blocked on Wave 6 completion)*
+- [ ] 12-07-PLAN.md — HOST tracer: standalone host project, pure-C pump (clock, advance loop, drain rule), fake-clock cases, include and isolation guards
+
+**Wave 8** *(blocked on Wave 7 completion)*
+- [ ] 12-08-PLAN.md — HOST: input mapping table, strict scripted source, frame helpers, two-speed equality on the title, mutant driver
+
+**Wave 9** *(blocked on Wave 8 completion)*
+- [ ] 12-09-PLAN.md — HOST: SDL3 dependency audit, optional SDL3 shell, local sdl lane with dummy drivers and a virtual gamepad, policy scan
+
+**Wave 10** *(blocked on Wave 9 completion)*
+- [ ] 12-10-PLAN.md — API-07: written LibFuturo fit evaluation at the pinned SHA, its guard, host-found API defect triage (decides 12-11)
+
+**Wave 11** *(blocked on Wave 10 completion)*
+- [ ] 12-11-PLAN.md — Reserved amendment slot (conditional on the 12-10 trigger line; otherwise a one-line SUMMARY and no code)
+
+**Wave 12** *(blocked on Wave 11 completion)*
+- [ ] 12-12-PLAN.md — HOST review in a scratch clone with the full mutant run, push, hosted pair, Bind base
+
+**Wave 13** *(blocked on Wave 12 completion)*
+- [ ] 12-13-PLAN.md — BIND: generalized minor rule, header settle (FN-03), ABI 1.0 and package 1.0.0 (an ABI identity, not a release; D6 owner-review item), every pin site, bound record
+
+**Wave 14** *(blocked on Wave 13 completion)*
+- [ ] 12-14-PLAN.md — QUALIFY: Phase 12 qualifier (thin delta), hermetic test, rehearsal, push and hosted pair of the bind head
+
+**Wave 15** *(blocked on Wave 14 completion)*
+- [ ] 12-15-PLAN.md — QUALIFY: final independent audit, Qualification base, final native qualification, claims, evidence, owner checklist template, final hosted pair
+
+**G4:** Phase 12 records its own gate-growth exception for owner review in its PIN-IMPACT ledger (new names are required evidence of SC1-SC4, each carries a COST property, no equal-time offset exists; reversal: a measured or projected cold gate-macos above 900 s moves non-essential Phase 12 names to a local lane first).
 
 ## Rolling Roadmap (refreshed 2026-11-23)
 
@@ -286,4 +335,4 @@ Priority order. NEXT and NEAR items name their promotion evidence and blocking d
 |-------|-----------|----------------|--------|-----------|
 | 10. Carry-in Closure Before the Freeze | v1.2 | 21/21 | Complete    | 2026-11-25 |
 | 11. Installed Consumer and Freeze Candidate | v1.2 | 29/29 | Complete    | 2026-11-26 |
-| 12. Minimal Host, Playable Homebrew and Final Bind | v1.2 | 0/TBD | Not started | - |
+| 12. Minimal Host, Playable Homebrew and Final Bind | v1.2 | 0/15 | Planned | - |
