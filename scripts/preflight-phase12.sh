@@ -207,7 +207,10 @@ check_ctest_counts() {
     }
     END { if (found) print n + 0; else print "absent" }
   ' scripts/check-test-inventory.sh)
-  if ! _pf_labeled=$(ctest --test-dir build/gate -N -L phase12 2>&1); then
+  # -FA . keeps the fixture closure out of the list: the names of the block carry the label,
+  # the setup tests they require (install.setup, installed.consumer.build, plan 12-05) are
+  # Phase 11 names that do not (the -R rows above count them on purpose).
+  if ! _pf_labeled=$(ctest --test-dir build/gate -N -L phase12 -FA . 2>&1); then
     echo "[preflight] ctest -N -L phase12 failed" >&2
     return 1
   fi

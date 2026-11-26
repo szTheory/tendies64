@@ -401,12 +401,16 @@ set(T64_CONSUMER_ROM_title "${CMAKE_SOURCE_DIR}/build/fixtures/phase12-title-s32
 set(T64_CONSUMER_ROM_title-persist "${CMAKE_SOURCE_DIR}/build/fixtures/phase12-title-s32k.z64")
 set(T64_CONSUMER_ROM_title-refused "${CMAKE_SOURCE_DIR}/build/fixtures/phase12-title-refused-s32k.z64")
 
-# installed.consumer.literals: the constants of the consumer's t64c_composite.h
-# equal the committed fixture files (the independent literals of
+# installed.consumer.literals: the constants of the consumer's t64c_composite.h and
+# t64c_title.h (plan 12-05) equal the committed fixture files (the independent literals of
 # composite.expected.json and composite.input.json, and the labeled
 # runner-recorded pins of composite.runner-pins.json), the pins file carries
 # exactly the label "runner-recorded pin, not independent", the cited Phase 10
-# record contains the tick and the digest, and the seeded failures are reported.
+# record contains the tick and the digest, and the seeded failures are reported. For the
+# title header the pins file also carries the section consumer with the exact label
+# "consumer-recorded pin, not independent", the blank digests are recomputed from zero
+# bytes, the refused-frame expectations are blank, and the cited Phase 12 record holds
+# both recorded ticks and digests.
 add_test(NAME installed.consumer.literals
   COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/check-consumer-literals.py
           --check --selftest
@@ -414,7 +418,7 @@ add_test(NAME installed.consumer.literals
 set_tests_properties(installed.consumer.literals PROPERTIES
   LABELS "installed;phase11"
   TIMEOUT 60
-  COST 0.08
+  COST 0.12
   ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
 
 # One CTest name per binary case of tests/installed-consumer/cases.txt, except

@@ -632,12 +632,13 @@ def run_write(root, header_path, title_header_path):
 
 
 def selftest(root):
-    """Seeded failures in a temporary copy of the five files each case touches."""
+    """Seeded failures in temporary copies of the files each case touches: the composite
+    header (seven cases) and the title header (the cases of plan 12-05)."""
     failures = 0
     with tempfile.TemporaryDirectory(prefix="t64-literals-") as scratch:
-        def fresh(name):
+        def fresh(name, rels=(EXPECTED_REL, INPUT_REL, PINS_REL, HEADER_REL, RECORD_REL)):
             tree = os.path.join(scratch, name)
-            for rel in (EXPECTED_REL, INPUT_REL, PINS_REL, HEADER_REL, RECORD_REL):
+            for rel in rels:
                 target = os.path.join(tree, rel)
                 os.makedirs(os.path.dirname(target), exist_ok=True)
                 shutil.copyfile(os.path.join(root, rel), target)
@@ -652,10 +653,21 @@ def selftest(root):
             with open(path, "w", encoding="utf-8", newline="\n") as handle:
                 handle.write(body.replace(old, new, 1))
 
-        def expect(name, tree, want_findings, want_usage=False):
+        def edit_json(tree, rel, change):
+            path = os.path.join(tree, rel)
+            with open(path, "r", encoding="utf-8") as handle:
+                document = json.load(handle)
+            change(document)
+            with open(path, "w", encoding="utf-8", newline="\n") as handle:
+                handle.write(json.dumps(document, indent=2, sort_keys=True) + "\n")
+
+        def expect(name, tree, want_findings, want_usage=False, text=None,
+                   function=check, header_rel=HEADER_REL):
+            """The seeded case must end as named and, when text is given, the finding or
+            usage message must carry that text (the seed is reported with its own text)."""
             nonlocal failures
             try:
-                findings = check(tree, os.path.join(tree, HEADER_REL))
+                findings = function(tree, os.path.join(tree, header_rel))
                 outcome = "findings" if findings else "clean"
                 detail = "; ".join(findings)
             except Usage as error:
@@ -663,7 +675,9 @@ def selftest(root):
                 detail = str(error)
             ok = (outcome == "usage") if want_usage else (
                 (outcome == "findings") if want_findings else (outcome == "clean"))
-            print("selftest %-28s %s (%s)" % (name, "ok" if ok else "FAILED", outcome))
+            if ok and text is not None and text not in detail:
+                ok = False
+            print("selftest %-40s %s (%s)" % (name, "ok" if ok else "FAILED", outcome))
             if not ok:
                 print("    got: %s" % detail)
                 failures += 1
@@ -698,6 +712,116 @@ def selftest(root):
         tree = fresh("stale-header-after-fixture-edit")
         edit(tree, INPUT_REL, '"x":20', '"x":21')
         expect("stale-header-after-fixture-edit", tree, True)
+
+        # ---- the title header (plan 12-05) ----------------------------------------
+        def title_expect(name, tree, want_findings, want_usage=False, text=None):
+            expect("title-" + name, tree, want_findings, want_usage, text,
+                   function=check_title, header_rel=TITLE_HEADER_REL)
+
+        def title_fresh(name):
+            return fresh("title-" + name, TITLE_FILES)
+
+        title_expect("clean-control", title_fresh("clean"), False)
+
+        tree = title_fresh("wrong-runner-label")
+        edit(tree, TITLE_PINS_REL, PIN_LABEL, "independent expectation")
+        title_expect("wrong-runner-label", tree, False, want_usage=True,
+                     text="the short label is not exactly")
+
+        tree = title_fresh("consumer-label-independent")
+        edit(tree, TITLE_PINS_REL, CONSUMER_PIN_LABEL, "independent")
+        title_expect("consumer-label-independent", tree, False, want_usage=True,
+                     text="the long label is not exactly")
+
+        tree = title_fresh("consumer-section-missing")
+        edit_json(tree, TITLE_PINS_REL, lambda document: document.pop("consumer"))
+        title_expect("consumer-section-missing", tree, False, want_usage=True,
+                     text="the section consumer is missing")
+
+        tree = title_fresh("consumer-wrong-source")
+        edit(tree, TITLE_PINS_REL, CONSUMER_PIN_SOURCE, "plan 12-05 the runner")
+        title_expect("consumer-wrong-source", tree, False, want_usage=True,
+                     text="the consumer record does not cite")
+
+        tree = title_fresh("flipped-long-checkpoint-digest")
+        header = open(os.path.join(root, TITLE_HEADER_REL), encoding="utf-8").read()
+        position = header.index("#define T64C_TLIT_LONG_FRAMES_INIT")
+        quote = header.index('"', position) + 1
+        digit = header[quote]
+        edit(tree, TITLE_HEADER_REL, header[quote - 1:quote + 4],
+             '"' + ("0" if digit != "0" else "1") + header[quote + 1:quote + 4])
+        title_expect("flipped-long-checkpoint-digest", tree, True,
+                     text="differs from the regenerated header")
+
+        tree = title_fresh("flipped-long-checkpoint-oracle")
+        edit_json(tree, TITLE_EXPECTED_REL,
+                  lambda document: document["scenarios"]["long"]["frames"].__setitem__(
+                      1, "f" * 64))
+        title_expect("flipped-long-checkpoint-oracle", tree, True,
+                     text="differs from the regenerated header")
+
+        tree = title_fresh("changed-event-tick-header")
+        header = open(os.path.join(root, TITLE_HEADER_REL), encoding="utf-8").read()
+        position = header.index("#define T64C_TLIT_LONG_EVENTS_INIT")
+        anchor = header.index("UINT64_C(", position) + len("UINT64_C(")
+        edit(tree, TITLE_HEADER_REL, header[anchor:anchor + 3],
+             "%d" % (int(header[anchor:anchor + 3]) + 1))
+        title_expect("changed-event-tick-header", tree, True,
+                     text="differs from the regenerated header")
+
+        tree = title_fresh("changed-event-tick-script")
+        edit(tree, "fixtures/title/title.long.input.json", '"tick":"1071354"', '"tick":"1071355"')
+        title_expect("changed-event-tick-script", tree, False, want_usage=True,
+                     text="the SHA-256 of the script differs")
+
+        tree = title_fresh("blank-digest-not-zero-bytes")
+        edit(tree, TITLE_EXPECTED_REL, '"blank_sha256": "2aae7dc8', '"blank_sha256": "2aae7dc9')
+        title_expect("blank-digest-not-zero-bytes", tree, False, want_usage=True,
+                     text="blank_sha256 is not the SHA-256 of 49152 zero bytes")
+
+        tree = title_fresh("blank-save-digest-not-zero-bytes")
+        edit(tree, TITLE_EXPECTED_REL, '"blank_save_sha256": "c3502047', '"blank_save_sha256": "c3502048')
+        title_expect("blank-save-digest-not-zero-bytes", tree, False, want_usage=True,
+                     text="blank_save_sha256 is not the SHA-256 of 32768 zero bytes")
+
+        tree = title_fresh("refused-expectation-not-blank")
+        edit(tree, TITLE_EXPECTED_REL, '"frames_each_sha256": "2aae7dc8', '"frames_each_sha256": "2aae7dc9')
+        title_expect("refused-expectation-not-blank", tree, False, want_usage=True,
+                     text="the refused-frame expectation is not the blank digest")
+
+        tree = title_fresh("refused-save-not-blank")
+        edit(tree, TITLE_EXPECTED_REL, '"save_sha256": "c3502047', '"save_sha256": "c3502048')
+        title_expect("refused-save-not-blank", tree, False, want_usage=True,
+                     text="the refused-frame save expectation is not the blank save digest")
+
+        tree = title_fresh("refused-expects-completion")
+        edit(tree, TITLE_EXPECTED_REL, '"completes": false,\n    "frames_each_sha256"',
+             '"completes": true,\n    "frames_each_sha256"')
+        title_expect("refused-expects-completion", tree, False, want_usage=True,
+                     text="does not expect no audio, no completion and no transcript")
+
+        tree = title_fresh("blank-frame-in-a-scenario")
+        edit_json(tree, TITLE_EXPECTED_REL,
+                  lambda document: document["scenarios"]["short"]["frames"].__setitem__(
+                      1, document["blank_sha256"]))
+        title_expect("blank-frame-in-a-scenario", tree, False, want_usage=True,
+                     text="has a frame equal to the blank digest")
+
+        tree = title_fresh("runner-tick-not-in-record")
+        edit(tree, TITLE_PINS_REL, '"completion_tick": "3693938"', '"completion_tick": "3693939"')
+        title_expect("runner-tick-not-in-record", tree, True,
+                     text="the cited record does not contain the runner completion tick")
+
+        tree = title_fresh("consumer-digest-not-in-record")
+        edit(tree, TITLE_RECORD_REL,
+             "151bf84028782ead7a1265bf9d9d77917fdadfcd94bf0ee6dcb38314baad6b34", "0" * 64)
+        title_expect("consumer-digest-not-in-record", tree, True,
+                     text="the cited record does not contain the consumer final state digest")
+
+        tree = title_fresh("wrong-schema")
+        edit(tree, TITLE_EXPECTED_REL, "t64.title-oracle", "t64.title-guess")
+        title_expect("wrong-schema", tree, False, want_usage=True,
+                     text="schema is not t64.title-oracle version 1")
     print("check-consumer-literals: selftest failures=%d" % failures)
     return 1 if failures else 0
 
