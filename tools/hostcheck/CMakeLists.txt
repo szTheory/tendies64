@@ -174,3 +174,18 @@ set_tests_properties(repo.host-isolation PROPERTIES
   LABELS "repo;phase12"
   TIMEOUT 60
   COST 1.30)
+
+# repo.p12-mutant-anchors (plan 12-08, decision DR-32): the mutant table of the Phase 12 host
+# pump and title (8 pump mutants, 4 title mutants and 2 controls of scripts/p12-mutants.py):
+# every edit anchor occurs exactly once in its tracked file, every killing test is registered
+# above and runs a case of the host test binary. The mutant procedure itself (--run, about 12
+# host or ROM rebuilds in a throwaway worktree) is a check of the review clone of plan 12-12
+# and a qualifier stage, never a CTest name.
+add_test(NAME repo.p12-mutant-anchors
+  COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/p12-mutants.py --check-anchors
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(repo.p12-mutant-anchors PROPERTIES
+  LABELS "repo;phase12"
+  TIMEOUT 60
+  COST 0.10
+  ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")

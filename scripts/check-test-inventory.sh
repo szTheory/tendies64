@@ -373,7 +373,8 @@ host.pump.script
 host.pump.frames
 repo.host-include-guard
 repo.host-include-guard-selftest
-repo.host-isolation'
+repo.host-isolation
+repo.p12-mutant-anchors'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU
