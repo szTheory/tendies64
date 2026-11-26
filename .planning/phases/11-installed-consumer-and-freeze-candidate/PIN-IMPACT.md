@@ -587,6 +587,7 @@ then blends that property into the recorded cost, so the file no longer holds na
 | 11-04 | `core/include/tendies64/t64_machine.h` (`t64_machine_reset`, `t64_machine_unload`, `t64_machine_output_status`, `t64_output_status`, `T64_OUTPUT_STATUS_V1_SIZE`, `T64_OUTPUT_STATUS_INIT`), `core/t64_machine.c` (reset, unload, `clear_guest_state` split out of `reset_guest_state`), `core/t64_observe.c` (output status), `core/t64_internal.h` (`t64_vi_packet_slot`, `t64_ai_packet_slot` with size and member asserts; the two retained arrays use them), `core/t64_vi.c`, `core/t64_ai.c`, `core/t64_digest.c`, `core/t64_state.c` (slot types; copy-out member by member in `t64_video_info` and `t64_audio_info`), `core/tests/test_api_lifecycle.c` (new), `core/tests/test_api_poison.c` (26 entries), `core/tests/test_digest_v26.c` (slot type, same 1208/488/37 pins), `core/tests/test_state_import.c` (diagnostic dump type), `core/CMakeLists.txt`, `docs/spec/machine-contract.md`, `docs/spec/state-field-rules.txt` (13 slot member rows), `scripts/check-rsp-no-hle.py` (five digests, isolated commit `fbe5704`), `scripts/check-test-inventory.sh`, `scripts/preflight-phase11-regexes.txt` (`^unit\.core\.api\.` 11) | `sweep: 1599 shared lines, 0 differences, 0 head-only lines` (base `f9124ae9fce1`, head `fbe5704a16b1`, the isolated refresh commit) | yes, by design (the sweep forces one build id, so it is not a difference) | five, in one isolated commit: `t64_vi_event`, `vi_v8_event`, `t64_video_info` (`core/t64_vi.c`), `t64_ai_event`, `t64_audio_info` (`core/t64_ai.c`); the checker diff is 5 old and 5 new digest lines and nothing else; `python3 -B scripts/check-rsp-no-hle.py --build build/gate` exits 0 | 4: `unit.core.api.reset` 0.17 to 0.18 s, `unit.core.api.unload` 0.23 s, `unit.core.api.not-ready-table` 0.03 s, `unit.core.api.output-status` 0.86 to 0.87 s (all `COST 1`, `TIMEOUT` 60); about 1.3 s summed |
 | 11-10 | `runner/tests/test_cpu_diagnostic.c`, `test_fixture_descriptor.c`, `test_input.c`, `test_pad_poll.c`, `test_real_runner.c`, `test_replay.c`, `test_state_runner.c` (init macros, commit `ad1dd6c`); `core/tests/test_state_import.c` and `runner/tests/test_state_runner.c` (two pointer-form import-report fills found by the guard, commit `e22030d`); `scripts/check-api-init.py` (new), `tools/abi/CMakeLists.txt`, `scripts/check-test-inventory.sh` (`PHASE11_TESTS`), `scripts/preflight-phase11-regexes.txt` (`^repo\.api-init-guard` 2) | not run: no production source changed (test sources, one script, CMake registrations and records only), so the two-tree sweep has nothing to compare | no (the build fingerprint hashes the production core sources only) | none | 2: `repo.api-init-guard` 0.73 to 0.83 s, `repo.api-init-guard-selftest` 0.08 to 0.10 s (both `COST 1`, `TIMEOUT` 60); about 0.9 s summed |
 | 11-11 | `core/t64_prefix.h` (new, generated, 220 renames), `scripts/gen-prefix-header.py` (new), the nine SoftFloat primitives `core/softfloat/s_approxRecip32_1.c`, `s_approxRecipSqrt32_1.c`, `s_countLeadingZeros32.c`, `s_countLeadingZeros64.c`, `s_mul64To128.c`, `s_shiftRightJam32.c`, `s_shiftRightJam64.c`, `s_shiftRightJam64Extra.c`, `s_shortShiftRightJam64.c` (20 deleted lines, no added line) and their `provenance/copies.json` rows, the include of the prefix header in `core/t64_internal.h`, `core/softfloat/platform.h`, `core/t64_rsp_divider.h` and `core/include/tendies64/t64_facade.h`, `core/CMakeLists.txt` (core directory on the `t64_core` include path), `runner/CMakeLists.txt` (three facade consumers), `tools/lint/core-lint.sh` (`-I core`), `scripts/check-rsp-no-hle.py` (two isolated commits, lookups only), the relabel of 20 production lines in 8 files plus the banners of `t64_machine.h` and `t64_facade.h` and `docs/adr/0002` lines 55 and 91, the ADR-0002 and ADR-0006 amendments, `scripts/check-stale-freeze-text.sh` (new), `scripts/list-membership-sites.py` and `docs/spec/profile-membership-sites.txt` (W2-02), `core/include/tendies64/t64_machine.h` and `core/t64_si.c` (T7), `tools/abi/CMakeLists.txt`, `scripts/check-test-inventory.sh` (`PHASE11_TESTS`), `scripts/preflight-phase11-regexes.txt` (`^repo\.abi` 4, `^repo\.stale-freeze-text$` 1, `^repo\.stale-freeze-text-selftest$` 1) | `sweep: 1599 shared lines, 0 differences, 0 head-only lines` (base `f9124ae9fce1`, head `e9e0cbe14e21`, the last code commit) | yes, by design (the sweep forces one build id, so it is not a difference) | none: the rename is a preprocessor macro, so no sealed body text moved; the canonical-symbol lookups of `scripts/check-rsp-no-hle.py` follow the prefix map in commits `270dc51` and `0b3d911` (no `REVIEWED_BODY_DIGESTS` value changed) and `python3 -B scripts/check-rsp-no-hle.py --build build/gate` exits 0 | 3: `repo.abi-prefix` 0.06 to 0.11 s, `repo.stale-freeze-text` 0.5 to 0.6 s, `repo.stale-freeze-text-selftest` 0.5 s (all `COST 1`, `TIMEOUT` 30); about 1.2 s summed |
+| 11-12 | the flip commit `0338380171fc198c175b78e70e499c1cee554fac` (79 files): `core/include/tendies64/t64_machine.h` (leading `struct_size` on the ten in/out structs, fixed-width members, `t64_machine_create_info`, `T64_MACHINE_CREATE_INFO_INIT`, the ten init-macro bodies, `t64_machine_create` and `t64_machine_trace_drain` signatures), `core/t64_internal.h` (v1 size constants), `core/t64_machine.c` (create handshake in the DR-05 order, allocator `struct_size`, descriptor tables, hash and serialize skip the member), `core/t64_rom.c` (the three allocator sites, W-1), `core/t64_trace.c` (`record_size`), `core/t64_observe.c` and `core/t64_state.c` (two lines each, not sealed: `t64_machine_cpu_stop_detail`, `t64_machine_output_drain` and `t64_machine_state_import` write the caller's `struct_size` back unchanged), `core/CMakeLists.txt`, `core/tests/test_api_struct_size.c` (new), `scripts/codemod-phase11.py` (`--create`, `--trace`, INIT-initialized arrays incl. 2D, selftest 19 of 19), `docs/abi/status-classes.txt`, `scripts/check-test-inventory.sh` (`PHASE11_TESTS`), `scripts/preflight-phase11-regexes.txt` (`^unit\.core\.api\.` to 12); 66 non-bound callers rewritten by one codemod invocation (197 conversions in 67 scanned files: 141 create, 53 trace, 3 descriptors; `core/tests/test_api_surface.c` needed none); the nine bound files are not in the commit (their patch is the scratch-proven `build/11-12-bound/bound-callsites.patch`, 97 hunks, section "Bound patch hunks") | `sweep: 1599 shared lines, 0 differences, 0 head-only lines` (base `f9124ae9fce1`, head `0338380171fc`, the flip commit, shared tree, 49 s; the same line in the scratch clone with the bound patch, 39 s) | yes, by design (a `core` text edit changes the build fingerprint; the sweep forces one build id, so it is not a difference) | none: `python3 -B scripts/check-rsp-no-hle.py --build build/gate` exits 0 at the flip commit (`REVIEWED_BODY_DIGESTS` unchanged, so the isolated refresh commit was skipped) | 1: `unit.core.api.handshake` 0.00 to 0.01 s (`COST 1`, `TIMEOUT` 30) |
 
 Plan 11-02 evidence (all at the Task 2 commit, tree clean): the inventory count is 258
 (254 + 4), the label comparison reports 4 tests carrying `phase11` against a 4-name block,
@@ -671,6 +672,200 @@ W2-02 regeneration. The full `sh scripts/preflight-phase11.sh` at the PIN-IMPACT
 `linux-compile` with the act image gcc 13.3.0 (it compiles the renamed core and the include of the prefix header on Linux; it does not
 archive or link, so `repo.abi-prefix` on ELF is first exercised by the hosted run) and the post-gate replay.
 Evidence tier: unit-tested, authored scope; a software-interface claim only.
+
+Plan 11-12 evidence: the inventory count is 274 (273 + 1) and 20 tests carry `phase11`. The flip was proven before it was
+committed (W-3): the full non-bound `ctest` in the shared tree passed at the flip commit (262 of 262 names outside the bound
+regex, 278 s at load 8 to 12, no limit widened; the commit is byte-identical to the staged state that the clone was built from, and an
+earlier pass during the task flagged two init-guard findings in the then-uncommitted `core/tests/test_api_struct_size.c` and a stray
+`scripts/__pycache__` file (`repo.api-init-guard`, `gov.rights.repo`, `gov.pii.repo`); the findings were fixed and the file removed before the commit), and in the marked scratch clone
+`build/11-12-bound/src` with the flip and the bound patch applied `cmake --preset gate` and `cmake --build --preset gate`
+passed (8 s, every target including the nine bound test executables, `-Werror`) and `ctest --preset gate` ran 274 tests in 85 s
+with 272 passing, among them all 12 bound CTest names, and 2 failing by design (the identity block below). The sweep reports
+`sweep: 1599 shared lines, 0 differences, 0 head-only lines` in the clone (head the worktree with the bound patch) and in the
+shared tree at the flip commit; the printer's head branch (`defined(T64_MACHINE_CREATE_INFO_INIT)`) therefore ran twice and
+matched the base on every id. After the commit `python3 -B scripts/check-rsp-no-hle.py --build build/gate` exits 0 (no sealed
+body re-pinned, no refresh commit), `python3 -B scripts/gen-prefix-header.py --check build/gate/core/libt64_core.a` prints
+`ok (35 public functions, 220 renames)` (the flip adds no external symbol), and `unit.core.api.handshake`, `repo.abi-prefix` and
+`repo.abi-status-classes` pass. `python3 -B scripts/tests/test_rsp_qualification.py` (30 tests) passes with the file unchanged:
+its profile-policy seed uses designated initializers and the parser reads named fields only, so `struct_size` needs no seed row (I-3).
+Four design points the plan did not spell out: (1) the create call sites became the compound-literal form
+`&(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(allocator, profile)` rather than a named local `info` (the codemod emits one form for
+statement and expression callers alike); (2) `t64_machine_cpu_stop_detail`, `t64_machine_output_drain` and
+`t64_machine_state_import` write the caller's `struct_size` back unchanged into their local result, which touches `core/t64_observe.c`
+and `core/t64_state.c` (neither sealed); (3) create refuses (`T64_STATUS_BAD_STORAGE`) host storage that overlaps the create-info
+object; (4) nine non-bound `t64_host_storage` positional `{NULL, 0u, 0u}` initializers became `{0}`.
+Evidence tier: unit-tested, authored scope; a software-interface claim only.
+
+### DEV-11-01 window build scope (plan 11-12)
+
+Written by plan 11-12 Task 1 and Task 2 for the DEV-11-01 window (DR-22): from the 11-12 flip commit
+to the 11-14 bound commit the nine bound test executables (and `test_dp_transport`, the second unit
+of `test_rdp.c`) do not compile in the shared tree, so every verify of 11-12 and 11-13 builds exactly the
+target list below and runs every CTest except the bound regex below. The list is the CMake target set of
+`cmake --build build/gate --target help` (phony targets without a directory part) minus `all`, `test`,
+`edit_cache`, `rebuild_cache`, the `lib*.a` aliases of the library targets, `test_rdp`, `test_rdp_copy`,
+`test_rdp_triangles`, `test_rdp_texture`, `test_rdp_combiner`, `test_rdp_blender`, `test_rdp_depth`,
+`test_vi`, `test_video_output` and `test_dp_transport`, plus `test_api_struct_size` (Task 2);
+122 targets. `runner/tests/test_rdp_video.c` (`test_rdp_video`) compiles unchanged and stays
+on the list. The regex selects the 12 CTest names whose command is one of the excluded executables
+(`ctest --show-only=json-v1`); no other CTest names an excluded executable in its command.
+
+- Non-bound targets: t64-audio-fixture t64-base-diagnostic t64-base-diagnostic-controls t64-blobscan t64-boot-fixtures t64-cold-boot-probe t64-cpu-diagnostic t64-cpu-diagnostic-test-hooks t64-json-canon t64-manifest-check t64-model-result-check t64-phase09-admit-fixture t64-phase09-pad-fixture t64-phase09-replay-fixture t64-phase09-save-fixture t64-phase10-composite-fixture t64-provenance-check t64-rdp-fill-fixture t64-result-check t64-rsp-diagnostic t64-rsp-smoke t64-runner-real t64-runner-synthetic t64-runner-test t64-skeleton-probe t64-supervisor t64-supervisor-test t64_base_diag_protocol t64_classify t64_common t64_core t64_cpu_diag_protocol t64_diag_common t64_input t64_rsp_diag_protocol t64_sha256 t64_verified_input t64_verified_input_test test_ai test_api_lifecycle test_api_poison test_api_surface test_artifact_publisher test_audio_capture test_base_diag_protocol test_boot_determinism test_boot_entry test_bus test_classify test_cold_boot test_common test_composite_two_run test_cop1 test_cpu_cache test_cpu_cp0 test_cpu_diag_protocol test_cpu_diagnostic test_cpu_exceptions test_cpu_integer test_cpu_link test_cpu_memory test_cpu_mmu test_cpu_path test_cpu_time test_determinism test_digest_trace test_digest_v25 test_digest_v26 test_fixture_descriptor test_input test_isviewer test_joybus test_json test_json_fuzz test_k1_refusal test_lifecycle test_model_result test_pad_poll test_phase09_runner test_pi_dma test_profile test_profile_v26 test_rdp_depth_composite test_rdp_video test_rdram test_real_controls test_real_runner test_replay test_result_v2 test_rom_admission test_rsp_compare test_rsp_control test_rsp_diag_protocol test_rsp_divider test_rsp_fuzz test_rsp_multiply test_rsp_scalar test_rsp_transfers test_rsp_vector test_save test_save_fixtures test_save_roundtrip test_save_transfer test_sched_ledger test_sched_matrix test_scheduler test_schema test_si test_si_profile test_skeleton_probe test_softfloat test_sp_dma test_state_export test_state_export_v26 test_state_format_v26 test_state_import test_state_import_v26 test_state_runner test_tracer test_vg_gaps test_warm_devices test_api_struct_size
+- Bound CTest regex: ^(unit\.core\.dp\.transport|unit\.core\.rdp\.(blender|combiner|copy|depth|fill|texture|triangles)|unit\.core\.vi\.(fill|filters|output|timing))$
+
+### Bound patch hunks (plan 11-12)
+
+Written by plan 11-12 Task 3 (W-3, I-2) in the marked scratch clone `build/11-12-bound/src` (detached at
+`d1bc22c7121afdf568b3007f0e70ff50307ac0c4`, the shared HEAD the flip was staged on, with
+`build/11-12-bound/flip.patch` applied). The nine API-using bound files were converted by
+`scripts/codemod-phase11.py --scratch-root build/11-12-bound/src --create --trace --dir <nine>` (17 call
+expressions: 16 `t64_machine_create`, 1 `t64_machine_trace_drain` in `test_vi.c`) and the plain `--dir` pass
+on the same nine (118 initializers: `test_rdp.c` 5, `test_rdp_copy.c` 2, `test_rdp_triangles.c` 2,
+`test_rdp_texture.c` 2, `test_rdp_combiner.c` 2, `test_rdp_blender.c` 3, `test_rdp_depth.c` 2, `test_vi.c` 88,
+`test_video_output.c` 12), plus three hand edits inside the clone: the two `t64_video_packet_info` arrays of
+`test_vi.c` (`early_info[2]`, `delayed_info[2]`, `{{0}}` to two `T64_VIDEO_PACKET_INFO_INIT` entries, category
+(b)) and the owner-approved category (c) edit of `test_rdp.c` line 486 (`t64_host_storage image = {NULL, 0u, 0u};`
+to `{0}`, owner answer A). Edit totals equal the 11-01 probe: 17 (a), 120 (b), 1 (c).
+`runner/tests/test_rdp_video.c` is not in the patch.
+
+- Bound patch: build/11-12-bound/bound-callsites.patch (not committed), SHA-256 beb2cafb0a8a66a66e0cdef84a9233cef11973cbd66ed1e84f2f704c50f262cb, 9 files, 97 hunks (`git diff` default context; the U0 probe of 11-01 counted 110)
+
+Classification rule per hunk (by its added text): (a) a public API call expression (`t64_machine_create` in the
+create-info form, the trace record size argument); (b) the initializer or declaration of an object passed to or
+received from one public call, named by the call it belongs to (allocator of `t64_machine_create`, stop request and
+result of `t64_machine_advance`, CPU stop detail of `t64_machine_cpu_stop_detail`, video packet info of
+`t64_video_info`). A hunk that holds several edits lists each category. Result: 14 hunks (a), 80 hunks (b), 2 hunks
+(a) + (b), 1 hunk (a) + (b) + (c) (the approved `test_rdp.c` line 486 edit shares a hunk with the allocator and
+create edits of `case_zero_area_fill_is_noop`); no hunk holds any other edit.
+
+| File | Hunk header | Category | Public call of the object or call expression |
+|------|-------------|----------|-----------------------------------------------|
+| `core/tests/test_rdp.c` | `@@ -65,7 +65,8 @@` | b | t64_host_allocator of t64_machine_create |
+| `core/tests/test_rdp.c` | `@@ -75,7 +76,10 @@` | a | t64_machine_create (call) |
+| `core/tests/test_rdp.c` | `@@ -117,7 +121,8 @@` | b | t64_host_allocator of t64_machine_create |
+| `core/tests/test_rdp.c` | `@@ -125,7 +130,10 @@` | a | t64_machine_create (call) |
+| `core/tests/test_rdp.c` | `@@ -481,15 +489,19 @@` | a + b + c (owner answer A, test_rdp.c line 486) | t64_machine_create (call); t64_host_allocator of t64_machine_create; t64_host_storage image (value-neutral {0}) |
+| `core/tests/test_rdp.c` | `@@ -534,9 +546,9 @@` | b | t64_stop_request of t64_machine_advance; t64_stop_result of t64_machine_advance |
+| `core/tests/test_rdp_blender.c` | `@@ -77,7 +77,8 @@` | b | t64_host_allocator of t64_machine_create |
+| `core/tests/test_rdp_blender.c` | `@@ -101,7 +102,10 @@` | a | t64_machine_create (call) |
+| `core/tests/test_rdp_blender.c` | `@@ -599,8 +603,8 @@` | b | t64_host_allocator of t64_machine_create |
+| `core/tests/test_rdp_blender.c` | `@@ -679,7 +683,10 @@` | a | t64_machine_create (call) |
+| `core/tests/test_rdp_blender.c` | `@@ -994,7 +1001,7 @@` | b | t64_video_packet_info of t64_video_info |
+| `core/tests/test_rdp_combiner.c` | `@@ -63,7 +63,8 @@` | b | t64_host_allocator of t64_machine_create |
+| `core/tests/test_rdp_combiner.c` | `@@ -88,7 +89,10 @@` | a | t64_machine_create (call) |
+| `core/tests/test_rdp_combiner.c` | `@@ -147,7 +151,7 @@` | b | t64_video_packet_info of t64_video_info |
+| `core/tests/test_rdp_copy.c` | `@@ -40,7 +40,8 @@` | b | t64_host_allocator of t64_machine_create |
+| `core/tests/test_rdp_copy.c` | `@@ -64,7 +65,10 @@` | a | t64_machine_create (call) |
+| `core/tests/test_rdp_copy.c` | `@@ -326,7 +330,7 @@` | b | t64_video_packet_info of t64_video_info |
+| `core/tests/test_rdp_depth.c` | `@@ -44,7 +44,8 @@` | b | t64_host_allocator of t64_machine_create |
+| `core/tests/test_rdp_depth.c` | `@@ -70,7 +71,10 @@` | a | t64_machine_create (call) |
+| `core/tests/test_rdp_depth.c` | `@@ -143,7 +147,7 @@` | b | t64_video_packet_info of t64_video_info |
+| `core/tests/test_rdp_texture.c` | `@@ -39,7 +39,8 @@` | b | t64_host_allocator of t64_machine_create |
+| `core/tests/test_rdp_texture.c` | `@@ -64,7 +65,10 @@` | a | t64_machine_create (call) |
+| `core/tests/test_rdp_texture.c` | `@@ -210,7 +214,7 @@` | b | t64_video_packet_info of t64_video_info |
+| `core/tests/test_rdp_triangles.c` | `@@ -39,7 +39,8 @@` | b | t64_host_allocator of t64_machine_create |
+| `core/tests/test_rdp_triangles.c` | `@@ -64,7 +65,10 @@` | a | t64_machine_create (call) |
+| `core/tests/test_rdp_triangles.c` | `@@ -263,7 +267,8 @@` | b | t64_host_allocator of t64_machine_create |
+| `core/tests/test_rdp_triangles.c` | `@@ -272,7 +277,10 @@` | a | t64_machine_create (call) |
+| `core/tests/test_vi.c` | `@@ -45,8 +45,8 @@` | b | t64_host_allocator of t64_machine_create |
+| `core/tests/test_vi.c` | `@@ -82,7 +82,10 @@` | a | t64_machine_create (call) |
+| `core/tests/test_vi.c` | `@@ -232,7 +235,7 @@` | b | t64_stop_result of t64_machine_advance |
+| `core/tests/test_vi.c` | `@@ -346,7 +349,7 @@` | b | t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -383,7 +386,7 @@` | b | t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -410,7 +413,7 @@` | b | t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -438,7 +441,7 @@` | b | t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -460,7 +463,7 @@` | b | t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -490,7 +493,7 @@` | b | t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -509,7 +512,7 @@` | b | t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -532,7 +535,7 @@` | b | t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -553,7 +556,7 @@` | b | t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -577,7 +580,7 @@` | b | t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -597,7 +600,7 @@` | b | t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -616,7 +619,7 @@` | b | t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -661,7 +664,7 @@` | b | t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -685,15 +688,16 @@` | b | t64_host_allocator of t64_machine_create; t64_stop_result of t64_machine_advance; t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -702,7 +706,10 @@` | a | t64_machine_create (call) |
+| `core/tests/test_vi.c` | `@@ -710,9 +717,10 @@` | b | t64_stop_request of t64_machine_advance; t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -771,7 +779,7 @@` | b | t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -789,8 +797,8 @@` | b | t64_stop_result of t64_machine_advance; t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -872,8 +880,8 @@` | b | t64_stop_result of t64_machine_advance; t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -898,8 +906,8 @@` | b | t64_stop_result of t64_machine_advance; t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -934,8 +942,8 @@` | b | t64_stop_result of t64_machine_advance; t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -966,8 +974,8 @@` | b | t64_stop_result of t64_machine_advance; t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -1014,8 +1022,8 @@` | b | t64_stop_result of t64_machine_advance; t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -1042,7 +1050,8 @@` | b | t64_stop_request of t64_machine_advance |
+| `core/tests/test_vi.c` | `@@ -1060,7 +1069,7 @@` | b | t64_stop_result of t64_machine_advance |
+| `core/tests/test_vi.c` | `@@ -1089,7 +1098,7 @@` | b | t64_stop_result of t64_machine_advance |
+| `core/tests/test_vi.c` | `@@ -1130,8 +1139,8 @@` | b | t64_stop_result of t64_machine_advance; t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -1170,8 +1179,8 @@` | b | t64_stop_result of t64_machine_advance; t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -1227,8 +1236,8 @@` | b | t64_stop_result of t64_machine_advance; t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -1262,8 +1271,8 @@` | b | t64_stop_result of t64_machine_advance; t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -1286,8 +1295,8 @@` | b | t64_stop_result of t64_machine_advance; t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -1308,7 +1317,7 @@` | b | t64_stop_result of t64_machine_advance |
+| `core/tests/test_vi.c` | `@@ -1330,13 +1339,13 @@` | b | t64_stop_result of t64_machine_advance; t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -1372,8 +1381,8 @@` | b | t64_stop_result of t64_machine_advance; t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -1418,7 +1427,8 @@` | b | t64_stop_request of t64_machine_advance |
+| `core/tests/test_vi.c` | `@@ -1436,7 +1446,8 @@` | a | t64_machine_trace_drain (call) |
+| `core/tests/test_vi.c` | `@@ -1491,7 +1502,7 @@` | b | t64_stop_result of t64_machine_advance |
+| `core/tests/test_vi.c` | `@@ -1518,8 +1529,8 @@` | b | t64_stop_result of t64_machine_advance; t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -1533,7 +1544,10 @@` | b | t64_stop_request of t64_machine_advance |
+| `core/tests/test_vi.c` | `@@ -1603,8 +1617,8 @@` | b | t64_stop_result of t64_machine_advance; t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -1656,8 +1670,8 @@` | b | t64_stop_result of t64_machine_advance; t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -1695,8 +1709,8 @@` | b | t64_stop_result of t64_machine_advance; t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -1742,7 +1756,9 @@` | b | t64_stop_request of t64_machine_advance |
+| `core/tests/test_vi.c` | `@@ -1764,7 +1780,9 @@` | b | t64_stop_request of t64_machine_advance |
+| `core/tests/test_vi.c` | `@@ -1779,7 +1797,7 @@` | b | t64_stop_result of t64_machine_advance |
+| `core/tests/test_vi.c` | `@@ -1789,7 +1807,9 @@` | b | t64_stop_request of t64_machine_advance |
+| `core/tests/test_vi.c` | `@@ -1823,7 +1843,7 @@` | b | t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -1859,7 +1879,8 @@` | b | t64_host_allocator of t64_machine_create |
+| `core/tests/test_vi.c` | `@@ -1868,9 +1889,9 @@` | b | t64_cpu_stop_detail of t64_machine_cpu_stop_detail; t64_stop_result of t64_machine_advance; t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -1879,19 +1900,24 @@` | a + b | t64_machine_create (call); t64_stop_request of t64_machine_advance; t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -1914,7 +1940,8 @@` | b | t64_stop_request of t64_machine_advance |
+| `core/tests/test_vi.c` | `@@ -1985,34 +2012,41 @@` | a + b | t64_machine_create (call); t64_host_allocator of t64_machine_create; t64_stop_request of t64_machine_advance; t64_stop_result of t64_machine_advance; t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -2071,10 +2105,14 @@` | b | t64_stop_result of t64_machine_advance; t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -2136,7 +2174,7 @@` | b | t64_stop_result of t64_machine_advance |
+| `core/tests/test_vi.c` | `@@ -2195,7 +2233,10 @@` | b | t64_stop_request of t64_machine_advance |
+| `core/tests/test_vi.c` | `@@ -2223,8 +2264,8 @@` | b | t64_stop_result of t64_machine_advance; t64_video_packet_info of t64_video_info |
+| `core/tests/test_vi.c` | `@@ -2310,8 +2351,8 @@` | b | t64_stop_result of t64_machine_advance; t64_video_packet_info of t64_video_info |
+| `core/tests/test_video_output.c` | `@@ -75,7 +75,8 @@` | b | t64_host_allocator of t64_machine_create |
+| `core/tests/test_video_output.c` | `@@ -87,7 +88,10 @@` | a | t64_machine_create (call) |
+| `core/tests/test_video_output.c` | `@@ -133,11 +137,14 @@` | b | t64_stop_request of t64_machine_advance; t64_stop_result of t64_machine_advance |
+| `core/tests/test_video_output.c` | `@@ -157,14 +164,16 @@` | b | t64_stop_request of t64_machine_advance; t64_stop_result of t64_machine_advance |
+| `core/tests/test_video_output.c` | `@@ -199,7 +208,7 @@` | b | t64_stop_result of t64_machine_advance |
+| `core/tests/test_video_output.c` | `@@ -207,7 +216,9 @@` | b | t64_stop_request of t64_machine_advance |
+| `core/tests/test_video_output.c` | `@@ -263,7 +274,7 @@` | b | t64_video_packet_info of t64_video_info |
+| `core/tests/test_video_output.c` | `@@ -304,7 +315,7 @@` | b | t64_video_packet_info of t64_video_info |
+| `core/tests/test_video_output.c` | `@@ -402,7 +413,7 @@` | b | t64_video_packet_info of t64_video_info |
+| `core/tests/test_video_output.c` | `@@ -482,8 +493,8 @@` | b | t64_video_packet_info of t64_video_info |
+
+Scratch proof before the flip commit (W-3), in the clone with the flip and the bound patch, start load 14 to 17
+(unrelated host load, no limit widened): `cmake --preset gate` and `cmake --build --preset gate` pass (8 s, every
+target including the nine bound test executables and `test_dp_transport`, `-Werror`); `ctest --preset gate` runs 274
+tests in 85 s: 272 pass, including all 12 bound CTest names, and 2 fail, `harness.rdp-oracle-authority` and
+`harness.phase10-qualification` (its `test_real_stage_commands_start` runs `check-rdp-oracle-authority.py
+--expect-blocked` and expects exit 0). Both are the oracle identity block that only the orchestrator's rebind of
+plan 11-14 clears: `python3 -B scripts/check-rdp-oracle-authority.py --expect-blocked` in the clone exits 2 with
+`oracle-authority: authored corpus SHA-256 changed: core/tests/test_rdp.c` (the checker stops at the first changed
+file); of the 13 `EXPECTED_CORPUS_PATHS` exactly the nine bound files differ from the shared tree (the other four,
+`docs/spec/rdp-vi-cases.json`, `fixtures/rdp/fill.S`, `runner/tests/test_rdp_video.c` and
+`scripts/check-rdp-vi-cases.py`, are byte-identical); with only the nine files restored to the pinned bytes in the
+clone (`git checkout --` of the nine paths, the rest of the flip kept) the checker prints `authority record valid;
+blocked: no oracle operation is authorized` (exit 0) and both harness tests pass; the patch was then re-applied and
+its diff is byte-identical to the recorded patch. The two-tree sweep in the clone (the printer's head branch, selected
+by `defined(T64_MACHINE_CREATE_INFO_INIT)`, runs for the first time) reports
+`sweep: 1599 shared lines, 0 differences, 0 head-only lines` (base `f9124ae9fce1`, head the clone worktree, 43 s).
+Planning gap for the orchestrator: the W-3 verify of 11-12 Task 3 and the 11-14 Task 1 clone gate both require a
+green full gate in a clone whose nine bound files differ from the pinned corpus, while the same plans expect the
+checker to report exactly that SHA change; the two harness names cannot pass before the 11-14 rebind.
+
+Resolution (orchestrator decision of 2026-11-25, option A; recorded by plan 11-12): the two failures are the expected identity
+block, not a defect. The checker is correct to report "authored corpus SHA-256 changed" once the bound call sites change, and
+the evidence (the nine files restored to the pinned bytes make both names pass; the 12 bound CTest names and the other 272 pass;
+the sweep reports 0 differences) shows nothing else differs. They clear only at the orchestrator's rebind of plan 11-14. Until
+then every scratch-clone gate that holds the bound patch (plan 11-13 Task 3, plan 11-14 Task 1) excludes exactly those two names
+or requires them to fail with exactly that checker message; the plans were amended accordingly, and the post-rebind gate of 11-14
+must be fully green with every name. The flip commit is `0338380171fc198c175b78e70e499c1cee554fac`; its parent is the head the clone was taken from
+(`d1bc22c7121afdf568b3007f0e70ff50307ac0c4`).
 
 ### 11-05 to 11-10 codemod
 
