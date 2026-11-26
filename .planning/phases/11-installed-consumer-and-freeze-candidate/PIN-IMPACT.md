@@ -1191,3 +1191,52 @@ kept descriptor).
 Row 28a was added by plan 11-04 Task 3 (the table test carries it as the `output_status` row). Row 21 is the one
 row where an image-requiring read does not answer `NOT_READY`: it keeps today's bus answer so no
 pre-admission observation changes.
+
+## Install steps
+
+Appended by each INSTALL plan (11-16 starts it). Evidence tier: unit-tested, authored scope; a
+software-interface claim only. Native seconds are the `Passed` seconds that ctest printed on the
+local host (load 10 to 20), a range over repeated runs; each new name carries an explicit `COST`
+equal to its measured seconds (W-11), so `CTestCostData.txt` no longer holds native seconds for
+these names.
+
+### 11-16 INSTALL tracer (sha256 fold, package export, moved prefix, independent consumer)
+
+| Item | Result |
+|------|--------|
+| Commits | `31df5de` (sha256 fold and package export), `c197e4c` (isolated no-HLE inventory refresh), `904b55c` (driver, consumer, install CTest names), `ea83392` (consumer guard, init guard over every consumer), `0213aba` (preflight row count), the preflight guard-default fix and this record |
+| Rename choice for the folded sha256 TU | the four private compile definitions of RESEARCH (`t64_sha256_{init,update,final,hex}=t64i_sha256_*` on `t64_core` only); `scripts/gen-prefix-header.py` and `core/t64_prefix.h` are unchanged (generator `--check`: 35 public functions, 220 renames), so host tools keep linking `t64_sha256` with the unprefixed names. The archive now defines 259 globals on macOS: 35 public and 224 `t64i_` (220 renames plus the four sha256 names) |
+| Link fallout | `test_tracer` and `test_isviewer` called `t64_sha256_*` through the old transitive private link of `t64_core`; both now list `t64_sha256` explicitly (the only two link failures of the full gate build) |
+| Package | six files in the moved prefix (`lib/libt64_core.a`, `include/tendies64/t64_machine.h`, `lib/cmake/tendies64/tendies64{Config,ConfigVersion,Targets,Targets-release}.cmake`), asserted by `scripts/check-install.sh setup`; `tendies64ConfigVersion.cmake` is `VERSION 0.1.0` `SameMinorVersion`; `project(VERSION)` still `0.0.0` (1 line); the config sets `tendies64_BUILD_ID` and `tendies64_BUILD_TYPE` (`Release`); no file of the moved prefix or of the consumer tree mentions the original install path, and the moved prefix holds no `/Users/`, `/private/` or `/var/folders` string |
+| Consumer | `tests/installed-consumer/` is a separate top-level project (never `add_subdirectory`'d, outside the `tools/*` glob), `find_package(tendies64 0.1 REQUIRED CONFIG)` from the moved prefix whose path contains spaces; the smoke case runs 13 checks, 0 failures: `t64_abi_version() == T64_ABI_VERSION`, `t64_build_identity()` equals `tendies64_BUILD_ID`, and a create and destroy round trip through a counting host allocator releases every allocation (outstanding 0, no bad release) |
+| No-HLE inventory refresh | `scripts/check-rsp-no-hle.py` reported exactly three findings, all about the one object `core/CMakeFiles/t64_core.dir/__/tools/common/t64_sha256.c.o`, before the edit and none after; the edit adds that one expected object edge, archive member and on-disk object; no body digest, pin or seed changed; `repo.rsp-no-hle` passes (18 s) |
+| Sweep driver | `python3 -B scripts/digest-sweep.py --selftest` passes on the edited CMake (the literal `set(T64_BUILD_ID ...)` line occurs once) |
+| New CTest names (native seconds) | `install.setup` 0.05 to 0.08, `installed.consumer.build` 0.43 to 0.53, `installed.consumer.smoke` 0.02 to 0.03, `repo.consumer-include-guard` 0.06 to 0.07, `repo.consumer-include-guard-selftest` 0.61 to 1.01 (five names, 280 in total; `repo.api-init-guard` 0.98 s now also scans the nine bound files and the consumer) |
+| Preflight | `sh scripts/preflight-phase11.sh` PASS (77 s at load 12 to 16): ctest-counts, 26 `phase11` tests equal to the 26-name block, guards, timeout-audit (133 TIMEOUTs, 0 too low), pii (tree and 18 unpublished commits), linux-compile (233 units under the act image gcc 13.3.0, 43 s), post-gate replay |
+
+Linux pre-flight of the folded archive (Task 3). Image: `ghcr.io/catthehacker/ubuntu:act-24.04`
+(amd64 under emulation, gcc 13.3.0, GNU binutils 2.42), already on disk, no new image. The 86
+translation units of `core/libt64_core.a` (85 core and SoftFloat units plus `tools/common/t64_sha256.c`)
+were compiled with the ninja compile commands of `build/gate` (checkout mapped to `/src`, macOS flags
+removed) into objects and an `ar` archive: 86 objects, 259 defined globals of which 35 unprefixed
+(the 35 public functions) and 224 `t64i_`; `gen-prefix-header.py --check` on that Linux archive
+reports `ok (35 public functions, 220 renames)`, so the nm parsing of the generator and the prefix
+hold on ELF as well. `cmake --install` is not run there (the act image has no cmake and no ninja):
+the Linux install path stays hosted-only, first exercised by the push at the end of this plan.
+
+Linux undefined set (act image, object compile), measured in the act image; confirmed or refuted by
+the hosted gate-linux run of 11-21. It is `nm -P -u` over the 86 objects, names only, minus the names
+`nm -P -g --defined-only` reports over the same objects, `LC_ALL=C sort -u` (5 names). Plan 11-17
+writes the Linux rows of `docs/abi/installed-undefined.txt` from this table only.
+
+| Linux undefined name | Origin |
+|----------------------|--------|
+| `_GLOBAL_OFFSET_TABLE_` | linker-defined symbol that position-independent objects reference (Ubuntu gcc default PIE code) |
+| `__stack_chk_fail` | stack protector (Ubuntu default) |
+| `memcmp` | libc |
+| `memcpy` | libc |
+| `memset` | libc |
+
+For comparison, the macOS archive of the same tree has six undefined names (`__stack_chk_fail`,
+`__stack_chk_guard`, `bzero`, `memcmp`, `memcpy`, `memset`); the macOS set is measured from the real
+archive by plan 11-17.
