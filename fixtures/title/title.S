@@ -18,6 +18,11 @@
  * VI pending bit (TS-5). Every figure is a software-profile policy value, not a
  * hardware measurement.
  *
+ * One variant exists, selected by an assembler defsym (TS-13):
+ *   T64_TITLE_REFUSED  step 3 of the render list selects the one-cycle mode, so
+ *                      the RDP refuses the fill and the guest never leaves its
+ *                      first DP-done wait (blank frames, never a pass)
+ *
  * Registers kept across the loop: $s0 ISViewer, $s1 SI, $s2 RDRAM (KSEG1),
  * $s3 PI, $s4 AI, $s5 x, $s6 y, $s7 press count, $fp previous A (0 or 0x80),
  * $gp polls made.
@@ -107,6 +112,7 @@
 .equ T64_SLOT_MAGIC_LO, 0x3454
 .equ T64_PAD_A, 0x80
 .equ T64_PAD_B, 0x40
+.equ T64_PAD_START, 0x10
 .equ T64_PAD_UP, 0x08
 .equ T64_PAD_DOWN, 0x04
 .equ T64_PAD_LEFT, 0x02
@@ -115,6 +121,7 @@
 .equ CH_SPACE, 0x20
 .equ CH_NEWLINE, 0x0a
 .equ CH_L, 0x4c
+.equ CH_S, 0x53
 
 /* Copy words from a .rodata label into uncached RDRAM (composite.S). */
 .macro COPY_WORDS source, dest, words
@@ -330,6 +337,11 @@ wait_vi:
   lb $t4, T64_RECEIVE_RDRAM + 5($s2)
   lb $t5, T64_RECEIVE_RDRAM + 6($s2)
 
+  /* TS-5 step 3: the poll that sees Start ends the run without TS-7. */
+  andi $t0, $t3, T64_PAD_START
+  bne $t0, $zero, end_sequence
+  nop
+
   /* TS-7 step 1: B resets the position; otherwise D-pad or stick moves it by
    * 2 pixels per axis (screen y grows downward, stick Y is positive up),
    * clamped to 0..112 and 0..80. */
@@ -407,7 +419,19 @@ wait_dp:
   b frame_loop
   nop
 
-  /* TS-11 completion: the run ends at this break. */
+  /* TS-11 end sequence: write the 16-byte slot (TS-12) by PI DMA, print the
+   * end line (TS-10) and complete at the linked break. */
+end_sequence:
+  lui $t0, T64_SLOT_MAGIC_HI
+  ori $t0, $t0, T64_SLOT_MAGIC_LO
+  sw $t0, T64_SLOT_RDRAM($s2)
+  sw $s5, T64_SLOT_RDRAM + 4($s2)
+  sw $s6, T64_SLOT_RDRAM + 8($s2)
+  sw $s7, T64_SLOT_RDRAM + 12($s2)
+  PI_DMA T64_SLOT_RDRAM, T64_PI_RD_LEN
+  addiu $a0, $zero, CH_S
+  jal print_state
+  addiu $a1, $zero, 1
 .globl t64_title_completion
 t64_title_completion:
   break
@@ -480,8 +504,12 @@ rdp_commands:
   .4byte 0x3f18007f, 0x00100000
   /* TS-9 2: SetScissor (0, 0) to (128, 96) in 10.2 coordinates. */
   .4byte 0x2d000000, 0x00200180
-  /* TS-9 3: SetOtherModes, fill cycle type. */
+  /* TS-9 3: SetOtherModes, fill cycle type (TS-13: one-cycle, refused). */
+.ifdef T64_TITLE_REFUSED
+  .4byte 0x2f000000, 0x00000000
+.else
   .4byte 0x2f300000, 0x00000000
+.endif
   /* TS-9 4 and 5: background color, FillRectangle (127, 95) to (0, 0). */
   .4byte 0x37000000, 0x203060ff
   .4byte 0x361fc17c, 0x00000000
