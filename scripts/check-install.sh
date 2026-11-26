@@ -468,7 +468,8 @@ ctl_doctor_header() {
       awk '
         /^#define T64_ABI_VERSION_MINOR UINT32_C\([0-9]+\)$/ {
           n = $3
-          gsub(/[^0-9]/, "", n)
+          sub(/^UINT32_C\(/, "", n)
+          sub(/\)$/, "", n)
           print "#define T64_ABI_VERSION_MINOR UINT32_C(" (n + 1) ")"
           found = 1
           next
@@ -496,6 +497,11 @@ ctl_doctor_header() {
   esac
 }
 
+# ctl_abi_minor FILE: the number inside T64_ABI_VERSION_MINOR UINT32_C(N) of a header.
+ctl_abi_minor() {
+  sed -n 's/^#define T64_ABI_VERSION_MINOR UINT32_C(\([0-9][0-9]*\))$/\1/p' "$1"
+}
+
 ctl_doctored() {
   _prefix="$CTL_DIR/doctored prefix"
   cp -R "$MOVED" "$_prefix"
@@ -508,6 +514,15 @@ ctl_doctored() {
   fi
   if cmp -s "$CTL_DIR/header.orig" "$_hdr"; then
     fail "control $CTL_ID: the doctoring changed nothing"
+  fi
+  if [ "$CTL_ARG" = abi ]; then
+    _was=$(ctl_abi_minor "$CTL_DIR/header.orig")
+    _now=$(ctl_abi_minor "$_hdr")
+    [ -n "$_was" ] && [ -n "$_now" ] || fail "control $CTL_ID: cannot read the ABI minor of the header and of its doctored copy"
+    if [ "$_now" -ne $((_was + 1)) ]; then
+      fail "control $CTL_ID: the doctored ABI minor $_now is not the original minor $_was plus one"
+    fi
+    echo "doctored ABI minor: $_was -> $_now (exactly the original plus one)" >>"$CTL_LOG"
   fi
   echo "doctored copy of the installed header (diff of the copy, never the source header):" >>"$CTL_LOG"
   diff "$CTL_DIR/header.orig" "$_hdr" >>"$CTL_LOG" || true
