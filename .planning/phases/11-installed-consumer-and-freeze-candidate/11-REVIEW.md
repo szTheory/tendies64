@@ -287,3 +287,26 @@ warning margin; none is above 900 s. These numbers go into the INSTALL ledger ro
 
 Result after the push: one blocking finding (I-11). No Freeze base is recorded and the INSTALL ledger row is not
 written; the plan returns to the orchestrator.
+
+### Resolutions of the INSTALL findings (recorded when plan 11-21 resumed)
+
+The tables above are the record of the review as it stood at the push and are not edited. Plans 11-28 and 11-29
+were numbered defect-fix plans run after it; the reviewer did not fix anything (the review rule). Their
+dispositions, in finding order:
+
+| id | final disposition | resolved by | evidence |
+|----|-------------------|-------------|----------|
+| I-01 | resolved | plan 11-28, fix commit `9e5acee` | the doctoring awk strips `UINT32_C(` and `)` before the arithmetic and `ctl_doctored` asserts original plus one before the build; the control log reads `doctored ABI minor: 1 -> 2` and still ends in status 34; green on both hosted jobs in run 45770631197 |
+| I-02 | resolved | plan 11-29, commit `21ca1d9` | `docs/spec/machine-contract.md` "Raw ROM admission" says a pinned Open IPL3 profile narrows admission to the exact pinned 4096-byte asset or an authored big-endian z64 cartridge and cites `docs/spec/boot-limits.md`; code unchanged; recorded in PIN-IMPACT "11-29" |
+| I-03 | resolved | plan 11-29, commit `21ca1d9` | the header comment before the stop kinds and the spec say the frame-event counter is advanced by no public entry (a larger target never reports that reason, an equal target returns at once, the counter is not a video-frame count) and that CPU retirement drives the instruction counter; the header diff is comment lines only and the digest sweep reports 0 differences (11-29 SUMMARY) |
+| I-04 | resolved | plan 11-29, commit `21ca1d9` | the `t64_profile_lookup` header comment says the call takes no machine, that a NULL `profile_out` writes nothing and that any other refusal writes NULL to `*profile_out` |
+| I-05 | accepted | review decision | the bus-read `value_out` span stays the caller's responsibility, stated in the header; a later check is a candidate amendment or a Phase 12 final-bind item |
+| I-06 | accepted | review decision | documented sampling of the machine digest in the gate lane (every second burst; the local shipped lane verifies every burst); re-judged at 11-25 with the final measurement |
+| I-07 | resolved | plan 11-28, fix commit `0e6b96d` | `test_closed_pipes_do_not_end_the_outer_deadline` measures its outer deadline from guest readiness with a readiness clock (not a longer sleep); 20 of 20 runs at natural load and 20 of 20 under a 0.3 s interpreter start-up delay; `harness.rsp-run` passes on both hosted jobs in run 45770631197 (F-132 closes F-129) |
+| I-08 | accepted | review decision | lane dates are the commit dates; 11-25 records lane dates and build ids of the qualified head |
+| I-09 | accepted | review decision | the 20,000-step stream rarely draws the second state-import variant; `installed.consumer.ops-state` and the in-tree state tests cover both forms |
+| I-10 | accepted | orchestrator decision | the review accepted a deferred cold measurement; the orchestrator took one anyway after the 11-28 push (run 45772586364, gate-macos 731 s, margin 169 s, F-133); 11-25 repeats it with the final test set |
+| I-11 | resolved | plan 11-28, fix commit `9e5acee` | the two version-mismatch rows expect `compatible with requested version "0.2"` and `"0.1.5"`, which cmake 3.31.6 and 4 both print on one line and the missing-package log does not contain; `installed.controls.version-mismatch-minor` and `-patch` pass on gate-linux (cmake 3.31.6) and gate-macos (cmake 4.5.0) in run 45770631197; F-131 closes F-130 |
+
+Open after these resolutions: no blocking finding and no open warning. The reviewer's remaining notes are the accepted
+info rows I-05, I-06, I-08, I-09 and I-10.
