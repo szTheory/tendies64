@@ -1,0 +1,56 @@
+# Expected "ctest -N -R" counts for every regex a Phase 12 verify command uses.
+# Read by scripts/preflight-phase12.sh (step ctest-counts), which runs
+#   ctest --test-dir build/gate -N -R "<regex>"
+# and fails when the number of "Test #" lines differs from the count below.
+# Row format: <expected count><TAB><regex>. Lines starting with # are comments.
+# A zero row proves absence until the plan that owns the names adds them; the
+# owning plan then raises the count in the same commit (AUTONOMY Phase 9
+# lesson: plan regexes matched 10 names, not 11, more than once).
+# Counts measured at the Wave 0 base (329 names in the gate preset).
+1	^harness\.rdp-oracle-authority$
+1	^repo\.si-membership-sites$
+1	^harness\.state-field-use-audit$
+1	^repo\.p10-mutant-anchors$
+1	^repo\.rsp-no-hle$
+2	^repo\.ci-yml(-selftest)?$
+1	^runner\.composite-two-run$
+1	^harness\.composite-oracle$
+# Phase 11 name families carried into Phase 12. CTest adds the required fixture setup test of every
+# matched test, so the repo.abi names count install.setup (repo.abi-freeze-record requires the
+# t64_install fixture) and the installed names count install.setup and, for consumer names,
+# installed.consumer.build (fixture closure included, Phase 11 lesson).
+8	^repo\.abi
+28	^installed\.consumer\.
+11	^installed\.controls\.
+2	^repo\.stale-freeze-text
+2	^repo\.api-init-guard
+13	^unit\.core\.api\.
+# Phase 12 name families, zero until the owning plan registers them. The owning plan raises the
+# row in the same commit as its registration and extends the PHASE12_TESTS block of
+# scripts/check-test-inventory.sh.
+# plan 12-02: harness.title-oracle has no fixture requirement (one name).
+0	^harness\.title-oracle$
+# plan 12-04: runner.title-two-run (one name, no CTest fixture closure; the runner names follow
+# runner.composite-two-run).
+0	^runner\.title-two-run$
+# plan 12-04: controls.real.title-wrong-input and controls.real.title-refused-frame (two names,
+# no CTest fixture closure; the controls.real names follow controls.real.composite-wrong-rom).
+0	^controls\.real\.title-
+# plan 12-05: installed.consumer.title and installed.consumer.title-persist require the
+# t64_consumer fixture, so installed.consumer.build and install.setup join them (2 names plus 2 = 4).
+0	^installed\.consumer\.title
+# plan 12-07 to 12-08: host.pump.* requires the t64_host fixture (host.pump.build is the setup
+# test), so install.setup joins the host.pump names (12-07 adds build, clock, drain-order and stall;
+# 12-08 adds input-map, script, frames and title-two-speeds; 8 names plus install.setup = 9 at the
+# end of 12-08).
+0	^host\.pump\.
+# plan 12-07 to 12-09: repo.host-include-guard, repo.host-include-guard-selftest and repo.host-isolation
+# (12-07), repo.host-policy and repo.host-policy-selftest (12-09); script-only names, no fixture
+# closure unless the owning plan registers one (5 names at the end of 12-09).
+0	^repo\.host-
+# plan 12-10: repo.api07-evaluation is a script-only name (one name).
+0	^repo\.api07-evaluation$
+# plan 12-08: repo.p12-mutant-anchors is a script-only name (one name).
+0	^repo\.p12-mutant-anchors$
+# plan 12-17: the hermetic test of scripts/qualify-phase12.py (no fixture: one name).
+0	^harness\.phase12-qualification$
