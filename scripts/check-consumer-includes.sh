@@ -35,7 +35,7 @@ export LC_ALL
 CONSUMER_DIR=tests/installed-consumer
 
 # C standard headers and the few POSIX ones a consumer may use.
-SYSTEM_HEADERS='assert.h ctype.h errno.h float.h inttypes.h limits.h math.h stdalign.h stdbool.h stddef.h stdint.h stdio.h stdlib.h string.h time.h fcntl.h unistd.h sys/stat.h sys/types.h'
+SYSTEM_HEADERS='assert.h ctype.h errno.h float.h inttypes.h limits.h math.h stdalign.h stdbool.h stddef.h stdint.h stdio.h stdlib.h string.h time.h fcntl.h unistd.h pthread.h sys/stat.h sys/types.h'
 
 # Private repository headers that a consumer must never include, even when a
 # file of the same name were placed inside the consumer directory.

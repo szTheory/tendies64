@@ -111,6 +111,24 @@ bool t64c_hostloop_known(const char *name);
 void t64c_hostloop_list(void);
 int t64c_hostloop_run(const char *name, const t64c_args *args);
 
+/* What one complete host-loop run reports (threads.c runs two of them at once). */
+typedef struct {
+  bool completed;         /* the guest completed */
+  bool literals_equal;    /* video, audio, transcript and save equal the independent literals */
+  bool pins_equal;        /* completion tick, stop reason and final digest equal the pins */
+  bool balanced;          /* destroy left no outstanding allocation, bad release or refusal */
+  unsigned backpressure_stops;
+  uint64_t tick;
+  uint8_t digest[T64_DIGEST_SIZE];
+} t64c_hostloop_result;
+/* One complete run of the stalled-host loop of the hostloop case on its own machine and
+ * allocator ledger, silently: no shared mutable state, so two threads may call it at
+ * once. True when the run completed. */
+bool t64c_hostloop_once(const char *rom_path, t64c_hostloop_result *result);
+
+/* The two-thread case (threads.c, built only with T64C_THREADS): one instance per thread. */
+int t64c_case_threads(const t64c_args *args);
+
 /* The call-sequence generator (sequence.c, plan 11-20): the case name is `sequence`. */
 bool t64c_sequence_known(const char *name);
 void t64c_sequence_list(void);

@@ -42,6 +42,10 @@ typedef struct {
 static const t64c_case t64c_cases[] = {
     {"smoke", case_smoke_entry},
     {"composite", t64c_case_composite},
+#ifdef T64C_THREADS
+    /* local lane only (scripts/check-install.sh tsan): never listed in cases.txt */
+    {"threads", t64c_case_threads},
+#endif
 };
 
 /* The collision executable (T64C_COLLISION) reports its counters after the case. */

@@ -669,6 +669,32 @@ static int case_two_instance(const t64c_args *args) {
   return t64c_report("two-instance", &tally);
 }
 
+/* ---- one silent run for the two-thread case ---------------------------------- */
+
+bool t64c_hostloop_once(const char *rom_path, t64c_hostloop_result *result) {
+  hl_host host;
+  bool ok;
+
+  (void)memset(result, 0, sizeof *result);
+  if (!hl_host_open(&host, rom_path, HL_STALLED_HOST, HL_FRAME_TICKS, false)) {
+    return false;
+  }
+  ok = hl_run_to_completion(&host);
+  result->completed = ok && host.done;
+  result->literals_equal = result->completed && hl_literals_equal(host.run);
+  result->pins_equal = result->completed && hl_pins_equal(host.run);
+  result->backpressure_stops = host.backpressure_stops;
+  result->tick = host.run->tick;
+  (void)memcpy(result->digest, host.run->digest, sizeof result->digest);
+  t64_machine_destroy(host.fixture->machine);
+  host.fixture->machine = NULL;
+  result->balanced = host.fixture->ledger.outstanding == 0u &&
+                     host.fixture->ledger.bad_releases == 0u &&
+                     host.fixture->ledger.refusals == 0u;
+  hl_host_close(&host);
+  return result->completed;
+}
+
 /* ---- dispatch --------------------------------------------------------------- */
 
 typedef struct {

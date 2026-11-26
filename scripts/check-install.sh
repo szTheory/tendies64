@@ -35,6 +35,14 @@
 #                  consumer (library and consumer instrumented). The scratch trees are
 #                  BUILD/sanitize-lane/MODE (not WORK, which the CTest fixture
 #                  install.setup clears); a sanitizer report or a failing case is exit 1
+#   tsan [--seed-race] [--rom PATH]
+#                  LOCAL lane (plan 11-20, T-11-44): build t64_core with -fsanitize=thread
+#                  into a scratch tree below BUILD/sanitize-lane/tsan, install it, build the consumer with
+#                  -DT64C_THREADS=ON and -fsanitize=thread and run the threads case (two
+#                  threads, one instance each); a ThreadSanitizer report is exit 1.
+#                  --seed-race builds the case with both threads on ONE instance (the
+#                  use the one-instance rule forbids) and passes only when
+#                  ThreadSanitizer reports it: the lane is shown able to fail
 #   three-way [--rom PATH] [--supervisor PATH]
 #                  run the in-tree runner (the two supervised runs of the authored
 #                  composite ROM that composite.expected.json was proved against:
@@ -60,7 +68,7 @@ BUILD=$ROOT/build/gate
 WORK=
 
 usage() {
-  echo "usage: sh scripts/check-install.sh [--build DIR] [--work DIR] setup|build|run CASE [ARGS]|control ID [--rom PATH]|sanitize shipped|instrumented [--steps N] [--digest-stride N] [--rom PATH]|three-way [--rom PATH] [--supervisor PATH]" >&2
+  echo "usage: sh scripts/check-install.sh [--build DIR] [--work DIR] setup|build|run CASE [ARGS]|control ID [--rom PATH]|sanitize shipped|instrumented [--steps N] [--digest-stride N] [--rom PATH]|tsan [--seed-race] [--rom PATH]|three-way [--rom PATH] [--supervisor PATH]" >&2
   exit 2
 }
 
@@ -791,12 +799,91 @@ cmd_sanitize() {
   grep -h '^sequence: ' "$_base/sequence.log" | sed 's/^/check-install: /' | cut -c1-240
 }
 
+cmd_tsan() {
+  TSAN_FLAGS="-fsanitize=thread -fno-omit-frame-pointer"
+  TSAN_SEED=0
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      --seed-race) TSAN_SEED=1; shift ;;
+      --rom) [ "$#" -ge 2 ] || usage; SAN_ROM=$2; shift 2 ;;
+      *) usage ;;
+    esac
+  done
+  [ -f "$SAN_ROM" ] || die "the composite ROM is not built: $SAN_ROM"
+  if [ "$TSAN_SEED" -eq 1 ]; then
+    _base="$BUILD/sanitize-lane/tsan-seed-race"
+  else
+    _base="$BUILD/sanitize-lane/tsan"
+  fi
+  rm -rf "$_base"
+  mkdir -p "$_base"
+  _t_start=$(date +%s)
+  CC_PATH=$(cache_value CMAKE_C_COMPILER)
+  [ -n "$CC_PATH" ] || die "the build tree records no C compiler"
+  NINJA=$(cache_value CMAKE_MAKE_PROGRAM)
+  set -- -S "$ROOT" -B "$_base/core" -G Ninja -DCMAKE_BUILD_TYPE=Release -DT64_WERROR=ON \
+    "-DCMAKE_C_FLAGS=$TSAN_FLAGS" "-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=thread" "-DCMAKE_C_COMPILER=$CC_PATH"
+  if [ -n "$NINJA" ] && [ -x "$NINJA" ]; then
+    set -- "$@" "-DCMAKE_MAKE_PROGRAM=$NINJA"
+  fi
+  env -u CMAKE_PREFIX_PATH "$CMAKE" "$@" >"$_base/core-configure.log" 2>&1 \
+    || { tail -n 30 "$_base/core-configure.log" >&2; fail "configuring the ThreadSanitizer library tree failed"; }
+  "$CMAKE" --build "$_base/core" --target t64_core >"$_base/core-build.log" 2>&1 \
+    || { tail -n 30 "$_base/core-build.log" >&2; fail "building t64_core with -fsanitize=thread failed"; }
+  "$CMAKE" --install "$_base/core" --component Development --prefix "$_base/prefix with space" \
+    >"$_base/install.log" 2>&1 || { cat "$_base/install.log" >&2; fail "cmake --install of the ThreadSanitizer library failed"; }
+  _t_lib=$(date +%s)
+  set -- -DT64C_THREADS=ON
+  if [ "$TSAN_SEED" -eq 1 ]; then
+    set -- "$@" -DT64C_THREADS_SEED_RACE=ON
+  fi
+  if ! consumer_configure "$_base/consumer" "$_base/prefix with space" "$_base/configure.log" \
+    "-DCMAKE_C_FLAGS=$TSAN_FLAGS" "$@"; then
+    cat "$_base/configure.log" >&2
+    fail "ThreadSanitizer consumer configure failed"
+  fi
+  "$CMAKE" --build "$_base/consumer" >"$_base/build.log" 2>&1 \
+    || { cat "$_base/build.log" >&2; fail "ThreadSanitizer consumer build failed"; }
+  _t_consumer=$(date +%s)
+  _lib_refs=$(san_runtime_refs "$_base/prefix with space/lib/libt64_core.a" tsan)
+  _exe_refs=$(san_runtime_refs "$_base/consumer/t64c" tsan)
+  [ "$_lib_refs" -gt 0 ] && [ "$_exe_refs" -gt 0 ] || fail "tsan: the archive ($_lib_refs) and the consumer ($_exe_refs) must both reference the ThreadSanitizer runtime"
+  _id=$(sed -n 's/^set(tendies64_BUILD_ID "\(.*\)")$/\1/p' "$_base/prefix with space/lib/cmake/tendies64/tendies64Config.cmake")
+  echo "check-install: tsan: ThreadSanitizer runtime references: archive $_lib_refs, consumer $_exe_refs"
+  echo "check-install: tsan: library with $TSAN_FLAGS (build id $_id), consumer with T64C_THREADS=ON"
+  TSAN_OPTIONS="halt_on_error=0 exitcode=66" "$_base/consumer/t64c" --case threads --rom "$SAN_ROM" \
+    >"$_base/threads.log" 2>&1 && _rc=0 || _rc=$?
+  _t_run=$(date +%s)
+  if [ "$TSAN_SEED" -eq 1 ]; then
+    if grep -q "WARNING: ThreadSanitizer" "$_base/threads.log"; then
+      echo "check-install: tsan --seed-race ok: ThreadSanitizer reported the seeded race ($(grep -c 'WARNING: ThreadSanitizer' "$_base/threads.log") report(s), exit $_rc), so the lane can fail"
+      return 0
+    fi
+    tail -n 20 "$_base/threads.log" >&2
+    fail "tsan --seed-race: ThreadSanitizer reported nothing for two threads on one instance"
+  fi
+  if grep -q "WARNING: ThreadSanitizer" "$_base/threads.log"; then
+    grep -A 12 "WARNING: ThreadSanitizer" "$_base/threads.log" | head -n 60 >&2
+    fail "ThreadSanitizer report (RESEARCH A9: a finding; record it and stop for a new numbered plan)"
+  fi
+  if [ "$_rc" -ne 0 ]; then
+    tail -n 20 "$_base/threads.log" >&2
+    fail "the threads case failed (exit $_rc)"
+  fi
+  _pin=97f270274d456e883ceaa11f100f92c7fbf3150e89031fa51164e79991f1267c
+  _equal=$(grep -c "digest=$_pin" "$_base/threads.log" || true)
+  [ "$_equal" -eq 2 ] || { cat "$_base/threads.log" >&2; fail "tsan: expected both thread digests to equal $_pin"; }
+  grep '^threads' "$_base/threads.log" | sed 's/^/check-install: /' | cut -c1-260
+  echo "check-install: tsan ok: two threads, one instance each, no ThreadSanitizer report; both digests $_pin; library $((_t_lib - _t_start)) s, consumer $((_t_consumer - _t_lib)) s, run $((_t_run - _t_consumer)) s"
+}
+
 case $SUB in
   setup) [ "$#" -eq 0 ] || usage; cmd_setup ;;
   build) [ "$#" -eq 0 ] || usage; cmd_build ;;
   run) cmd_run "$@" ;;
   control) cmd_control "$@" ;;
   sanitize) cmd_sanitize "$@" ;;
+  tsan) cmd_tsan "$@" ;;
   three-way) cmd_three_way "$@" ;;
   *) echo "check-install: unknown subcommand: $SUB" >&2; usage ;;
 esac

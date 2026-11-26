@@ -17,7 +17,7 @@ set(CMAKE_C_EXTENSIONS OFF)
 set(T64C_REQUIRED_VERSION 0.1 CACHE STRING "tendies64 version the consumer requests")
 find_package(tendies64 ${T64C_REQUIRED_VERSION} REQUIRED CONFIG)
 
-set(T64C_SOURCES main.c smoke.c composite.c hostloop.c sequence.c ops.c t64c_sha256.c)
+set(T64C_SOURCES main.c smoke.c composite.c hostloop.c sequence.c threads.c ops.c t64c_sha256.c)
 add_executable(t64c ${T64C_SOURCES})
 target_link_libraries(t64c PRIVATE tendies64::core)
 # The smoke case alone, built only on request (the negative controls of controls.tsv
@@ -34,6 +34,20 @@ if(T64C_COLLISION)
   target_link_libraries(t64c_collision PRIVATE tendies64::core)
   target_compile_definitions(t64c_collision PRIVATE T64C_COLLISION=1)
   list(APPEND t64c_targets t64c_collision)
+endif()
+# The two-thread case (plan 11-20, a local lane): threads.c is an empty translation
+# unit unless this option is on. The consumer is host code and may link pthreads; the
+# library imports none. scripts/check-install.sh tsan turns it on together with
+# -fsanitize=thread; the gate never does, so `threads` is not a registered case.
+option(T64C_THREADS "Build the two-thread case (a local ThreadSanitizer lane)" OFF)
+option(T64C_THREADS_SEED_RACE "With T64C_THREADS: two threads share one instance (the seeded race)" OFF)
+if(T64C_THREADS)
+  find_package(Threads REQUIRED)
+  target_compile_definitions(t64c PRIVATE T64C_THREADS=1)
+  target_link_libraries(t64c PRIVATE Threads::Threads)
+  if(T64C_THREADS_SEED_RACE)
+    target_compile_definitions(t64c PRIVATE T64C_THREADS_SEED_RACE=1)
+  endif()
 endif()
 foreach(t64c_target IN LISTS t64c_targets)
   target_compile_options(${t64c_target} PRIVATE

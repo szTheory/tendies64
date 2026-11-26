@@ -1381,3 +1381,21 @@ non-zero exit, a failing case, or any `ERROR: AddressSanitizer`, `runtime error:
 | Both modes | the milestones at steps 5,000 and 15,000 both ended at tick 599357 with digest `97f270274d456e883ceaa11f100f92c7fbf3150e89031fa51164e79991f1267c`; the defect at step 17,500 found the profile digest once (slot 0, offset 2400) and poisoned the instance; the poison sweep made 128 calls that all answered POISONED or the poison query with their outputs untouched; destroy left nothing outstanding; guest-stop reasons seen: BOUND 186, INSTRUCTION_COUNT 4, FRAME_EVENT_COUNT 2, QUIESCENT 6, RESOURCE_LIMIT 1,700, GUEST_COMPLETION 6; statuses seen: 0, 1, 3, 5, 7, 8, 9, 11, 15, 17 to 24, 26, 27, 34, 35, 37, 38 |
 | First attempt of the instrumented lane | the same 20,000-step run passed (289 s) but its exit status was 2: the script had been edited by this plan while it ran, and the shell read the changed tail. It was run again unedited (`exit=0`, 288 s). Lesson: never edit `check-install.sh` while a lane runs |
 | No sanitizer report | no AddressSanitizer or UBSan report in either mode, so no defect to record for a new numbered plan from this task |
+
+**Task 3: two threads, one instance each, under ThreadSanitizer (local lane, never in the gate).**
+
+`sh scripts/check-install.sh tsan` configures the whole tree into a scratch directory below the ignored
+`build/gate/sanitize-lane/tsan` with the gate's cache values (Release, `T64_WERROR=ON`) plus `-fsanitize=thread`,
+builds only `t64_core`, installs its Development component into a prefix with a space, builds the consumer with
+`-DT64C_THREADS=ON` and `-fsanitize=thread`, and runs the `threads` case. `threads.c` is an empty translation unit
+unless `T64C_THREADS` is on (the consumer is host code and may link pthreads; the library imports none), so `threads`
+is not in `cases.txt`, no CTest name registers it and the hosted gate cannot run it; `check-install.sh build` against
+a case list that names it fails (`the consumer case list is not closed`, shown once with a scratch edit of
+`cases.txt`, restored). `ctest -N -R '^installed\.consumer\.threads'` reports 0 tests.
+
+| Item | Result |
+|------|--------|
+| The case | two threads rendezvous (a mutex and a condition variable, no `pthread_barrier`, which macOS lacks) and each runs `t64c_hostloop_once`, the stalled-host loop of the `hostloop` case, on its own instance and its own allocator ledger (the function is silent and has no shared mutable state; the only globals of the consumer sources are the two call counters of `collision.c`, which `t64c_collision` alone links). Each run meets one backpressure stop, resumes, completes at tick 599357, equals the independent literals and the runner-recorded pins, and leaves its ledger balanced; the two digests are equal. 18 checks, 0 failures |
+| TSan run | library and consumer both instrumented (ThreadSanitizer symbols: 564 in the archive, 21 in the consumer; build id `t64-build-v1-c26a7ea4448cda047355370b9af9874baed55506ef865efad1ea0a9e72a5cfbf`): no ThreadSanitizer report; both digests `97f270274d456e883ceaa11f100f92c7fbf3150e89031fa51164e79991f1267c`; library build 2 s, consumer build 1 s, run 2 s, 5.4 s in all. RESEARCH A9 (the lint forbids writable globals, so the result is expected clean) held |
+| The lane can fail (`tsan --seed-race`) | `-DT64C_THREADS_SEED_RACE=ON` makes both threads advance the one same instance with nothing serializing them, the use the header forbids; ThreadSanitizer reported it (9 reports, a read and a write of the same 8 bytes in `t64i_scheduler_advance`, reached from `t64_machine_advance` on both threads) and the process then aborted (exit 134 from the corrupted instance); the lane passes only when a report appears |
+| Statement supported | distinct instances are independent (no data race between two threads running two instances) and one instance needs external serialization (the seeded race). It is a local check of this build on this host: it is not a promise about other compilers or targets |
