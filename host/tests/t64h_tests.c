@@ -10,11 +10,20 @@
  *                 drain pass delivers video, then audio, then ISViewer text, one pass
  *                 holds all three kinds, the counts equal the oracle's and the first
  *                 video packet equals the expected frame digest (--expect)
+ *   clock         the tick conversion (0, 15, 16 ns and the maximum), the carry kept from
+ *                 the origin across steps, a backward clock refused without advancing,
+ *                 the max_ticks cap and a bound that never falls behind the guest tick
+ *   stall         a video sink that refuses everything ends a step with "stall without
+ *                 progress" after one retry and loses nothing once it accepts again; a
+ *                 sink that refuses once lets the step finish; a step after the guest
+ *                 completed is TERMINAL and advances and queues nothing; a video buffer
+ *                 smaller than the packet is an API error and drops nothing
  *
  * The title ROM is the fixture of every case that runs a guest (build target
  * t64-phase12-title-fixture). The expected frame digest and the events come from
  * fixtures/title/ through scripts/check-host.sh, never from this file or the pump.
  */
+#include <limits.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -240,8 +249,9 @@ static uint8_t *read_file(const char *path, size_t *length_out) {
   return bytes;
 }
 
-/* Create a machine of the title profile, admit the ROM and queue the events. */
-static bool rig_open(rig *r, const args *a) {
+/* Create a machine of the title profile, admit the ROM and, on request, queue the
+ * events of the arguments before the machine runs. */
+static bool rig_open(rig *r, const args *a, bool with_events) {
   t64_status status;
   size_t i;
 
@@ -274,7 +284,7 @@ static bool rig_open(rig *r, const args *a) {
     (void)fprintf(stderr, "t64h_tests: admission failed (%u)\n", (unsigned)status);
     return false;
   }
-  for (i = 0u; i < a->event_count; i++) {
+  for (i = 0u; with_events && i < a->event_count; i++) {
     status = t64_machine_queue_input(r->machine, a->events[i].tick, 0u, a->events[i].buttons,
                                      a->events[i].axis_x, a->events[i].axis_y);
     if (status != T64_STATUS_OK) {
@@ -314,10 +324,12 @@ static uint64_t fake_clock_read(void *context) {
 
 enum { KIND_VIDEO = 0, KIND_AUDIO = 1, KIND_TEXT = 2 };
 #define LOG_MAX 128u
+#define REFUSE_ALWAYS UINT_MAX
 
 typedef struct {
   unsigned kind;
   uint64_t pass;
+  uint64_t sequence;  /* of a video or audio packet, 0 for text */
   size_t length;
   char sha_prefix[17];
 } log_entry;
@@ -329,12 +341,15 @@ typedef struct {
   size_t overflow;
   unsigned packets[3];
   size_t text_bytes;
+  unsigned refuse_video;  /* offers still to refuse, REFUSE_ALWAYS never counts down */
+  unsigned refused_video;
   char first_video_hex[T64H_SHA256_HEX_SIZE];
   bool have_first_video;
   bool video_shape_ok;
 } recorder;
 
-static void record(recorder *rec, unsigned kind, const uint8_t *bytes, size_t length) {
+static void record(recorder *rec, unsigned kind, uint64_t sequence, const uint8_t *bytes,
+                   size_t length) {
   char hex[T64H_SHA256_HEX_SIZE];
 
   t64h_sha256_hex_of(bytes, length, hex);
@@ -343,6 +358,7 @@ static void record(recorder *rec, unsigned kind, const uint8_t *bytes, size_t le
 
     entry->kind = kind;
     entry->pass = rec->pump->counters.drain_passes;
+    entry->sequence = sequence;
     entry->length = length;
     (void)memcpy(entry->sha_prefix, hex, 16u);
     entry->sha_prefix[16] = '\0';
@@ -363,31 +379,120 @@ static int record_video(void *context, const t64_video_packet_info *info,
                         const uint8_t *bytes, size_t length) {
   recorder *rec = (recorder *)context;
 
+  if (rec->refuse_video != 0u) {
+    if (rec->refuse_video != REFUSE_ALWAYS) {
+      rec->refuse_video--;
+    }
+    rec->refused_video++;
+    return 1;
+  }
   if (info->width != TITLE_FRAME_WIDTH || info->height != TITLE_FRAME_HEIGHT ||
       info->stride_bytes != TITLE_FRAME_WIDTH * 4u || length != TITLE_FRAME_BYTES ||
       info->packet_bytes != (uint64_t)length) {
     rec->video_shape_ok = false;
   }
-  record(rec, KIND_VIDEO, bytes, length);
+  record(rec, KIND_VIDEO, info->sequence, bytes, length);
   return 0;
 }
 
 static int record_audio(void *context, const t64_audio_packet_info *info,
                         const uint8_t *bytes, size_t length) {
-  recorder *rec = (recorder *)context;
-
-  (void)info;
-  record(rec, KIND_AUDIO, bytes, length);
+  record((recorder *)context, KIND_AUDIO, info->sequence, bytes, length);
   return 0;
 }
 
 static int record_text(void *context, const uint8_t *bytes, size_t length) {
-  record((recorder *)context, KIND_TEXT, bytes, length);
+  record((recorder *)context, KIND_TEXT, 0u, bytes, length);
   return 0;
 }
 
 static const char *kind_name(unsigned kind) {
   return kind == KIND_VIDEO ? "video" : (kind == KIND_AUDIO ? "audio" : "text");
+}
+
+/* ---- the bench: a rig, a fake clock, a recorder and a pump -------------------- */
+
+static uint8_t video_buffer[T64H_VIDEO_BUFFER_BYTES];
+static uint8_t audio_buffer[T64H_AUDIO_BUFFER_BYTES];
+static uint8_t text_buffer[T64H_TEXT_BUFFER_BYTES];
+
+typedef struct {
+  rig r;
+  recorder rec;
+  fake_clock clock;
+  t64h_pump pump;
+  t64h_config config;
+  unsigned input_calls;
+} bench;
+
+/* The input hook of the bench only counts its calls: the events of a case are queued
+ * before the machine runs, so the count shows whether the pump would have queued. */
+static int count_input(void *context, t64_machine *machine, uint64_t guest_tick,
+                       uint64_t bound) {
+  (void)machine;
+  (void)guest_tick;
+  (void)bound;
+  ((bench *)context)->input_calls++;
+  return 0;
+}
+
+static void clock_to_tick(bench *b, uint64_t tick) {
+  b->clock.now = tick * T64H_TICK_NS;
+}
+
+/* A machine on the title ROM (the events of the arguments queued on request), a pump
+ * on a fake clock at 0 ns with sinks that record. False, with a message, on failure. */
+static bool bench_open(bench *b, const args *a, bool with_events, size_t video_capacity) {
+  (void)memset(b, 0, sizeof *b);
+  b->rec.pump = &b->pump;
+  b->rec.video_shape_ok = true;
+  if (!rig_open(&b->r, a, with_events)) {
+    return false;
+  }
+  b->config.machine = b->r.machine;
+  b->config.clock = fake_clock_read;
+  b->config.clock_context = &b->clock;
+  b->config.sinks.context = &b->rec;
+  b->config.sinks.video = record_video;
+  b->config.sinks.audio = record_audio;
+  b->config.sinks.text = record_text;
+  b->config.input = count_input;
+  b->config.input_context = b;
+  b->config.video_buffer = video_buffer;
+  b->config.video_capacity = video_capacity;
+  b->config.audio_buffer = audio_buffer;
+  b->config.audio_capacity = sizeof audio_buffer;
+  b->config.text_buffer = text_buffer;
+  b->config.text_capacity = sizeof text_buffer;
+  if (t64h_pump_init(&b->pump, &b->config) != T64H_OK) {
+    (void)fprintf(stderr, "t64h_tests: pump init refused\n");
+    return false;
+  }
+  return true;
+}
+
+static void bench_close(bench *b, tally *t) {
+  rig_close(&b->r, t);
+}
+
+/* The video packets the recorder holds were delivered in sequence: each one follows
+ * the one before by exactly one. */
+static bool video_sequences_consecutive(const recorder *rec) {
+  bool have_previous = false;
+  uint64_t previous = 0u;
+  size_t i;
+
+  for (i = 0u; i < rec->count; i++) {
+    if (rec->log[i].kind != KIND_VIDEO) {
+      continue;
+    }
+    if (have_previous && rec->log[i].sequence != previous + 1u) {
+      return false;
+    }
+    previous = rec->log[i].sequence;
+    have_previous = true;
+  }
+  return true;
 }
 
 /* ---- drain-order -------------------------------------------------------------- */
@@ -398,15 +503,8 @@ static const char *kind_name(unsigned kind) {
 #define MAX_STEPS 64u
 
 static int case_drain_order(const args *a) {
-  static uint8_t video_buffer[T64H_VIDEO_BUFFER_BYTES];
-  static uint8_t audio_buffer[T64H_AUDIO_BUFFER_BYTES];
-  static uint8_t text_buffer[T64H_TEXT_BUFFER_BYTES];
   tally t = {0ul, 0ul};
-  rig r;
-  recorder rec;
-  fake_clock clock;
-  t64h_pump pump;
-  t64h_config config;
+  bench b;
   t64h_step_result result;
   unsigned steps = 0u;
   bool completed = false;
@@ -414,40 +512,21 @@ static int case_drain_order(const args *a) {
   bool full_pass = false;
   size_t i;
 
-  (void)memset(&rec, 0, sizeof rec);
-  (void)memset(&clock, 0, sizeof clock);
-  rec.pump = &pump;
-  rec.video_shape_ok = true;
   CHECK(&t, a->expect_hex != NULL && a->event_count > 0u);
-  if (!rig_open(&r, a)) {
-    rig_close(&r, &t);
+  if (!bench_open(&b, a, true, sizeof video_buffer)) {
+    bench_close(&b, &t);
     return report("drain-order", &t) | 1;
   }
-  (void)memset(&config, 0, sizeof config);
-  config.machine = r.machine;
-  config.clock = fake_clock_read;
-  config.clock_context = &clock;
-  config.sinks.context = &rec;
-  config.sinks.video = record_video;
-  config.sinks.audio = record_audio;
-  config.sinks.text = record_text;
-  config.video_buffer = video_buffer;
-  config.video_capacity = sizeof video_buffer;
-  config.audio_buffer = audio_buffer;
-  config.audio_capacity = sizeof audio_buffer;
-  config.text_buffer = text_buffer;
-  config.text_capacity = sizeof text_buffer;
-  CHECK(&t, t64h_pump_init(&pump, &config) == T64H_OK);
 
   /* Small slices first, one drain pass at the end of each, then one jump of host time
    * that carries the guest to its completion: the passes inside that step hold the
    * packets the small slices never met (video, audio and text together). */
   while (!completed && steps < MAX_STEPS) {
-    const uint64_t slice = pump.tick < SMALL_PHASE_TICKS ? SMALL_SLICE_TICKS : BIG_JUMP_TICKS;
+    const uint64_t slice = b.pump.tick < SMALL_PHASE_TICKS ? SMALL_SLICE_TICKS : BIG_JUMP_TICKS;
     t64h_status status;
 
-    clock.now += slice * T64H_TICK_NS;
-    status = t64h_pump_step(&pump, UINT64_MAX, &result);
+    b.clock.now += slice * T64H_TICK_NS;
+    status = t64h_pump_step(&b.pump, UINT64_MAX, &result);
     steps++;
     if (status != T64H_OK) {
       (void)fprintf(stderr, "t64h_tests: step %u answered %s (%s)\n", steps,
@@ -461,51 +540,295 @@ static int case_drain_order(const args *a) {
   CHECK(&t, completed);
 
   /* The log: one line per delivery, then the order check per pass. */
-  for (i = 0u; i < rec.count; i++) {
+  for (i = 0u; i < b.rec.count; i++) {
     (void)printf("drain-order: pass %llu: %s %llu bytes sha256=%s...\n",
-                 (unsigned long long)rec.log[i].pass, kind_name(rec.log[i].kind),
-                 (unsigned long long)rec.log[i].length, rec.log[i].sha_prefix);
+                 (unsigned long long)b.rec.log[i].pass, kind_name(b.rec.log[i].kind),
+                 (unsigned long long)b.rec.log[i].length, b.rec.log[i].sha_prefix);
   }
-  for (i = 0u; i + 1u < rec.count; i++) {
-    if (rec.log[i + 1u].pass < rec.log[i].pass ||
-        (rec.log[i + 1u].pass == rec.log[i].pass && rec.log[i + 1u].kind < rec.log[i].kind)) {
+  for (i = 0u; i + 1u < b.rec.count; i++) {
+    if (b.rec.log[i + 1u].pass < b.rec.log[i].pass ||
+        (b.rec.log[i + 1u].pass == b.rec.log[i].pass &&
+         b.rec.log[i + 1u].kind < b.rec.log[i].kind)) {
       all_ordered = false;
     }
   }
-  for (i = 0u; i < rec.count; i++) {
+  for (i = 0u; i < b.rec.count; i++) {
     unsigned seen = 0u;
     size_t j;
 
-    for (j = 0u; j < rec.count; j++) {
-      if (rec.log[j].pass == rec.log[i].pass) {
-        seen |= 1u << rec.log[j].kind;
+    for (j = 0u; j < b.rec.count; j++) {
+      if (b.rec.log[j].pass == b.rec.log[i].pass) {
+        seen |= 1u << b.rec.log[j].kind;
       }
     }
     if (seen == 7u) {
       full_pass = true;
     }
   }
-  CHECK(&t, rec.overflow == 0u);
+  CHECK(&t, b.rec.overflow == 0u);
   CHECK(&t, all_ordered);
   CHECK(&t, full_pass);
-  CHECK_U64(&t, rec.packets[KIND_VIDEO], SHORT_VIDEO_PACKETS);
-  CHECK_U64(&t, rec.packets[KIND_AUDIO], SHORT_AUDIO_PACKETS);
-  CHECK_U64(&t, rec.text_bytes, SHORT_TEXT_BYTES);
-  CHECK_U64(&t, pump.counters.video_packets, SHORT_VIDEO_PACKETS);
-  CHECK_U64(&t, pump.counters.audio_packets, SHORT_AUDIO_PACKETS);
-  CHECK_U64(&t, pump.counters.text_bytes, SHORT_TEXT_BYTES);
-  CHECK(&t, rec.video_shape_ok);
-  CHECK(&t, rec.have_first_video && a->expect_hex != NULL &&
-                strcmp(rec.first_video_hex, a->expect_hex) == 0);
+  CHECK_U64(&t, b.rec.packets[KIND_VIDEO], SHORT_VIDEO_PACKETS);
+  CHECK_U64(&t, b.rec.packets[KIND_AUDIO], SHORT_AUDIO_PACKETS);
+  CHECK_U64(&t, b.rec.text_bytes, SHORT_TEXT_BYTES);
+  CHECK_U64(&t, b.pump.counters.video_packets, SHORT_VIDEO_PACKETS);
+  CHECK_U64(&t, b.pump.counters.audio_packets, SHORT_AUDIO_PACKETS);
+  CHECK_U64(&t, b.pump.counters.text_bytes, SHORT_TEXT_BYTES);
+  CHECK(&t, b.rec.video_shape_ok);
+  CHECK(&t, video_sequences_consecutive(&b.rec));
+  CHECK(&t, b.rec.have_first_video && a->expect_hex != NULL &&
+                strcmp(b.rec.first_video_hex, a->expect_hex) == 0);
   (void)printf("drain-order: %u steps, %llu advances, %llu drain passes, first video packet "
                "sha256=%s (expected %s), order %s, one pass with video, audio and text: %s\n",
-               steps, (unsigned long long)pump.counters.advances,
-               (unsigned long long)pump.counters.drain_passes,
-               rec.have_first_video ? rec.first_video_hex : "none",
+               steps, (unsigned long long)b.pump.counters.advances,
+               (unsigned long long)b.pump.counters.drain_passes,
+               b.rec.have_first_video ? b.rec.first_video_hex : "none",
                a->expect_hex != NULL ? a->expect_hex : "none", all_ordered ? "ok" : "WRONG",
                full_pass ? "yes" : "NO");
-  rig_close(&r, &t);
+  bench_close(&b, &t);
   return report("drain-order", &t);
+}
+
+/* ---- clock -------------------------------------------------------------------- */
+
+static bool digest_of(const bench *b, uint8_t digest[T64_DIGEST_SIZE]) {
+  return t64_machine_digest(b->r.machine, digest) == T64_STATUS_OK;
+}
+
+static int case_clock(const args *a) {
+  tally t = {0ul, 0ul};
+  bench b;
+  t64h_step_result result;
+  uint64_t lcg = UINT64_C(0x9e3779b97f4a7c15);
+  uint64_t before_tick;
+  uint64_t before_advances;
+  uint8_t digest_before[T64_DIGEST_SIZE];
+  uint8_t digest_after[T64_DIGEST_SIZE];
+  uint64_t saved_now;
+  unsigned i;
+
+  /* The conversion is a division by 16, with no rounding up and no overflow. */
+  CHECK_U64(&t, t64h_ticks_from_ns(0u), 0u);
+  CHECK_U64(&t, t64h_ticks_from_ns(15u), 0u);
+  CHECK_U64(&t, t64h_ticks_from_ns(16u), 1u);
+  CHECK_U64(&t, t64h_ticks_from_ns(31u), 1u);
+  CHECK_U64(&t, t64h_ticks_from_ns(UINT64_MAX), UINT64_MAX / 16u);
+  if (!bench_open(&b, a, false, sizeof video_buffer)) {
+    bench_close(&b, &t);
+    return report("clock", &t) | 1;
+  }
+
+  /* The carry is kept from the origin, not per step: two steps of 8 ns are one tick. */
+  b.clock.now = 8u;
+  CHECK(&t, t64h_pump_step(&b.pump, UINT64_MAX, &result) == T64H_OK);
+  CHECK_U64(&t, result.tick, 0u);
+  b.clock.now = 16u;
+  CHECK(&t, t64h_pump_step(&b.pump, UINT64_MAX, &result) == T64H_OK);
+  CHECK_U64(&t, result.tick, 1u);
+  /* Irregular steps: after every step the guest tick is the origin-relative time / 16. */
+  for (i = 0u; i < 40u; i++) {
+    lcg = lcg * UINT64_C(6364136223846793005) + UINT64_C(1442695040888963407);
+    b.clock.now += (lcg >> 33) % 41u;
+    CHECK(&t, t64h_pump_step(&b.pump, UINT64_MAX, &result) == T64H_OK);
+    CHECK_U64(&t, result.tick, b.clock.now / T64H_TICK_NS);
+  }
+  CHECK_U64(&t, b.pump.counters.steps, 42u);
+
+  /* A clock behind its last reading: refused and counted, nothing advances, and the
+   * reading is not taken (the next good reading counts from the last accepted one). */
+  saved_now = b.clock.now;
+  before_tick = b.pump.tick;
+  before_advances = b.pump.counters.advances;
+  CHECK(&t, digest_of(&b, digest_before));
+  b.clock.now = saved_now - 1u;
+  CHECK(&t, t64h_pump_step(&b.pump, UINT64_MAX, &result) == T64H_CLOCK_BACKWARD);
+  CHECK_U64(&t, b.pump.counters.backward_clocks, 1u);
+  CHECK_U64(&t, result.tick, before_tick);
+  CHECK_U64(&t, b.pump.counters.advances, before_advances);
+  CHECK(&t, digest_of(&b, digest_after) &&
+                memcmp(digest_before, digest_after, sizeof digest_before) == 0);
+  b.clock.now = saved_now;  /* an equal reading is not backward */
+  CHECK(&t, t64h_pump_step(&b.pump, UINT64_MAX, &result) == T64H_OK);
+  CHECK_U64(&t, result.tick, before_tick);
+  CHECK_U64(&t, b.pump.counters.backward_clocks, 1u);
+  b.clock.now = saved_now + 4u * T64H_TICK_NS;
+  CHECK(&t, t64h_pump_step(&b.pump, UINT64_MAX, &result) == T64H_OK);
+  CHECK_U64(&t, result.tick, saved_now / T64H_TICK_NS + 4u);
+
+  /* max_ticks caps one step's bound: the guest catches up a step at a time, and a cap of
+   * 0 moves nothing (the bound never falls behind the guest tick: no TIME_REVERSED). */
+  before_tick = b.pump.tick;
+  clock_to_tick(&b, before_tick + 1000000u);
+  CHECK(&t, t64h_pump_step(&b.pump, 1000u, &result) == T64H_OK);
+  CHECK_U64(&t, result.tick, before_tick + 1000u);
+  CHECK(&t, t64h_pump_step(&b.pump, 1000u, &result) == T64H_OK);
+  CHECK_U64(&t, result.tick, before_tick + 2000u);
+  CHECK(&t, t64h_pump_step(&b.pump, 0u, &result) == T64H_OK);
+  CHECK_U64(&t, result.tick, before_tick + 2000u);
+  CHECK_U64(&t, result.api_status, T64_STATUS_OK);
+  (void)printf("clock: %llu steps, guest tick %llu, %llu backward clock(s) refused, "
+               "%llu advances\n",
+               (unsigned long long)b.pump.counters.steps, (unsigned long long)b.pump.tick,
+               (unsigned long long)b.pump.counters.backward_clocks,
+               (unsigned long long)b.pump.counters.advances);
+  bench_close(&b, &t);
+  return report("clock", &t);
+}
+
+/* ---- stall -------------------------------------------------------------------- */
+
+#define STALL_JUMP_TICKS UINT64_C(8000000)
+
+/* A sink that refuses every video packet: the step ends in "stall without progress"
+ * after one retry, the refused packet is kept, and once the sink accepts again the pump
+ * delivers it first, in sequence, with the machine moving on. */
+static void stall_refused_everything(const args *a, tally *t) {
+  bench b;
+  t64h_step_result result;
+  t64h_status status;
+  uint64_t stall_tick;
+
+  if (!bench_open(&b, a, false, sizeof video_buffer)) {
+    t->checks++;
+    t->failures++;
+    bench_close(&b, t);
+    return;
+  }
+  b.rec.refuse_video = REFUSE_ALWAYS;
+  clock_to_tick(&b, STALL_JUMP_TICKS);
+  status = t64h_pump_step(&b.pump, UINT64_MAX, &result);
+  stall_tick = result.tick;
+  (void)printf("stall: refused-everything: %s at guest tick %llu (%s), %llu backpressure "
+               "stop(s), %llu retry, %u refusal(s)\n",
+               t64h_status_name(status), (unsigned long long)result.tick,
+               result.message != NULL ? result.message : "no message",
+               (unsigned long long)b.pump.counters.backpressure_stops,
+               (unsigned long long)b.pump.counters.stall_retries, b.rec.refused_video);
+  CHECK(t, status == T64H_STALL);
+  CHECK(t, result.message != NULL && strcmp(result.message, "stall without progress") == 0);
+  CHECK_U64(t, b.pump.counters.stall_retries, 1u);
+  CHECK_U64(t, b.pump.counters.backpressure_stops, 2u);
+  CHECK(t, b.rec.refused_video >= 2u);
+  CHECK_U64(t, b.rec.packets[KIND_VIDEO], 0u);
+  CHECK(t, stall_tick > 0u && stall_tick < STALL_JUMP_TICKS);
+  CHECK_U64(t, result.stop_reason, T64_STOP_REASON_RESOURCE_LIMIT);
+
+  /* The host's sink accepts again: the next step drains the held packet and the rings in
+   * order and the guest moves on (a stall is the end of a step, not of the pump). */
+  b.rec.refuse_video = 0u;
+  status = t64h_pump_step(&b.pump, 100000u, &result);
+  CHECK(t, status == T64H_OK);
+  CHECK(t, result.tick > stall_tick);
+  CHECK(t, b.rec.packets[KIND_VIDEO] >= 3u);
+  CHECK(t, video_sequences_consecutive(&b.rec));
+  CHECK(t, b.rec.video_shape_ok);
+  (void)printf("stall: refused-everything: after the sink accepts: %s at guest tick %llu, %u video "
+               "packet(s) delivered in sequence\n",
+               t64h_status_name(status), (unsigned long long)result.tick,
+               b.rec.packets[KIND_VIDEO]);
+  bench_close(&b, t);
+}
+
+/* A sink that refuses once lets the step finish; after the guest completes the pump is
+ * terminal: the next step advances nothing, queues nothing and delivers nothing. */
+static void stall_refused_once_and_terminal(const args *a, tally *t) {
+  bench b;
+  t64h_step_result result;
+  t64h_status status;
+  uint8_t digest_before[T64_DIGEST_SIZE];
+  uint8_t digest_after[T64_DIGEST_SIZE];
+  uint64_t completion_tick;
+  uint64_t advances;
+  unsigned input_calls;
+  unsigned i;
+
+  (void)memset(&b, 0, sizeof b);
+  if (a->event_count == 0u || !bench_open(&b, a, true, sizeof video_buffer)) {
+    t->checks++;
+    t->failures++;
+    bench_close(&b, t);
+    return;
+  }
+  b.rec.refuse_video = 1u;
+  clock_to_tick(&b, BIG_JUMP_TICKS);
+  status = t64h_pump_step(&b.pump, UINT64_MAX, &result);
+  (void)printf("stall: refused-once: %s at guest tick %llu, stop reason %u, %u refusal(s), "
+               "%llu video, %llu audio, %llu text byte(s)\n",
+               t64h_status_name(status), (unsigned long long)result.tick,
+               (unsigned)result.stop_reason, b.rec.refused_video,
+               (unsigned long long)b.pump.counters.video_packets,
+               (unsigned long long)b.pump.counters.audio_packets,
+               (unsigned long long)b.pump.counters.text_bytes);
+  CHECK(t, status == T64H_OK);
+  CHECK_U64(t, result.stop_reason, T64_STOP_REASON_GUEST_COMPLETION);
+  CHECK_U64(t, b.rec.refused_video, 1u);
+  CHECK_U64(t, b.pump.counters.video_packets, SHORT_VIDEO_PACKETS);
+  CHECK_U64(t, b.pump.counters.audio_packets, SHORT_AUDIO_PACKETS);
+  CHECK_U64(t, b.pump.counters.text_bytes, SHORT_TEXT_BYTES);
+  CHECK(t, video_sequences_consecutive(&b.rec));
+  CHECK_U64(t, b.pump.counters.sink_refusals, 1u);
+
+  /* Terminal: more host time, no further advance, no input hook call, no delivery. */
+  completion_tick = result.tick;
+  advances = b.pump.counters.advances;
+  input_calls = b.input_calls;
+  CHECK(t, digest_of(&b, digest_before));
+  for (i = 0u; i < 2u; i++) {
+    b.clock.now += 1000u * T64H_TICK_NS;
+    status = t64h_pump_step(&b.pump, UINT64_MAX, &result);
+    CHECK(t, status == T64H_TERMINAL);
+    CHECK_U64(t, result.tick, completion_tick);
+    CHECK_U64(t, result.stop_reason, T64_STOP_REASON_GUEST_COMPLETION);
+    CHECK(t, result.message != NULL);
+  }
+  CHECK_U64(t, b.pump.counters.advances, advances);
+  CHECK_U64(t, b.input_calls, input_calls);
+  CHECK_U64(t, b.pump.counters.video_packets, SHORT_VIDEO_PACKETS);
+  CHECK(t, digest_of(&b, digest_after) &&
+               memcmp(digest_before, digest_after, sizeof digest_before) == 0);
+  (void)printf("stall: terminal: two later steps answered %s at guest tick %llu, advances %llu "
+               "unchanged, input hook calls %u unchanged\n",
+               t64h_status_name(status), (unsigned long long)result.tick,
+               (unsigned long long)b.pump.counters.advances, b.input_calls);
+  bench_close(&b, t);
+}
+
+/* A video buffer smaller than the packet is an API error naming BUFFER_TOO_SMALL: the
+ * packet stays in the ring (nothing was copied) and nothing reached the sink. */
+static void stall_small_buffer(const args *a, tally *t) {
+  bench b;
+  t64h_step_result result;
+  t64_output_status ring = T64_OUTPUT_STATUS_INIT;
+  t64h_status status;
+
+  if (!bench_open(&b, a, false, 1024u)) {
+    t->checks++;
+    t->failures++;
+    bench_close(&b, t);
+    return;
+  }
+  clock_to_tick(&b, BIG_JUMP_TICKS);
+  status = t64h_pump_step(&b.pump, UINT64_MAX, &result);
+  CHECK(t, status == T64H_API_ERROR);
+  CHECK_U64(t, result.api_status, T64_STATUS_BUFFER_TOO_SMALL);
+  CHECK(t, result.message != NULL);
+  CHECK_U64(t, b.rec.packets[KIND_VIDEO], 0u);
+  CHECK(t, t64_machine_output_status(b.r.machine, &ring) == T64_STATUS_OK);
+  CHECK(t, ring.video_queued >= 1u);
+  CHECK_U64(t, ring.video_next_bytes, TITLE_FRAME_BYTES);
+  (void)printf("stall: small buffer: %s (%s), the %llu-byte packet is still queued (%u in the ring)\n",
+               t64h_status_name(status), result.message != NULL ? result.message : "no message",
+               (unsigned long long)ring.video_next_bytes, ring.video_queued);
+  bench_close(&b, t);
+}
+
+static int case_stall(const args *a) {
+  tally t = {0ul, 0ul};
+
+  stall_refused_everything(a, &t);
+  stall_refused_once_and_terminal(a, &t);
+  stall_small_buffer(a, &t);
+  return report("stall", &t);
 }
 
 /* ---- dispatch ----------------------------------------------------------------- */
@@ -517,6 +840,8 @@ typedef struct {
 
 static const test_case cases[] = {
     {"drain-order", case_drain_order},
+    {"clock", case_clock},
+    {"stall", case_stall},
 };
 
 int main(int argc, char **argv) {

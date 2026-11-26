@@ -1,11 +1,15 @@
 /*
  * The host pump (Phase 12, plan 12-07, API-05). See t64h_pump.h for the contract.
  *
- * This is the tracer of the pump: the step loop, the drain order and the counters
- * through the installed API, with the tick arithmetic counted per step, no refusal
- * of a backward clock, no tick cap, the stall rule of research Pattern 4 and no
- * terminal latch. The next task of the plan pins the clock and stall rules with
- * fake-clock cases and completes them.
+ * Time enters only through the clock callback. The guest-tick bound of a step is the
+ * time since the origin divided by 16 (carry kept from the origin, so steps of any
+ * size reach the same tick), capped by the caller, and never behind the tick the
+ * guest has; a reading behind the previous one is refused. The advance loop treats
+ * RESOURCE_LIMIT by tick movement: moved is the per-advance event budget, not moved
+ * is ring backpressure and gets a drain and one retry. The pump keeps a packet that
+ * a sink refused (it is already out of the ring), so movement that only the held
+ * copy made possible is not progress. After a terminal stop of the guest the pump
+ * advances and queues nothing.
  */
 #include "t64h_pump.h"
 
@@ -228,6 +232,11 @@ static t64h_status drain_pass(t64h_pump *pump, size_t *delivered,
 
 /* ---- init and step ---------------------------------------------------------- */
 
+/* A refused packet or text waits in the pump. */
+static int anything_held(const t64h_pump *pump) {
+  return pump->video_held || pump->audio_held || pump->text_held;
+}
+
 t64h_status t64h_pump_init(t64h_pump *pump, const t64h_config *config) {
   if (pump == NULL || config == NULL || config->machine == NULL ||
       config->clock == NULL || config->video_buffer == NULL ||
@@ -246,8 +255,9 @@ t64h_status t64h_pump_init(t64h_pump *pump, const t64h_config *config) {
 
 t64h_status t64h_pump_step(t64h_pump *pump, uint64_t max_ticks, t64h_step_result *result) {
   uint64_t now;
+  uint64_t target;
   uint64_t bound;
-  int stalled = 0;
+  int armed = 0;
   size_t delivered = 0u;
   t64h_status status;
 
@@ -263,11 +273,28 @@ t64h_status t64h_pump_step(t64h_pump *pump, uint64_t max_ticks, t64h_step_result
   }
   result->tick = pump->tick;
   result->stop_reason = pump->last_reason;
-  (void)max_ticks;
   pump->counters.steps++;
+  if (pump->terminal) {
+    result->message = "the guest reached a terminal stop";
+    return T64H_TERMINAL;
+  }
   now = pump->config.clock(pump->config.clock_context);
-  bound = pump->tick + t64h_ticks_from_ns(now >= pump->last_ns ? now - pump->last_ns : 0u);
+  if (now < pump->last_ns) {
+    pump->counters.backward_clocks++;
+    result->message = "the clock went backward";
+    return T64H_CLOCK_BACKWARD;
+  }
   pump->last_ns = now;
+  /* The tick the origin-relative time allows, the caller's cap on this step, and never
+   * a bound behind the tick the guest already has (the core would answer TIME_REVERSED). */
+  target = t64h_ticks_from_ns(now - pump->origin_ns);
+  bound = max_ticks > UINT64_MAX - pump->tick ? UINT64_MAX : pump->tick + max_ticks;
+  if (target < bound) {
+    bound = target;
+  }
+  if (bound < pump->tick) {
+    bound = pump->tick;
+  }
 
   for (;;) {
     t64_stop_result stop = T64_STOP_RESULT_INIT;
@@ -276,16 +303,12 @@ t64h_status t64h_pump_step(t64h_pump *pump, uint64_t max_ticks, t64h_step_result
 
     if (pump->config.input != NULL &&
         pump->config.input(pump->config.input_context, pump->machine, pump->tick, bound) != 0) {
-      result->tick = pump->tick;
-      result->stop_reason = pump->last_reason;
       result->message = "the input hook failed";
       return T64H_INPUT_ERROR;
     }
     core = t64_machine_advance(
         pump->machine, &(t64_stop_request)T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, bound),
         &stop);
-    result->tick = pump->tick;
-    result->stop_reason = pump->last_reason;
     if (core != T64_STATUS_OK) {
       return api_error(result, core, "advance refused");
     }
@@ -303,26 +326,36 @@ t64h_status t64h_pump_step(t64h_pump *pump, uint64_t max_ticks, t64h_step_result
         stop.reason == T64_STOP_REASON_HALT) {
       pump->terminal = 1;
     }
-    if (stop.reason == T64_STOP_REASON_RESOURCE_LIMIT) {
-      if (moved) {
-        pump->counters.budget_stops++;
-        stalled = 0;
-        continue;
+    if (stop.reason != T64_STOP_REASON_RESOURCE_LIMIT) {
+      break;
+    }
+    if (moved) {
+      /* The per-advance event budget: go on. Movement clears the stall watch unless a
+       * refused packet is held: then the copy into the pump freed the ring slot that
+       * let the guest move, and the sink has still taken nothing. */
+      pump->counters.budget_stops++;
+      if (!anything_held(pump)) {
+        armed = 0;
       }
-      pump->counters.backpressure_stops++;
-      if (stalled) {
-        result->message = "stall without progress";
-        return T64H_STALL;
-      }
-      stalled = 1;
-      status = drain_pass(pump, &delivered, result);
-      if (status != T64H_OK) {
-        return status;
-      }
-      pump->counters.stall_retries++;
       continue;
     }
-    break;
+    /* Ring backpressure: nothing can run until the host drains. Drain in host order and
+     * retry once; a second stop that moved nothing after a pass that consumed nothing
+     * is the permanent stall of docs/spec/api.md section 8.1. */
+    pump->counters.backpressure_stops++;
+    status = drain_pass(pump, &delivered, result);
+    if (status != T64H_OK) {
+      return status;
+    }
+    if (delivered > 0u) {
+      armed = 0;
+    } else if (armed) {
+      result->message = "stall without progress";
+      return T64H_STALL;
+    } else {
+      armed = 1;
+    }
+    pump->counters.stall_retries++;
   }
   return drain_pass(pump, &delivered, result);
 }

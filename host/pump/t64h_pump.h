@@ -21,7 +21,15 @@
  * and the loop simply continues; one that moved nothing is ring backpressure: the
  * pump drains and retries once, and a second stop that moved nothing after a drain
  * that delivered nothing is the permanent "stall without progress"
- * (docs/spec/api.md section 8.1).
+ * (docs/spec/api.md section 8.1). While a sink-refused packet is held, guest
+ * movement is not progress (the copy into the pump freed the ring slot, the sink
+ * has taken nothing), so a sink that refuses everything also ends in the stall,
+ * after one retry, and loses nothing: the held packet is offered first again.
+ *
+ * After a terminal stop of the guest (GUEST_COMPLETION or CPU_UNSUPPORTED) the step
+ * that saw it drains once more and every later step answers T64H_TERMINAL without
+ * reading the clock, calling the input hook, advancing or delivering; a pump is
+ * not reusable after a reset or a replaced image of its machine (init a new one).
  */
 #ifndef T64H_PUMP_H
 #define T64H_PUMP_H

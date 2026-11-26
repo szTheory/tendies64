@@ -22,7 +22,7 @@ add_test(NAME host.pump.build
 set_tests_properties(host.pump.build PROPERTIES
   LABELS "host;phase12"
   TIMEOUT 120
-  COST 0.45
+  COST 0.50
   FIXTURES_REQUIRED t64_install
   FIXTURES_SETUP t64_host)
 
@@ -36,6 +36,35 @@ add_test(NAME host.pump.drain-order
 set_tests_properties(host.pump.drain-order PROPERTIES
   LABELS "host;phase12"
   TIMEOUT 60
-  COST 0.40
+  COST 0.45
+  FIXTURES_REQUIRED t64_host
+  REQUIRED_FILES "${T64_HOST_TITLE_ROM}")
+
+# host.pump.clock: the tick conversion (0, 15 and 16 ns, the maximum), the carry kept
+# from the origin across steps of any size, a backward clock refused without advancing,
+# the max_ticks cap and a bound that never falls behind the guest tick.
+add_test(NAME host.pump.clock
+  COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/check-host.sh
+          --build ${CMAKE_BINARY_DIR} run clock
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(host.pump.clock PROPERTIES
+  LABELS "host;phase12"
+  TIMEOUT 60
+  COST 0.12
+  FIXTURES_REQUIRED t64_host
+  REQUIRED_FILES "${T64_HOST_TITLE_ROM}")
+
+# host.pump.stall: a sink that refuses everything ends a step with "stall without
+# progress" after one retry and loses nothing once it accepts again, a sink that refuses
+# once lets the step finish, a step after the guest completed is TERMINAL and advances and
+# queues nothing, and a video buffer smaller than the packet is an API error.
+add_test(NAME host.pump.stall
+  COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/check-host.sh
+          --build ${CMAKE_BINARY_DIR} run stall
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(host.pump.stall PROPERTIES
+  LABELS "host;phase12"
+  TIMEOUT 60
+  COST 1.40
   FIXTURES_REQUIRED t64_host
   REQUIRED_FILES "${T64_HOST_TITLE_ROM}")

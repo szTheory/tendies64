@@ -364,7 +364,9 @@ installed.consumer.title
 installed.consumer.title-persist
 installed.consumer.title-refused
 host.pump.build
-host.pump.drain-order'
+host.pump.drain-order
+host.pump.clock
+host.pump.stall'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU
