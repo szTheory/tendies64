@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 12
 current_phase_name: Minimal Host, Playable Homebrew and Final Bind
 status: executing
-stopped_at: "Completed 12-10-PLAN.md (API-07 LibFuturo fit evaluation, repo.api07-evaluation, host-found API defect triage, 12-11 trigger: no; gate 351/351)"
-last_updated: "2026-11-26T22:05:04.324Z"
+stopped_at: Completed 12-12-PLAN.md
+last_updated: "2026-11-26T22:36:55.657Z"
 last_activity: 2026-11-26
-last_activity_desc: "Plan 12-10 complete (API-07 LibFuturo fit evaluation pinned to the local unpublished commit, repo.api07-evaluation, host-found API defect triage with 12-11 trigger: no)"
-state_head: 5a28fc05252f439a92df3ecf7a7dc3ee028acc14
+last_activity_desc: "Plan 12-12 complete (HOST review in a scratch clone with the full p12 mutant run, push de21fcf, hosted pair green, HOST ledger row, Bind base 49d41ac)"
+state_head: 0d0d4035c91a69cc9bb7c454a49bed95b7b73900
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 68
-  completed_plans: 60
+  completed_plans: 62
   percent: 67
 ---
 
@@ -30,10 +30,10 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 ## Current Position
 
 Phase: 12 (Minimal Host, Playable Homebrew and Final Bind) — EXECUTING
-Plan: 11 of 18
+Plan: 12 of 18
 Status: Ready to execute
-Last activity: 2026-11-26 — Plan 12-10 complete (API-07: written LibFuturo fit evaluation, its guard, host-found API defect triage; 12-11 trigger: no)
-Note: plan 12-10 is complete: `docs/evidence/phase12-libfuturo-fit.md` is the written API-07 evaluation, pinned to the local, unpublished LibFuturo commit of PIN-IMPACT "API-07 pin" (the pin did not move: 0 commits follow it, no remote), a ten-axis comparison read from committed objects only (3 compatible, 6 convertible with loss, 1 missing), five LibFuturo-side deltas and the conclusion "no adapter now" (any adapter optional and never shaping the core API; no adapter code, no core API change, no claim that LibFuturo support exists). `scripts/check-api07-evaluation.sh` (7 rules, 32-case selftest) is the gate name `repo.api07-evaluation` (COST 1.34); the full local gate passes 351/351 in 161 s (ctest 92 s). PIN-IMPACT "Host-found API defects" is closed at 15 rows (C-1 to C-6, H-01 to H-09): 13 accept, 2 document (C-1 done in 12-07; H-03 is one api.md 8.1 sentence that plan 12-15 must carry: a masked handler status consumes its event and the next advance continues), 0 amend; no row breaks a postcondition, so `12-11 trigger: no` and plan 12-11 closes with a one-line SUMMARY and no code. Evidence of note: a scratch probe showed that an advance with the frame-event stop and target 0 reads the guest tick without moving it (H-02, documented behavior). API-07 is complete; API-05 and API-06 stay pending (owner checklist, final audit). Next: plan 12-11 (the amendment slot, expected to close untriggered), then the HOST review 12-12 (first push of the unpublished commits). Earlier: plan 12-09 added the optional SDL3 shell and the local sdl lane; plan 12-08 gave two-speed equality of the title through the pump (DR-36); plan 12-07 built the pure-C pump (DR-35); plan 12-06 reviewed the TITLE wave and pushed `884153a`; Host base `0836e40f583f8b47486ee93b0de36889e5626f0b`.
+Last activity: 2026-11-26 — Plan 12-12 complete (HOST review, full p12 mutant run 12/12 killed, push de21fcf with hosted run 45904452436 green, Bind base 49d41ac)
+Note: plan 12-12 is complete: the HOST wave (12-07 to 12-11) was reviewed in the scratch clone `build/12-review/host/src` at `35a2736` (gate 351/351, 193 s; the first full `python3 -B scripts/p12-mutants.py --run`, which ran in the clone without a classifier denial: 12 KILLED, P12-C-EQUIV SURVIVED, P12-C-INVALID INVALID; checks (a) to (l) incl. an own reader of the two-speed pump lines, 0 digest differences and an SDL lane PASS); 0 blocking findings, warnings HR-04 and HR-06, info HR-01 to HR-03 and HR-05 (12-REVIEW.md "HOST"). Pushed `de21fcf7d5c30d8de59bde3d49143ab5dbb75faf` (fast-forward from 884153a, no tag); hosted run 45904452436 green: gate-macos 572 s (ctest 312 s), gate-linux 306 s (ctest 175 s), the 15 HOST names 45.60 s macOS and 23.91 s Linux on their first hosted run (F-138). Cold projections, not measurements: 762, 816 and 826 s; none above 900 s, margins of the additive ones 84 s and 74 s under the 120 s warning level: HR-04 recommends a new numbered gate-trim plan 12-19 (installed.consumer.title-persist and the two host selftests to a local lane), its order an orchestrator decision. HR-06: the 12-15 plan text lacks the H-03 sentence for api.md 8.1; the orchestrator adds it before 12-15. Bind base `49d41ac9e1966bd9cdb9e953b61d0355a1178554`. Next: plan 12-13. Earlier, plan 12-10 was complete: `docs/evidence/phase12-libfuturo-fit.md` is the written API-07 evaluation, pinned to the local, unpublished LibFuturo commit of PIN-IMPACT "API-07 pin" (the pin did not move: 0 commits follow it, no remote), a ten-axis comparison read from committed objects only (3 compatible, 6 convertible with loss, 1 missing), five LibFuturo-side deltas and the conclusion "no adapter now" (any adapter optional and never shaping the core API; no adapter code, no core API change, no claim that LibFuturo support exists). `scripts/check-api07-evaluation.sh` (7 rules, 32-case selftest) is the gate name `repo.api07-evaluation` (COST 1.34); the full local gate passes 351/351 in 161 s (ctest 92 s). PIN-IMPACT "Host-found API defects" is closed at 15 rows (C-1 to C-6, H-01 to H-09): 13 accept, 2 document (C-1 done in 12-07; H-03 is one api.md 8.1 sentence that plan 12-15 must carry: a masked handler status consumes its event and the next advance continues), 0 amend; no row breaks a postcondition, so `12-11 trigger: no` and plan 12-11 closes with a one-line SUMMARY and no code. Evidence of note: a scratch probe showed that an advance with the frame-event stop and target 0 reads the guest tick without moving it (H-02, documented behavior). API-07 is complete; API-05 and API-06 stay pending (owner checklist, final audit). Next: plan 12-11 (the amendment slot, expected to close untriggered), then the HOST review 12-12 (first push of the unpublished commits). Earlier: plan 12-09 added the optional SDL3 shell and the local sdl lane; plan 12-08 gave two-speed equality of the title through the pump (DR-36); plan 12-07 built the pure-C pump (DR-35); plan 12-06 reviewed the TITLE wave and pushed `884153a`; Host base `0836e40f583f8b47486ee93b0de36889e5626f0b`.
 
 Progress: [███████░░░] 67% (0 of 3 v1.2 phases complete)
 
@@ -121,6 +121,7 @@ Progress: [███████░░░] 67% (0 of 3 v1.2 phases complete)
 | Phase 12 P08 | 33 min | 4 tasks | 17 files |
 | Phase 12 P09 | 24 min | 3 tasks | 12 files |
 | Phase 12 P10 | 28 min | 3 tasks | 6 files |
+| Phase 12 P12 | 30min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -292,6 +293,7 @@ Progress: [███████░░░] 67% (0 of 3 v1.2 phases complete)
 - [Phase 12]: 12-09: SC2 virtual-joystick clause closed by a PASS of the local sdl lane (SDL 3.4.10, macOS 26.6.2, dummy drivers, 30 mapping rows, 8 title frames; self-checking host glue only); DR-19 fit test: the host-side save file does not fit and is omitted; API-05 stays pending for the owner checklist of 12-18
 - [Phase 12]: 12-10: API-07 evaluation pinned to the local unpublished LibFuturo commit concludes no adapter now (experimental contract with no binary ABI, input sampled once per advance, no profile for this machine); repo.api07-evaluation guards the pin, the conclusion, no support claim and no adapter code
 - [Phase 12]: 12-10: host-found API defect triage closed at 15 rows (13 accept, 2 document, 0 amend); 12-11 trigger: no; H-03 (api.md 8.1 sentence that a masked handler status consumes its event) is owed to 12-15; a guest-tick read exists through an advance with the frame-event stop and target 0 (H-02)
+- [Phase 12]: 12-12 HOST review: 0 blocking, warnings HR-04 (additive cold projections 816/826 s, margin under 120 s, none above 900 s; recommended gate-trim plan 12-19, order an orchestrator decision) and HR-06 (12-15 plan text lacks the H-03 api.md 8.1 sentence); full p12 mutant run 12/12 killed in the review clone; pushed de21fcf, hosted run 45904452436 green (gate-macos 572 s, gate-linux 306 s); Bind base 49d41ac9e1966bd9cdb9e953b61d0355a1178554
 
 ### Pending Todos
 
@@ -317,8 +319,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-26T22:05:03.839Z
-Stopped at: Completed 12-10-PLAN.md (API-07 LibFuturo fit evaluation, repo.api07-evaluation, host-found API defect triage, 12-11 trigger: no; gate 351/351)
+Last session: 2026-11-26T22:36:55.153Z
+Stopped at: Completed 12-12-PLAN.md
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
