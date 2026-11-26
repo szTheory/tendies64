@@ -15,11 +15,11 @@ Darwin|memcmp|libc block function; allowlist.txt
 Darwin|memcpy|libc block function; allowlist.txt
 Darwin|memset|libc block function; allowlist.txt
 #
-# Linux rows: copied from the act-image measurement of plan 11-16 Task 3 (PIN-IMPACT
-# "Install steps", "Linux undefined set (act image, object compile)": gcc 13.3.0,
-# 86 objects, x86_64 under emulation), not measured by this plan. They are NOT yet
-# confirmed by a hosted gate-linux run: the hosted run of plan 11-21 confirms or
-# refutes them, and a mismatch there is a finding for a new numbered plan.
+# Linux rows: first taken from the act-image measurement of plan 11-16 Task 3
+# (PIN-IMPACT "Install steps", "Linux undefined set (act image, object compile)":
+# gcc 13.3.0, 86 objects, x86_64 under emulation). They are CONFIRMED by a hosted
+# gate-linux measurement: api04.members passed in hosted run 45775107983 (plan
+# 11-21), and its two-way comparison fails on any difference from these rows.
 Linux|_GLOBAL_OFFSET_TABLE_|linker-defined address symbol of position-independent objects; allowlist-installed.txt (Linux only)
 Linux|__stack_chk_fail|stack protector (Ubuntu default); allowlist-installed.txt
 Linux|memcmp|libc block function; allowlist.txt

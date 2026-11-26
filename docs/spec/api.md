@@ -1,8 +1,8 @@
 # C API contract of the installed library
 
-Status: 0.x freeze candidate. The Phase 11 freeze record binds it (plan 11-23),
-and only defect-driven amendments with evidence may change it before the final
-bind at the end of Phase 12 (section 14). This document is not a release
+Status: 0.x freeze candidate. The Phase 11 freeze record
+(`docs/abi/FREEZE-CANDIDATE.md`) binds it, and only defect-driven amendments with
+evidence may change it before the final bind at the end of Phase 12 (section 14). This document is not a release
 statement: no tag, package channel or version promise is made, and installing
 the package is a local act.
 
@@ -721,19 +721,23 @@ recomputes them:
 
 | Golden | Path |
 | --- | --- |
-| installed header hash (SHA-256 of the installed header with LF line endings) | written by plan 11-23 |
+| installed header hash (SHA-256 of every installed header with LF line endings) | `docs/abi/header.sha256` |
 | public symbol list | `docs/abi/public-symbols.txt` |
 | struct-layout table | `docs/abi/layout.c` |
 | status-class table | `docs/abi/status-classes.txt` |
 
-The freeze record that recomputes the four from the installed tree and fails
-when any differs is added by plan 11-23 (`repo.abi-freeze-record`); until that
-record exists the goldens are re-bindable by any plan, and this document gains
-its pointer to the record there. The goldens are regenerated, never edited by
-hand, where a generator exists: `python3 -B scripts/check-abi.py layout --write
-docs/abi/layout.c` and `python3 -B scripts/check-abi.py symbols --write
-docs/abi/public-symbols.txt --lib <archive>`; the class table is edited by hand
-and checked by `repo.abi-status-classes`.
+The freeze record, `docs/abi/FREEZE-CANDIDATE.md`, binds the four: its
+machine-read block holds each golden's own SHA-256, the ABI and package versions,
+the counts and the padding holes, and `repo.abi-freeze-record` recomputes all of
+them from the installed tree and fails on any difference (the seeded incompatible
+changes of `repo.abi-freeze-selftest` show it failing on each). The goldens are
+regenerated, never edited by hand, where a generator exists: `python3 -B
+scripts/check-abi.py layout --write docs/abi/layout.c` and `python3 -B
+scripts/check-abi.py symbols --write docs/abi/public-symbols.txt --lib
+<archive>`; the class table is edited by hand and checked by
+`repo.abi-status-classes`; `header.sha256` and the block are written by
+`python3 -B scripts/check-abi.py freeze --write` (the record gives the full
+re-bind procedure).
 
 From the record until the final bind, a change to a golden is an amendment and
 only a defect-driven one: it needs evidence of the defect, a re-run of the
@@ -780,6 +784,7 @@ a Phase 12 final-bind question, not a hidden behavior.
 | --- | --- |
 | classes, the single table, the header compiles alone | `repo.abi-header`, `repo.abi-status-classes`, `repo.abi-selftest`, `install.abi-header` |
 | layout and constants | `repo.abi-layout`, `install.abi-layout` |
+| the bound freeze-candidate record and its seeded incompatible changes | `repo.abi-freeze-record`, `repo.abi-freeze-selftest` |
 | public symbols, the `t64i_` prefix, API-04 | `install.abi-symbols`, `repo.abi-prefix`, `api04.members`, `api04.disasm`, `api04.headers`, `api04.seeded`, `installed.controls.symbol-collision` |
 | ABI version, handshake, `struct_size` | `unit.core.api.abi-version`, `unit.core.api.handshake`, `unit.core.api.struct-size`, `installed.consumer.ops-handshake`, `installed.consumer.ops-struct-size` |
 | poison, reentrancy, NULL machine, refusals never poison, defect sites | `unit.core.api.poison`, `unit.core.api.reentrant`, `unit.core.api.null-machine`, `unit.core.api.refusals-never-poison`, `unit.core.api.defect-sites`, `installed.consumer.ops-poison-query` |
