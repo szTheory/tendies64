@@ -30,6 +30,18 @@ bytes must be one of these raw dump signatures:
 | Byte swapped | `37 80 40 12` | Big endian |
 | 32-bit word reversed | `40 12 37 80` | Big endian |
 
+The table holds for a profile whose `rom_order_policy` is
+`all-known-orders-to-big-endian-v1`, which is the skeleton profile
+`ntsc-cart-4m-skeleton`. Every pinned Open IPL3 profile (every other shipped
+profile; its `rom_order_policy` text starts with
+`exact-source-or-flat-payload-z64`) narrows admission: after the length and
+input interval checks it accepts only the exact pinned 4096-byte source asset
+or an authored big-endian z64 cartridge (first bytes `80 37 12 40`) that
+passes the payload, header and size checks recorded in `boot-limits.md`, and
+it refuses every other input with `T64_STATUS_INVALID_ROM`. That includes the
+byte-swapped and word-reversed orders above, which such a profile does not
+convert. `T64_STATUS_UNSUPPORTED_ROM_ORDER` is never returned.
+
 The core validates the length and checked input address interval before it
 reads a signature or requests candidate storage. It checks the input interval
 against the live machine and admitted image before reading the input. The
@@ -278,9 +290,17 @@ below the current tick is refused without changing machine state. A counter
 stop below its cumulative counter is likewise refused; an equal counter
 returns immediately without dispatch. For a larger counter target, dispatch
 stops as soon as the selected cumulative instruction or frame-event counter
-reaches the target, leaving later events at that same tick queued. These
-counters are driven only by explicitly labeled synthetic test events in this
-slice; they are not evidence of CPU execution or video frames.
+reaches the target, leaving later events at that same tick queued. The
+instruction counter is advanced by CPU retirement (one per retired
+instruction) and by synthetic test events inside the core's own tests. The
+frame-event counter is advanced only by a synthetic test event that no public
+entry can schedule, so it keeps its value from create or reset (zero) or from a
+state import, and it is not a count of video frames. Through the public API a
+frame-event target above the counter therefore never ends an advance with
+`T64_STOP_REASON_FRAME_EVENT_COUNT`: dispatch continues until another reason
+(halt, quiescent, resource limit, CPU stop) ends it. A frame-event target equal
+to the counter returns at once with that reason unless a halt or CPU stop is
+already present.
 
 A halt already present wins before dispatch. A halt event dispatched at an
 inclusive time bound wins over the bound result. If the event queue empties

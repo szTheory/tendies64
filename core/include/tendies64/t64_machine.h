@@ -196,6 +196,14 @@
 #define T64_SAVE_FORMAT_WORDREV32 UINT32_C(3)
 #define T64_PERIPHERAL_STANDARD_CONTROLLER_PORT0 UINT32_C(1)
 
+/* Kinds of t64_stop_request. The instruction counter is advanced by CPU
+ * retirement. The frame-event counter is advanced only by events that no
+ * public entry can schedule, so it keeps its value from create or reset (zero)
+ * or from a state import; it does not count video frames. Through this API a
+ * T64_STOP_FRAME_EVENT_COUNT target above that counter never ends an advance
+ * with T64_STOP_REASON_FRAME_EVENT_COUNT (another stop reason ends it), and a
+ * target equal to the counter returns at once with that reason unless a halt
+ * or CPU stop is already present. */
 #define T64_STOP_GUEST_TICK UINT32_C(1)
 #define T64_STOP_INSTRUCTION_COUNT UINT32_C(2)
 #define T64_STOP_FRAME_EVENT_COUNT UINT32_C(3)
@@ -526,7 +534,11 @@ typedef struct {
 
 #define T64_AUDIO_ENCODING_S16BE UINT32_C(1)
 
-/* The returned descriptor is immutable and remains valid for program life. */
+/* The returned descriptor is immutable and remains valid for program life.
+ * The call takes no machine. A NULL profile_out is refused with
+ * T64_STATUS_INVALID_ARGUMENT and nothing is written. Any other refusal (a
+ * NULL or empty profile_id, T64_STATUS_INVALID_ARGUMENT, or an unknown id,
+ * T64_STATUS_UNKNOWN_PROFILE) writes NULL to *profile_out. */
 T64_API t64_status t64_profile_lookup(const char *profile_id,
                                       const t64_profile_descriptor **profile_out);
 T64_API t64_status t64_profile_hash(const t64_profile_descriptor *profile,
