@@ -262,9 +262,10 @@ PYEOF
 }
 
 # guards: the Phase 11 guards that exist so far, each with the arguments its
-# CTest registration uses (check-api-init.py is registered with
-# --exclude-oracle-bound until plan 11-16 removes the flag; before it is
-# registered that is the flag used here). An absent script is listed, not run.
+# CTest registration uses (check-api-init.py was registered with
+# --exclude-oracle-bound until plan 11-16 removed the flag, so it now scans the
+# nine bound files too and its default here is no argument). An absent script
+# is listed, not run.
 run_guard() {
   _pf_gname=$1
   _pf_gruncmd=$2
@@ -288,7 +289,7 @@ run_guard() {
 }
 
 check_guards() {
-  run_guard check-api-init.py "python3 -B" repo.api-init-guard --exclude-oracle-bound || return 1
+  run_guard check-api-init.py "python3 -B" repo.api-init-guard "" || return 1
   run_guard check-consumer-includes.sh "sh" repo.consumer-include-guard "" || return 1
   run_guard check-stale-freeze-text.sh "sh" repo.stale-freeze-text "" || return 1
   return 0
