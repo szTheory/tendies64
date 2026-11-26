@@ -68,3 +68,45 @@ set_tests_properties(host.pump.stall PROPERTIES
   COST 1.40
   FIXTURES_REQUIRED t64_host
   REQUIRED_FILES "${T64_HOST_TITLE_ROM}")
+
+# repo.host-include-guard (plan 12-07, T-12-22, decision DR-16): the pump and its tests
+# below host/ include only <tendies64/t64_machine.h>, C99 headers and local headers
+# (rule HOST-INCLUDE), no SDL3 include or SDL_ identifier outside host/sdl (rules
+# HOST-SDL-INCLUDE and HOST-SDL-IDENT), no <time.h> in the pump (HOST-PUMP-TIME), and the
+# host CMake files name no source-tree path (HOST-CMAKE). Script-only, no fixture.
+add_test(NAME repo.host-include-guard
+  COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/check-host-includes.sh
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(repo.host-include-guard PROPERTIES
+  LABELS "repo;phase12"
+  TIMEOUT 30
+  COST 0.05)
+
+# repo.host-include-guard-selftest: seeded copies of the committed host (an internal
+# header, another tendies64 header, a relative include out of host/, an SDL3 include and
+# an SDL_ identifier in the pump and its tests, <time.h> in the pump, source-tree paths in
+# the CMake file), the clean controls and the empty-scan error must be reported or
+# accepted exactly as seeded, one rule id each.
+add_test(NAME repo.host-include-guard-selftest
+  COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/check-host-includes.sh --selftest
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(repo.host-include-guard-selftest PROPERTIES
+  LABELS "repo;phase12"
+  TIMEOUT 60
+  COST 1.15)
+
+# repo.host-isolation (plan 12-07, SC3, T-12-23, decision DR-16): the core, runner, tools,
+# tests and the root CMakeLists.txt hold no SDL3 package, target, include or identifier
+# (the tokens are listed in scripts/check-host-isolation.sh, which this file must not
+# repeat), the root CMakeLists.txt names no host path, the core archive of this build tree
+# (the file that cmake --install copies) and the installed copy hold no SDL symbol, and
+# docs/abi/installed-undefined.txt names none. --with-selftest runs the seeded trees and
+# archives first.
+add_test(NAME repo.host-isolation
+  COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/check-host-isolation.sh
+          --build ${CMAKE_BINARY_DIR} --with-selftest
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(repo.host-isolation PROPERTIES
+  LABELS "repo;phase12"
+  TIMEOUT 60
+  COST 1.30)

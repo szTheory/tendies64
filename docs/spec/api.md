@@ -437,6 +437,13 @@ depend on when or how often the host drains the rings
 Each advance dispatches at most the profile's event budget, so a call does a
 bounded amount of work.
 
+The guest tick of the profiles that model the VI and the AI runs at 62,500,000
+ticks per second, which is one tick per 16 ns of host time, a host policy value
+that the core never reads (no entry takes or reports it and a profile names the
+rate only inside its VI and AI policy strings), so a host that paces guest time
+against its own monotonic clock bounds `t64_machine_advance` at the elapsed
+nanoseconds divided by 16.
+
 ## 9. Output: rings, text capture, trace and pacing
 
 ### 9.1 Video and audio rings

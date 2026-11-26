@@ -40,9 +40,11 @@ Usage:
   python3 -B scripts/check-api-init.py --list-cases | --case NAME | --selftest
 
 PATH is a file or a directory (every *.c and *.h below it), relative to the
-root; the default is core/tests runner tests tests/installed-consumer tools
+root; the default is core/tests runner tests tests/installed-consumer tools host
 (the consumer root is named although tests already covers it, so that every
-consumer of the installed header stays scanned if the roots are ever narrowed).
+consumer of the installed header stays scanned if the roots are ever narrowed;
+host is the minimal host of plan 12-07, the second consumer of the installed
+header: host/pump, host/tests and, from plan 12-09, host/sdl).
 --exclude-oracle-bound skips every path of EXPECTED_CORPUS_PATHS of
 scripts/check-rdp-oracle-authority.py (read with ast, never imported): those
 files carried the old forms until the isolated bound-file commit of plan 11-14;
@@ -67,7 +69,7 @@ import tempfile
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 HEADER = "core/include/tendies64/t64_machine.h"
 ORACLE_CHECKER = "scripts/check-rdp-oracle-authority.py"
-DEFAULT_PATHS = ("core/tests", "runner", "tests", "tests/installed-consumer", "tools")
+DEFAULT_PATHS = ("core/tests", "runner", "tests", "tests/installed-consumer", "tools", "host")
 SUFFIXES = (".c", ".h")
 
 # Files that are never scanned, with the reason (a file outside the scanned
@@ -725,6 +727,17 @@ case("installed-consumer-init-clean",
          "  t64_stop_request r = T64_STOP_REQUEST_INIT(1u, 2u);\n"
          "  t64_host_allocator a = T64_HOST_ALLOCATOR_INIT(f, g, NULL);\n"
          "  (void)r;\n  (void)a;\n  (void)machine;")},
+     expect_clean=True)
+case("host-pump-uninit",
+     {"host/pump/seed.c": seed_function(
+         "  t64_stop_request r;\n  r.kind = 1u;\n  (void)r;\n  (void)machine;")},
+     expect_rules=[UNINIT])
+case("host-init-clean",
+     {"host/tests/seed.c": seed_function(
+         "  t64_stop_result s = T64_STOP_RESULT_INIT;\n"
+         "  t64_output_status o = T64_OUTPUT_STATUS_INIT;\n"
+         "  use(machine, &(t64_stop_request)T64_STOP_REQUEST_INIT(1u, 2u), &s);\n"
+         "  (void)o;")},
      expect_clean=True)
 case("digest-sweep-excluded",
      {"tools/digest-sweep/t64_digest_sweep.c": seed_function(

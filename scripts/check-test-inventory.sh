@@ -366,7 +366,10 @@ installed.consumer.title-refused
 host.pump.build
 host.pump.drain-order
 host.pump.clock
-host.pump.stall'
+host.pump.stall
+repo.host-include-guard
+repo.host-include-guard-selftest
+repo.host-isolation'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU
