@@ -21,8 +21,9 @@
 #define T64C_MAX_SLOTS 1024u
 
 typedef struct {
-  void *data; /* the aligned block the library sees */
-  void *raw;  /* what malloc returned, for free */
+  void *data;  /* the aligned block the library sees */
+  void *raw;   /* what malloc returned, for free */
+  size_t size; /* the size the library asked for (the sequence harness scans it) */
   bool active;
 } t64c_slot;
 
@@ -74,6 +75,7 @@ static inline bool t64c_allocate(void *context, size_t size, size_t alignment,
                     host_alignment);
   ledger->slots[ledger->slot_count].data = memory;
   ledger->slots[ledger->slot_count].raw = raw;
+  ledger->slots[ledger->slot_count].size = size;
   ledger->slots[ledger->slot_count].active = true;
   ledger->slot_count++;
   ledger->allocations++;

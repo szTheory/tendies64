@@ -324,6 +324,7 @@ installed.consumer.hostloop
 installed.consumer.hostloop-cadence
 installed.consumer.hostloop-delay
 installed.consumer.two-instance
+installed.consumer.sequence
 installed.controls.missing-package
 installed.controls.version-mismatch-minor
 installed.controls.version-mismatch-patch

@@ -10,7 +10,9 @@
  * Options (the cases of tests/installed-consumer/cases.txt): --rom PATH is the
  * authored composite ROM of the build tree, --print writes machine-readable
  * "print KEY VALUE" lines, --out DIR writes the run's outputs as files, --slice
- * N sets the ticks per advance of a run.
+ * N sets the ticks per advance of a run, --steps N and --digest-stride N size
+ * the call-sequence generator (case sequence); --seed-fault N (1 to 3) makes the
+ * generator inject one fault of its own so that its checks are seen to fail.
  *
  * Exit status: 0 the case passed, 1 a check failed or ran no check, 2 usage.
  */
@@ -68,7 +70,7 @@ static bool parse_u64(const char *text, uint64_t *value_out) {
 }
 
 int main(int argc, char **argv) {
-  t64c_args args = {NULL, false, NULL, 0u};
+  t64c_args args = {NULL, false, NULL, 0u, 0u, 0u, 0u};
   const char *name = NULL;
   int i;
   size_t k;
@@ -79,6 +81,7 @@ int main(int argc, char **argv) {
     }
     t64c_ops_list();
     t64c_hostloop_list();
+    t64c_sequence_list();
     return 0;
   }
   if (argc >= 3 && strcmp(argv[1], "--case") == 0) {
@@ -93,6 +96,21 @@ int main(int argc, char **argv) {
       } else if (strcmp(argv[i], "--slice") == 0 && i + 1 < argc) {
         if (!parse_u64(argv[++i], &args.slice)) {
           (void)fprintf(stderr, "t64c: --slice needs a decimal number\n");
+          return 2;
+        }
+      } else if (strcmp(argv[i], "--steps") == 0 && i + 1 < argc) {
+        if (!parse_u64(argv[++i], &args.steps)) {
+          (void)fprintf(stderr, "t64c: --steps needs a decimal number\n");
+          return 2;
+        }
+      } else if (strcmp(argv[i], "--digest-stride") == 0 && i + 1 < argc) {
+        if (!parse_u64(argv[++i], &args.digest_stride)) {
+          (void)fprintf(stderr, "t64c: --digest-stride needs a decimal number\n");
+          return 2;
+        }
+      } else if (strcmp(argv[i], "--seed-fault") == 0 && i + 1 < argc) {
+        if (!parse_u64(argv[++i], &args.seed_fault)) {
+          (void)fprintf(stderr, "t64c: --seed-fault needs a decimal number\n");
           return 2;
         }
       } else {
@@ -111,11 +129,14 @@ int main(int argc, char **argv) {
     if (t64c_hostloop_known(name)) {
       return t64c_finish(t64c_hostloop_run(name, &args));
     }
+    if (t64c_sequence_known(name)) {
+      return t64c_finish(t64c_sequence_run(name, &args));
+    }
     (void)fprintf(stderr, "t64c: unknown case: %s\n", name);
     return 2;
   }
   (void)fprintf(stderr,
                 "usage: t64c --list-cases | --case NAME [--rom PATH] [--print] "
-                "[--out DIR] [--slice N]\n");
+                "[--out DIR] [--slice N] [--steps N] [--digest-stride N] [--seed-fault N]\n");
   return 2;
 }

@@ -22,6 +22,10 @@ typedef struct {
   bool print;           /* --print: machine-readable values on stdout */
   const char *out_dir;  /* --out DIR: write the run's outputs as files */
   uint64_t slice;       /* --slice N: ticks per advance (0 selects the default) */
+  uint64_t steps;       /* --steps N: calls of the sequence generator (0: the default) */
+  uint64_t digest_stride; /* --digest-stride N: verify the machine digest of every Nth
+                           * refusal burst (0: the default of the case, 1: every burst) */
+  uint64_t seed_fault;  /* --seed-fault N: the self-test of the sequence generator (1 to 3) */
 } t64c_args;
 
 #define T64C_PROFILE_ID "ntsc-cart-4m-openipl3-rdram-b-t1-si-v2-s32k"
@@ -106,6 +110,11 @@ int t64c_ops_run(const char *name, const t64c_args *args);
 bool t64c_hostloop_known(const char *name);
 void t64c_hostloop_list(void);
 int t64c_hostloop_run(const char *name, const t64c_args *args);
+
+/* The call-sequence generator (sequence.c, plan 11-20): the case name is `sequence`. */
+bool t64c_sequence_known(const char *name);
+void t64c_sequence_list(void);
+int t64c_sequence_run(const char *name, const t64c_args *args);
 
 /* The collision variant (collision.c, linked only into t64c_collision): print the
  * call counters of the host's own f32_add and t64_sha256_init, and return status or

@@ -31,3 +31,4 @@ hostloop
 hostloop-cadence
 hostloop-delay
 two-instance
+sequence

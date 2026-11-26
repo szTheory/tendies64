@@ -20,11 +20,15 @@ set_tests_properties(repo.abi-header PROPERTIES
 # repo.abi-status-classes: every T64_STATUS_* and T64_STOP_REASON_* of the
 # header has exactly one row in docs/abi/status-classes.txt with the header's
 # value and a class from the closed set; an unclassified, duplicated,
-# renumbered or orphan constant fails it.
+# renumbered or orphan constant fails it. Since plan 11-20 it also compares the
+# hand-written copy of the table that the installed consumer classifies with
+# (tests/installed-consumer/t64c_classes.h) with the table: a missing, extra or
+# changed class or resume row fails it.
 add_test(NAME repo.abi-status-classes
   COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/check-abi.py classes
           --header ${CMAKE_SOURCE_DIR}/core/include/tendies64/t64_machine.h
           --table ${CMAKE_SOURCE_DIR}/docs/abi/status-classes.txt
+          --consumer-table ${CMAKE_SOURCE_DIR}/tests/installed-consumer/t64c_classes.h
   WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 set_tests_properties(repo.abi-status-classes PROPERTIES
   LABELS "repo;phase11"
@@ -392,6 +396,7 @@ set(T64_CONSUMER_COST_hostloop 0.21)
 set(T64_CONSUMER_COST_hostloop-cadence 0.46)
 set(T64_CONSUMER_COST_hostloop-delay 0.66)
 set(T64_CONSUMER_COST_two-instance 0.30)
+set(T64_CONSUMER_COST_sequence 1.10)
 foreach(T64_CONSUMER_CASE IN LISTS T64_CONSUMER_CASES)
   if(T64_CONSUMER_CASE STREQUAL "smoke")
     continue()

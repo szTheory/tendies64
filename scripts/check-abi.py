@@ -5,10 +5,14 @@ Modes:
   header   --include DIR [--header NAME]...
            compile each named public header alone, as C99 and as C++17, with
            the pedantic warning set and -Werror (CTest repo.abi-header).
-  classes  --header FILE --table FILE
+  classes  --header FILE --table FILE [--consumer-table FILE]
            every T64_STATUS_* and T64_STOP_REASON_* constant of the header
            has exactly one row in the status-class table, with the same value
            and a class from a closed set (CTest repo.abi-status-classes).
+           --consumer-table names the hand-written copy of the table of the
+           installed consumer (tests/installed-consumer/t64c_classes.h, plan
+           11-20): it must have one row per row of the table, with the same
+           class and resume, and no row of its own.
   layout   --write FILE [--include DIR] | --check FILE [--include DIR]
            the generated pins of docs/abi/layout.c: sizeof of every public
            struct, offsetof of every member, the value of every integer
@@ -191,13 +195,66 @@ def check_classes(header_text, table_text):
     return constants, rows, findings
 
 
+# One row of the consumer's X-macro table: X(NAME, T64C_CLASS_x, T64C_RESUME_y).
+CONSUMER_ROW_RE = re.compile(
+    r"\bX\(\s*(T64_(?:STATUS|STOP_REASON)_\w+)\s*,\s*T64C_CLASS_(\w+)\s*,"
+    r"\s*T64C_RESUME_(\w+)\s*\)")
+CONSUMER_CLASSES = {"OK": "ok", "REFUSED": "refused", "GUEST_STOP": "guest-stop",
+                    "DEFECT": "defect", "RESERVED": "reserved"}
+CONSUMER_RESUMES = {"NA": "n/a", "RESUMABLE": "resumable", "TERMINAL": "terminal"}
+
+
+def parse_consumer_rows(text):
+    """Return ({name: (class, resume)}, findings) of the consumer's X-macro rows."""
+    text = re.sub(r"/\*.*?\*/", " ", text, flags=re.DOTALL)
+    text = text.replace("\\\n", " ")
+    rows = {}
+    findings = []
+    for name, class_name, resume in CONSUMER_ROW_RE.findall(text):
+        if name in rows:
+            findings.append(f"consumer-duplicate: {name}")
+            continue
+        if class_name not in CONSUMER_CLASSES:
+            findings.append(f"consumer-unknown-class: {name} {class_name}")
+            continue
+        if resume not in CONSUMER_RESUMES:
+            findings.append(f"consumer-unknown-resume: {name} {resume}")
+            continue
+        rows[name] = (CONSUMER_CLASSES[class_name], CONSUMER_RESUMES[resume])
+    return rows, findings
+
+
+def check_consumer_table(rows, consumer_text):
+    """Findings of the consumer's copy against the table rows (value, class, resume)."""
+    consumer_rows, findings = parse_consumer_rows(consumer_text)
+    for name, (_value, class_name, resume) in rows.items():
+        if name not in consumer_rows:
+            findings.append(f"consumer-missing: {name} has no row in the consumer table")
+            continue
+        seen_class, seen_resume = consumer_rows[name]
+        if seen_class != class_name:
+            findings.append(f"consumer-class: {name} consumer={seen_class} table={class_name}")
+        if seen_resume != resume:
+            findings.append(f"consumer-resume: {name} consumer={seen_resume} table={resume}")
+    for name in consumer_rows:
+        if name not in rows:
+            findings.append(f"consumer-orphan: {name} is no row of the table")
+    return len(consumer_rows), findings
+
+
 def run_classes(args):
     header_text = read_text(args.header, "header")
     table_text = read_text(args.table, "table")
     constants, rows, findings = check_classes(header_text, table_text)
+    consumer = ""
+    if args.consumer_table is not None:
+        consumer_count, consumer_findings = check_consumer_table(
+            rows, read_text(args.consumer_table, "consumer table"))
+        findings.extend(consumer_findings)
+        consumer = f" consumer_rows={consumer_count}"
     for finding in findings:
         print(finding)
-    print(f"check-abi: classes constants={len(constants)} rows={len(rows)} "
+    print(f"check-abi: classes constants={len(constants)} rows={len(rows)}{consumer} "
           f"findings={len(findings)}")
     return 1 if findings else 0
 
@@ -208,6 +265,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 SCRIPT = pathlib.Path(__file__).resolve()
 REAL_HEADER = ROOT / "core" / "include" / "tendies64" / "t64_machine.h"
 REAL_TABLE = ROOT / "docs" / "abi" / "status-classes.txt"
+REAL_CONSUMER_TABLE = ROOT / "tests" / "installed-consumer" / "t64c_classes.h"
 REAL_LAYOUT = ROOT / "docs" / "abi" / "layout.c"
 REAL_SYMBOLS = ROOT / "docs" / "abi" / "public-symbols.txt"
 DEFAULT_INCLUDE = ROOT / "core" / "include"
@@ -821,8 +879,51 @@ def case_abspaths_controls():
         shutil.rmtree(scratch, ignore_errors=True)
 
 
+def case_consumer_table_controls():
+    """The consumer's copy against the table: one clean run, six seeded breakages."""
+    try:
+        header_text = REAL_HEADER.read_text(encoding="utf-8")
+        table_text = REAL_TABLE.read_text(encoding="utf-8")
+        consumer_text = REAL_CONSUMER_TABLE.read_text(encoding="utf-8")
+    except OSError as error:
+        return f"cannot read the committed inputs: {error}"
+    constants, rows, header_findings = check_classes(header_text, table_text)
+    if header_findings:
+        return f"the committed header and table are not clean: {header_findings[:2]}"
+    count, clean = check_consumer_table(rows, consumer_text)
+    if clean or count != len(constants):
+        return f"the clean control reported {clean[:2]} with {count} rows of {len(constants)}"
+    seeds = (
+        ("consumer-missing: T64_STATUS_BUS_RANGE",
+         seed_drop_line(consumer_text, "  X(T64_STATUS_BUS_RANGE,")),
+        ("consumer-missing: T64_STOP_REASON_QUIESCENT",
+         seed_drop_line(consumer_text, "  X(T64_STOP_REASON_QUIESCENT,")),
+        ("consumer-class: T64_STATUS_OK consumer=refused table=ok",
+         seed_replace(consumer_text, "X(T64_STATUS_OK, T64C_CLASS_OK,",
+                      "X(T64_STATUS_OK, T64C_CLASS_REFUSED,")),
+        ("consumer-resume: T64_STATUS_SEQUENCE_EXHAUSTED consumer=n/a table=terminal",
+         seed_replace(consumer_text,
+                      "X(T64_STATUS_SEQUENCE_EXHAUSTED, T64C_CLASS_REFUSED, T64C_RESUME_TERMINAL)",
+                      "X(T64_STATUS_SEQUENCE_EXHAUSTED, T64C_CLASS_REFUSED, T64C_RESUME_NA)")),
+        ("consumer-orphan: T64_STATUS_GHOST",
+         seed_replace(consumer_text, "  X(T64_STATUS_OK, T64C_CLASS_OK, T64C_RESUME_NA) ",
+                      "  X(T64_STATUS_GHOST, T64C_CLASS_REFUSED, T64C_RESUME_NA)\\\n"
+                      "  X(T64_STATUS_OK, T64C_CLASS_OK, T64C_RESUME_NA) ")),
+        ("consumer-duplicate: T64_STATUS_BUS_RANGE",
+         seed_duplicate_line(consumer_text, "  X(T64_STATUS_BUS_RANGE,")),
+    )
+    for wanted, text in seeds:
+        problem = lacks(check_consumer_table(rows, text)[1], wanted)
+        if problem is not None:
+            return f"seed {wanted!r}: {problem}"
+    return None
+
+
 # name -> (what is seeded, runner returning a problem text or None)
 EXTRA_CASES = {
+    "consumer-table-controls": (
+        "the consumer's class table: a missing, changed, orphan and duplicate row",
+        case_consumer_table_controls),
     "layout-offset-edited": (
         "an offset of the layout file edited", case_layout_offset_edited),
     "layout-header-drift": (
@@ -880,6 +981,8 @@ def build_parser():
                          help="the public header with the T64_STATUS_* defines")
     classes.add_argument("--table", required=True, metavar="FILE",
                          help="the status-class table")
+    classes.add_argument("--consumer-table", metavar="FILE",
+                         help="the consumer's own copy of the table (t64c_classes.h)")
     classes.set_defaults(run=run_classes)
     layout = modes.add_parser(
         "layout", help="write or check the generated layout pins")
