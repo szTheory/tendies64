@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 11
 current_phase_name: Installed Consumer and Freeze Candidate
 status: executing
-stopped_at: Completed 11-13-PLAN.md
-last_updated: "2026-11-26T00:57:32.837Z"
+stopped_at: Completed 11-14-PLAN.md
+last_updated: "2026-11-26T01:20:06.773Z"
 last_activity: 2026-11-25
 last_activity_desc: Phase 11 execution started
-state_head: 63c8e3cf3c14ab7d3bccd18b9a16c22671b5c88d
+state_head: 519f8f4abfe5ca5e332d3b6a982ee673713f626c
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 46
-  completed_plans: 34
+  completed_plans: 35
   percent: 33
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 ## Current Position
 
 Phase: 11 (Installed Consumer and Freeze Candidate) — EXECUTING
-Plan: 14 of 25
+Plan: 15 of 25
 Status: Ready to execute
 Last activity: 2026-11-25 — Phase 11 execution started
 
@@ -94,6 +94,7 @@ Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 | Phase 11 P11 | 32 min | 4 tasks | 36 files |
 | Phase 11 P12 | 40 min | 3 tasks | 79 files |
 | Phase 11 P13 | 31 min | 3 tasks | 16 files |
+| Phase 11 P11-14 | 22 min | 2 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -227,6 +228,7 @@ Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 - [Phase 11]: Plan 11-12: t64_machine_create refuses host storage overlapping the create-info (BAD_STORAGE); entries that build results in a local write the caller's struct_size back unchanged
 - [Phase 11]: Plan 11-13: every in/out entry refuses a struct_size below its v1 size with STRUCT_TOO_SMALL after the struct span check and before the admission and state checks (the span is judged first so a wrapping or machine-aliasing pointer is still INVALID_ARGUMENT and is never read); copy-out entries build a zeroed local record and copy the bytes after struct_size through the static inline t64_internal_copy_out, so the callee never writes struct_size (t64_video_info and t64_audio_info used to clear or set it); t64_machine_state_import refuses a short report before the blob is read and never writes it, a NULL report is still accepted
 - [Phase 11]: Plan 11-13: the prologues were proven in the marked scratch clone with the unchanged 11-12 bound patch and the pending no-HLE digest refresh before the commit (273 of 273 outside the two identity-block names, authority checker exit 2, sweep 0 differences); the two sealed observers t64_video_info and t64_audio_info were re-pinned in the isolated commit 96d3323; the DEV-11-01 window stays open and nothing is pushed
+- [Phase 11]: 11-14: bound commit e66625a closed DEV-11-01; PINNED_REQUEST_SHA256 e131cbe7... to 75f2b651... identity-only, local_decision blocked; a gate run that redirects its output must write outside the clone tree (PII scan reads untracked files)
 
 ### Pending Todos
 
@@ -252,8 +254,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-26T00:57:32.698Z
-Stopped at: Completed 11-13-PLAN.md
+Last session: 2026-11-26T01:20:03.189Z
+Stopped at: Completed 11-14-PLAN.md
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
