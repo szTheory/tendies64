@@ -411,3 +411,48 @@ run (the long run's exported save imported into a fresh instance) and a slot ima
 TS-12 layout equal to `title.expected.json`, and every packet of the refused-frame ROM equal to
 the blank digest with no audio, no transcript, a blank save and no completion by tick 5,000,000.
 No expected value was taken from the probe; the probe is not committed.
+
+Measured by plan 12-04 (the real supervised runner at the plan's head, `gate` preset; observations
+of the authored software profile, not a hardware, timing or accuracy claim). The runner table gained
+two rows (`runner/t64_real_fixture.c`, the only production runner edit; the runner build identity
+moves with it): `phase12-title-s32k` (ROM SHA-256 and size of the manifest row, completion PC
+`0x80000820`, pass-eligible, tick cap `T64_REAL_GUEST_TICKS_LONG_CAP`, transcript pin of the short
+expectation: 20 bytes, SHA-256 `e2af326a06abfd43ea5c68336d89b64cbac44107de684f35c0b0b468b228671d`)
+and `phase12-title-refused-s32k` (never pass-eligible, so no transcript pin, as the table control
+requires). One raw-capture run of the short scenario with `--capture-out` (`runner.title-two-run`,
+native 0.61 to 0.62 s) completes at guest tick 3,693,938 (stop `authored-completion`, below the
+4,000,000 cap) with 3 video packets of 49,152 bytes (stride 512; last ticks 1,589,371, 2,632,079 and
+3,674,788), 2 audio packets of 2,048 bytes and the 20-byte transcript; every frame digest, both
+audio packet digests and the transcript equal `title.expected.json` ("checkpoint N equal" lines in
+the log) and no result is "runner-signalled". The four runner-recorded pins (completion tick, stop
+reason `GUEST_COMPLETION`, final state digest `57b683dff8b9d387d1ec813dff58aef223e561975755eec3006242a106991ae7`,
+3 video packets) are in `fixtures/title/title.runner-pins.json`, labeled "runner-recorded pin, not
+independent"; no frame, audio, save or transcript value comes from a runner run. The wrong-input
+control (`controls.real.title-wrong-input`, the short-wrong script judged against the short
+expectation) passes the run like the accepted run, the frame comparator fails at checkpoint 2
+(expected `548e2016...`, actual `e063ea0a...`, a non-blank frame) and the same frames equal the
+short-wrong expectation of the oracle.
+
+Seeded failures (scratch copies of `title.expected.json` under `build/12-04-seed`, never committed,
+passed through `T64_TITLE_EXPECTED` on a direct run of `test_title_two_run`; each first failed
+assertion is the test's own line text):
+
+| Seed | Scratch change | First failed assertion and observed value |
+|------|----------------|-------------------------------------------|
+| A | one hex digit of short checkpoint 2 flipped (`548e2016...` to `548e2116...`) | `FAIL verdict.checkpoint == 0u` of case two-run; log "checkpoint 2 mismatch: expected 548e2116..., actual 548e2016..." and "checkpoint 2 DIFFERS" |
+| B | short checkpoint 2 replaced by the wrong-run digest `e063ea0a...` (the control would be vacuous) | `FAIL verdict.checkpoint == 2u` of case wrong-input; observed: the comparator reported every checkpoint equal (empty verdict text) |
+| C | one transcript byte of the short expectation changed | `FAIL first_diff(...) == SIZE_MAX` of case two-run; the transcript comparator reported a difference at offset 2 |
+
+Runner constraints found by plan 12-04 (facts for plans 12-05, 12-06 and 12-08; the guest and the
+runner are unchanged by them): (1) a supervised run without `--raw-capture-dir` ends `harness-error`
+with detail `video-drain-error` at guest tick 1,589,376 (the first 49,152-byte packet), because
+`drain_video` in `runner/t64_real.c` accepts, without a raw capture, only the 4x3 48-byte packet
+(and the audio profile's 12x7); the save-out, state-export, replay and import runs are all
+non-raw, and the supervisor refuses the artifact producers together with raw capture, so no save
+image of the title can be produced by the runner; (2) the raw capture finalizes only on a guest
+completion with at least one audio packet, so the refused-frame ROM (no completion, no audio) ends
+`harness-error` with detail `capture-error` and stop `host-error` at tick 4,000,000, the bundle is
+aborted and no frame of the refused run is observable through the runner; (3) `--capture-out` is
+accepted together with `--raw-capture-dir`, so the transcript of the accepted run needs no second
+run. Items (1) and (2) are reported to the orchestrator as a plan-scope decision before the
+save-out run, the final-digest equality across two runs and the refused-frame control are written.
