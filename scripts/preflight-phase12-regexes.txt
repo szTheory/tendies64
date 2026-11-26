@@ -50,7 +50,7 @@
 # closure unless the owning plan registers one (5 names at the end of 12-09).
 5	^repo\.host-
 # plan 12-10: repo.api07-evaluation is a script-only name (one name).
-0	^repo\.api07-evaluation$
+1	^repo\.api07-evaluation$
 # plan 12-08: repo.p12-mutant-anchors is a script-only name (one name).
 1	^repo\.p12-mutant-anchors$
 # plan 12-17: the hermetic test of scripts/qualify-phase12.py (no fixture: one name).

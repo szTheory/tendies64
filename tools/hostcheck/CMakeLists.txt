@@ -218,3 +218,18 @@ set_tests_properties(repo.p12-mutant-anchors PROPERTIES
   TIMEOUT 60
   COST 0.10
   ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
+# repo.api07-evaluation (plan 12-10, API-07, decision DR-22, threats T-12-33 to T-12-35): the API-07
+# evaluation guard. The written fit evaluation under docs/evidence is pinned to one 40-hex commit
+# that equals the pin of the Phase 12 PIN-IMPACT record, holds the conclusion "no adapter now" in
+# its Conclusion section, claims no support of the other project, and no tracked file below core,
+# runner, host, tools or tests names that project (no adapter code, no build target, no test).
+# --with-selftest first runs the seeded trees (one failing seed per rule, clean controls, a git
+# tree that ignores untracked files and the empty-scan error). Script-only, no fixture.
+add_test(NAME repo.api07-evaluation
+  COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/check-api07-evaluation.sh --with-selftest
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(repo.api07-evaluation PROPERTIES
+  LABELS "repo;phase12"
+  TIMEOUT 30
+  COST 1.25)

@@ -376,7 +376,8 @@ repo.host-include-guard-selftest
 repo.host-isolation
 repo.host-policy
 repo.host-policy-selftest
-repo.p12-mutant-anchors'
+repo.p12-mutant-anchors
+repo.api07-evaluation'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU
