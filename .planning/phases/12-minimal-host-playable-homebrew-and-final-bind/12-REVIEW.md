@@ -359,3 +359,8 @@ both jobs with key `69d0bfd4`, so a warm sample; no rerun): conclusion success.
 Result after the push: zero blocking findings, two warnings (HR-04 with its hosted numbers, HR-06) and four info rows;
 the HOST wave is reviewed in a scratch clone with the full mutant run, pushed, and green on both hosted operating
 systems.
+
+### Orchestrator resolution of HR-04 and HR-06 (2026-11-26)
+
+HR-04 (gate growth): resolved by measurement, LOG F-139: cold gate-macos 547 s (run 45906047013, "Cache not found" confirmed), margin 353 s; no trim plan. HR-06: plan 12-15 now carries the H-03 sentence for docs/spec/api.md section 8.1 (truth and Task 1 action).
+
