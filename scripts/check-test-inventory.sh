@@ -362,7 +362,9 @@ controls.real.title-wrong-input
 controls.real.title-refused-frame
 installed.consumer.title
 installed.consumer.title-persist
-installed.consumer.title-refused'
+installed.consumer.title-refused
+host.pump.build
+host.pump.drain-order'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU
