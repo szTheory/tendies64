@@ -266,7 +266,7 @@ REVIEWED_BODY_DIGESTS = {
     "core/t64_ai.c :: t64_ai_reset_machine_state": "6fe0e4ae3f5203072e13c5bd94bdb62d08cb9ffaf0a19fdaffa07510f94a3c1c",
     "core/t64_ai.c :: t64_ai_write_register": "69511e698a08242dc74befa9e6c11b84a43b22673583f297ec13b470e12ee26a",
     "core/t64_ai.c :: t64_audio_copy": "5eda0f7a9276824dab2b37b60c27fbc072f834736b3803211e6fb888b63f0bb9",
-    "core/t64_ai.c :: t64_audio_info": "dfd24bd12655890b9a2994fb76c7e0ca4959675a0751d6613b0d7a00b525a4ab",
+    "core/t64_ai.c :: t64_audio_info": "19cc459534f362d527a944c60a2c16330a01f2d8271534abce4e7d30f477792f",
     "core/t64_pi.c :: t64_pi_complete": "98459ddc917f56fbc902837822735a1351b7f5b6c7b63b6c4808a1a6f6240c21",
     "core/t64_save.c :: t64_save_sram_dma_apply": "1e59b39c246ace1fee454f64e5167a1582b03cbd05ac25c99790e044b0733618",
     "core/t64_si.c :: t64_si_complete_event": "c54482c62862d4c6b8142d2952de8bdf7a6c57e7f254bafe6463f865c35f6d80",
@@ -472,7 +472,7 @@ REVIEWED_BODY_DIGESTS = {
     "core/t64_vi.c :: t64_vi_reset_machine_state": "4aed279f94c4064aec968cf30f14f90f138e7b9fe736e8d4bac549829ea15982",
     "core/t64_vi.c :: t64_vi_write_register": "58eb5261b7a609f47ac28a4aebf675404b27407a738e03f2e377a25927f9e7b0",
     "core/t64_vi.c :: t64_video_copy": "6ccc261ee4ece454d4294ef8ec25f50d4c75e5896f435f8cc3f8060cdf5caf62",
-    "core/t64_vi.c :: t64_video_info": "e8e59bdc11499bbb3d5b845bd098f79fe2fd99b87b847dd575e583e1851f148e",
+    "core/t64_vi.c :: t64_video_info": "b7fec7d9d12d750966ebfbd49a470349eacb81de9437b644cf0bdd8b901f1ad4",
 }
 
 
