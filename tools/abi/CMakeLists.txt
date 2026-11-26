@@ -336,3 +336,57 @@ set_tests_properties(api04.seeded PROPERTIES
   TIMEOUT 180
   COST 6.6
   FIXTURES_REQUIRED t64_install)
+
+# Functional suite of the installed consumer (plan 11-18, VER-05, API-01, API-02).
+# The authored composite ROM comes from the existing fixture target; the fixture
+# targets are not part of "all" by themselves, so an ALL custom target makes the
+# consumer cases independent of which test executables happen to depend on the ROM.
+add_custom_target(t64-installed-consumer-fixtures ALL)
+add_dependencies(t64-installed-consumer-fixtures t64-phase10-composite-fixture)
+set(T64_CONSUMER_ROM "${CMAKE_SOURCE_DIR}/build/fixtures/phase10-composite-s32k.z64")
+
+# installed.consumer.literals: the constants of the consumer's t64c_composite.h
+# equal the committed fixture files (the independent literals of
+# composite.expected.json and composite.input.json, and the labeled
+# runner-recorded pins of composite.runner-pins.json), the pins file carries
+# exactly the label "runner-recorded pin, not independent", the cited Phase 10
+# record contains the tick and the digest, and the seeded failures are reported.
+add_test(NAME installed.consumer.literals
+  COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/check-consumer-literals.py
+          --check --selftest
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(installed.consumer.literals PROPERTIES
+  LABELS "installed;phase11"
+  TIMEOUT 60
+  COST 0.08
+  ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
+# One CTest name per binary case of tests/installed-consumer/cases.txt, except
+# smoke (registered explicitly above, exactly once). COST is the measured native
+# seconds of the name (W-11): a case without a recorded cost is a configure error,
+# so a new case cannot enter the gate unmeasured. TIMEOUT follows F-108.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+  "${CMAKE_SOURCE_DIR}/tests/installed-consumer/cases.txt")
+file(STRINGS "${CMAKE_SOURCE_DIR}/tests/installed-consumer/cases.txt"
+  T64_CONSUMER_CASES REGEX "^[a-z]")
+set(T64_CONSUMER_COST_composite 0.13)
+foreach(T64_CONSUMER_CASE IN LISTS T64_CONSUMER_CASES)
+  if(T64_CONSUMER_CASE STREQUAL "smoke")
+    continue()
+  endif()
+  if(NOT DEFINED T64_CONSUMER_COST_${T64_CONSUMER_CASE})
+    message(FATAL_ERROR
+      "tests/installed-consumer/cases.txt lists '${T64_CONSUMER_CASE}' with no "
+      "measured COST (set T64_CONSUMER_COST_${T64_CONSUMER_CASE} in tools/abi/CMakeLists.txt)")
+  endif()
+  add_test(NAME installed.consumer.${T64_CONSUMER_CASE}
+    COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/check-install.sh
+            --build ${CMAKE_BINARY_DIR} run ${T64_CONSUMER_CASE}
+            --rom "${T64_CONSUMER_ROM}"
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+  set_tests_properties(installed.consumer.${T64_CONSUMER_CASE} PROPERTIES
+    LABELS "installed;phase11"
+    TIMEOUT 60
+    COST ${T64_CONSUMER_COST_${T64_CONSUMER_CASE}}
+    FIXTURES_REQUIRED t64_consumer)
+endforeach()

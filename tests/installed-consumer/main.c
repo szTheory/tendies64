@@ -4,8 +4,13 @@
  * headers only, links the archive through find_package(tendies64), and proves
  * that header and library agree.
  *
- *   t64c --list-cases     print the case names, one per line
- *   t64c --case smoke     the tracer case
+ *   t64c --list-cases                print the case names, one per line
+ *   t64c --case NAME [OPTIONS]       run one case
+ *
+ * Options (the cases of tests/installed-consumer/cases.txt): --rom PATH is the
+ * authored composite ROM of the build tree, --print writes machine-readable
+ * "print KEY VALUE" lines, --out DIR writes the run's outputs as files, --slice
+ * N sets the ticks per advance of a run.
  *
  * Exit status: 0 the case passed, 1 a check failed or ran no check, 2 usage.
  */
@@ -18,85 +23,13 @@
 
 #include <tendies64/t64_machine.h>
 
+#include "t64c_alloc.h"
+#include "t64c_cases.h"
 #include "t64c_check.h"
 
 #ifndef T64C_EXPECTED_BUILD_ID
 #error "T64C_EXPECTED_BUILD_ID is defined by the consumer CMakeLists from tendies64_BUILD_ID"
 #endif
-
-/* A counting host allocator with a per-instance context: every allocation is
- * remembered, so a release of an unknown pointer, a double release and a leak
- * are all visible. */
-#define T64C_MAX_SLOTS 256u
-
-typedef struct {
-  void *data;
-  bool active;
-} t64c_slot;
-
-typedef struct {
-  t64c_slot slots[T64C_MAX_SLOTS];
-  size_t slot_count;
-  size_t allocations;
-  size_t releases;
-  size_t bad_releases;
-  size_t outstanding;
-  size_t refusals;
-} t64c_ledger;
-
-static bool t64c_allocate(void *context, size_t size, size_t alignment,
-                          t64_host_storage *storage_out) {
-  t64c_ledger *ledger = (t64c_ledger *)context;
-  size_t host_alignment = alignment;
-  size_t rounded;
-  void *memory;
-
-  if (ledger == NULL || storage_out == NULL || size == 0u || alignment == 0u ||
-      (alignment & (alignment - 1u)) != 0u) {
-    return false;
-  }
-  if (host_alignment < sizeof(void *)) {
-    host_alignment = sizeof(void *);
-  }
-  if (ledger->slot_count >= T64C_MAX_SLOTS) {
-    ledger->refusals++;
-    return false;
-  }
-  rounded = ((size + host_alignment - 1u) / host_alignment) * host_alignment;
-  memory = aligned_alloc(host_alignment, rounded);
-  if (memory == NULL) {
-    ledger->refusals++;
-    return false;
-  }
-  ledger->slots[ledger->slot_count].data = memory;
-  ledger->slots[ledger->slot_count].active = true;
-  ledger->slot_count++;
-  ledger->allocations++;
-  ledger->outstanding++;
-  storage_out->data = memory;
-  storage_out->capacity = size;
-  storage_out->alignment = host_alignment;
-  return true;
-}
-
-static void t64c_release(void *context, t64_host_storage storage) {
-  t64c_ledger *ledger = (t64c_ledger *)context;
-  size_t i;
-
-  if (ledger == NULL) {
-    return;
-  }
-  for (i = 0u; i < ledger->slot_count; i++) {
-    if (ledger->slots[i].active && ledger->slots[i].data == storage.data) {
-      ledger->slots[i].active = false;
-      ledger->releases++;
-      ledger->outstanding--;
-      free(storage.data);
-      return;
-    }
-  }
-  ledger->bad_releases++;
-}
 
 /* The tracer: the linked archive reports the ABI version of the header it was
  * built with and the build identity the package recorded, and a create and
@@ -148,18 +81,78 @@ static int case_smoke(void) {
   return t64c_report("smoke", &tally);
 }
 
+static int case_smoke_entry(const t64c_args *args) {
+  (void)args;
+  return case_smoke();
+}
+
+typedef struct {
+  const char *name;
+  int (*run)(const t64c_args *args);
+} t64c_case;
+
+static const t64c_case t64c_cases[] = {
+    {"smoke", case_smoke_entry},
+    {"composite", t64c_case_composite},
+};
+
+static bool parse_u64(const char *text, uint64_t *value_out) {
+  uint64_t value = 0u;
+
+  if (text == NULL || text[0] == '\0') {
+    return false;
+  }
+  for (; *text != '\0'; text++) {
+    if (*text < '0' || *text > '9' || value > (UINT64_MAX - 9u) / 10u) {
+      return false;
+    }
+    value = value * 10u + (uint64_t)(*text - '0');
+  }
+  *value_out = value;
+  return true;
+}
+
 int main(int argc, char **argv) {
+  t64c_args args = {NULL, false, NULL, 0u};
+  const char *name = NULL;
+  int i;
+  size_t k;
+
   if (argc == 2 && strcmp(argv[1], "--list-cases") == 0) {
-    (void)puts("smoke");
+    for (k = 0u; k < sizeof t64c_cases / sizeof t64c_cases[0]; k++) {
+      (void)puts(t64c_cases[k].name);
+    }
     return 0;
   }
-  if (argc == 3 && strcmp(argv[1], "--case") == 0) {
-    if (strcmp(argv[2], "smoke") == 0) {
-      return case_smoke();
+  if (argc >= 3 && strcmp(argv[1], "--case") == 0) {
+    name = argv[2];
+    for (i = 3; i < argc; i++) {
+      if (strcmp(argv[i], "--rom") == 0 && i + 1 < argc) {
+        args.rom_path = argv[++i];
+      } else if (strcmp(argv[i], "--out") == 0 && i + 1 < argc) {
+        args.out_dir = argv[++i];
+      } else if (strcmp(argv[i], "--print") == 0) {
+        args.print = true;
+      } else if (strcmp(argv[i], "--slice") == 0 && i + 1 < argc) {
+        if (!parse_u64(argv[++i], &args.slice)) {
+          (void)fprintf(stderr, "t64c: --slice needs a decimal number\n");
+          return 2;
+        }
+      } else {
+        (void)fprintf(stderr, "t64c: unknown option: %s\n", argv[i]);
+        return 2;
+      }
     }
-    (void)fprintf(stderr, "t64c: unknown case: %s\n", argv[2]);
+    for (k = 0u; k < sizeof t64c_cases / sizeof t64c_cases[0]; k++) {
+      if (strcmp(name, t64c_cases[k].name) == 0) {
+        return t64c_cases[k].run(&args);
+      }
+    }
+    (void)fprintf(stderr, "t64c: unknown case: %s\n", name);
     return 2;
   }
-  (void)fprintf(stderr, "usage: t64c --list-cases | --case NAME\n");
+  (void)fprintf(stderr,
+                "usage: t64c --list-cases | --case NAME [--rom PATH] [--print] "
+                "[--out DIR] [--slice N]\n");
   return 2;
 }

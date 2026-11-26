@@ -1,0 +1,11 @@
+{
+  "completion_tick": 599357,
+  "final_state_digest": "97f270274d456e883ceaa11f100f92c7fbf3150e89031fa51164e79991f1267c",
+  "label": "runner-recorded pin, not independent",
+  "profile_id": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v2-s32k",
+  "schema": "t64.composite-runner-pins",
+  "schema_version": 1,
+  "source": "Phase 10 PIN-IMPACT.md section 11.3, plan 10-14 supervised runs (raw-capture and save-out rows)",
+  "stop_reason": "GUEST_COMPLETION",
+  "video_packet_count": 3
+}

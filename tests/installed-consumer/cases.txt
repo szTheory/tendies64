@@ -1,0 +1,12 @@
+# Closed list of the cases of the installed consumer binary: exactly the names
+# `t64c --list-cases` prints, one per line (the order is not significant).
+# tools/abi/CMakeLists.txt registers installed.consumer.<case> for every row
+# below except `smoke`, which keeps its explicit plan 11-16 registration so that
+# no name is registered twice. scripts/check-install.sh build fails when the
+# binary lists a case this file does not (or the reverse), so a case cannot
+# exist unregistered. installed.consumer.build, installed.consumer.literals and
+# installed.consumer.three-way are script names, not binary cases, and are not
+# listed here. Every case takes --rom PATH (the authored composite ROM of the
+# build tree); no case reads any other file.
+smoke
+composite

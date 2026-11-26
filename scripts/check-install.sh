@@ -16,6 +16,9 @@
 #                  WORK/consumer, build it, and assert that neither the moved
 #                  prefix nor the consumer tree mentions the original install path
 #   run CASE ...   run WORK/consumer/t64c --case CASE with the remaining arguments
+#   three-way      run the in-tree runner (two supervised runs of the authored
+#                  composite ROM) and the installed consumer's composite case,
+#                  and compare every value both sides report (plan 11-18)
 #
 # --build DIR   the configured and built tree to install from (default
 #               build/gate); nothing is rebuilt
@@ -157,7 +160,16 @@ cmd_build() {
   fi
   [ -x "$CONSUMER_BUILD/t64c" ] || fail "the consumer executable was not produced"
   leak_scan "$MOVED" "$CONSUMER_BUILD"
-  echo "check-install: build ok: consumer linked against the moved prefix"
+  # The case list is closed: the binary lists exactly the cases of cases.txt, so
+  # a case cannot exist unregistered and a registered case cannot be missing.
+  grep '^[a-z]' "$ROOT/tests/installed-consumer/cases.txt" | LC_ALL=C sort >"$WORK/cases.expected"
+  "$CONSUMER_BUILD/t64c" --list-cases | LC_ALL=C sort >"$WORK/cases.listed"
+  if ! cmp -s "$WORK/cases.expected" "$WORK/cases.listed"; then
+    echo "check-install: cases.txt and the consumer's --list-cases differ (cases.txt, binary):" >&2
+    diff "$WORK/cases.expected" "$WORK/cases.listed" >&2 || true
+    fail "the consumer case list is not closed"
+  fi
+  echo "check-install: build ok: consumer linked against the moved prefix ($(wc -l <"$WORK/cases.listed" | tr -d ' ') cases)"
 }
 
 cmd_run() {

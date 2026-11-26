@@ -300,6 +300,8 @@ unit.core.api.struct-size
 install.setup
 installed.consumer.build
 installed.consumer.smoke
+installed.consumer.composite
+installed.consumer.literals
 repo.consumer-include-guard
 repo.consumer-include-guard-selftest
 repo.abi-layout

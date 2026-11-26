@@ -13,7 +13,7 @@ set(CMAKE_C_EXTENSIONS OFF)
 
 find_package(tendies64 0.1 REQUIRED CONFIG)
 
-add_executable(t64c main.c)
+add_executable(t64c main.c composite.c t64c_sha256.c)
 target_link_libraries(t64c PRIVATE tendies64::core)
 target_compile_options(t64c PRIVATE
   -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wstrict-prototypes
