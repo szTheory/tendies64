@@ -85,7 +85,7 @@ add_test(NAME host.pump.title-two-speeds
 set_tests_properties(host.pump.title-two-speeds PROPERTIES
   LABELS "host;phase12"
   TIMEOUT 60
-  COST 0.85
+  COST 3.00
   FIXTURES_REQUIRED t64_host
   REQUIRED_FILES "${T64_HOST_TITLE_ROM}")
 
@@ -99,7 +99,21 @@ add_test(NAME host.pump.input-map
 set_tests_properties(host.pump.input-map PROPERTIES
   LABELS "host;phase12"
   TIMEOUT 60
-  COST 0.01
+  COST 0.02
+  FIXTURES_REQUIRED t64_host)
+
+# host.pump.frames (plan 12-08, decision DR-14, T-12-26): t64h_frame_copy honors stride_bytes
+# and the destination pitch, refuses a packet over 320 x 240 RGBA, a short source, a short
+# destination (left untouched), a bad geometry and another encoding, and the S16BE sample
+# swap. No guest, no ROM, no device.
+add_test(NAME host.pump.frames
+  COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/check-host.sh
+          --build ${CMAKE_BINARY_DIR} run frames
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(host.pump.frames PROPERTIES
+  LABELS "host;phase12"
+  TIMEOUT 60
+  COST 0.02
   FIXTURES_REQUIRED t64_host)
 
 # host.pump.script (plan 12-08, decision DR-13, T-12-24 and T-12-25): the strict t64.input
@@ -115,7 +129,7 @@ add_test(NAME host.pump.script
 set_tests_properties(host.pump.script PROPERTIES
   LABELS "host;phase12"
   TIMEOUT 60
-  COST 0.35
+  COST 0.38
   FIXTURES_REQUIRED t64_host
   REQUIRED_FILES "${T64_HOST_TITLE_ROM}")
 

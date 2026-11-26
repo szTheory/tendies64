@@ -44,7 +44,7 @@
 # test), so install.setup joins the host.pump names (12-07 adds build, clock, drain-order and stall;
 # 12-08 adds input-map, script, frames and title-two-speeds; 8 names plus install.setup = 9 at the
 # end of 12-08).
-8	^host\.pump\.
+9	^host\.pump\.
 # plan 12-07 to 12-09: repo.host-include-guard, repo.host-include-guard-selftest and repo.host-isolation
 # (12-07), repo.host-policy and repo.host-policy-selftest (12-09); script-only names, no fixture
 # closure unless the owning plan registers one (5 names at the end of 12-09).

@@ -370,6 +370,7 @@ host.pump.stall
 host.pump.title-two-speeds
 host.pump.input-map
 host.pump.script
+host.pump.frames
 repo.host-include-guard
 repo.host-include-guard-selftest
 repo.host-isolation'

@@ -29,6 +29,9 @@
  *   input-map     (plan 12-08) the logical input mapping table of t64h_input: axis scale,
  *                 dead zone and vertical inversion over every int16 value, each mapped
  *                 button bit, unmapped controls, the left trigger threshold, a removed pad
+ *   frames        (plan 12-08) t64h_frame_copy honors stride_bytes and the destination pitch,
+ *                 refuses a packet over 320 x 240, a short source or destination (leaving
+ *                 the destination untouched) and a bad geometry or encoding; the S16BE swap
  *   script        (plan 12-08) the strict t64.input reader (a seed per rule, the size and
  *                 event limits, the committed scripts against the events python3 read from
  *                 the same files) and the scripted source against a model of a small queue
@@ -52,6 +55,7 @@
 
 #include <tendies64/t64_machine.h>
 
+#include "t64h_frames.h"
 #include "t64h_input.h"
 #include "t64h_pump.h"
 #include "t64h_script.h"
@@ -1802,6 +1806,192 @@ static int case_script(const args *a) {
   return report("script", &t);
 }
 
+/* ---- frames -------------------------------------------------------------------- */
+
+#define FRAME_SENTINEL 0xa5u
+#define SYNTH_MAX_BYTES (320u * 4u * 240u + 4096u)
+
+static uint8_t synth_packet[SYNTH_MAX_BYTES];
+static uint8_t synth_dest[SYNTH_MAX_BYTES];
+
+/* A synthetic RGBA8 packet info of the given geometry. */
+static t64_video_packet_info synth_info(uint32_t width, uint32_t height, uint32_t stride) {
+  t64_video_packet_info info = T64_VIDEO_PACKET_INFO_INIT;
+
+  info.width = width;
+  info.height = height;
+  info.stride_bytes = stride;
+  info.output_encoding = T64_VIDEO_ENCODING_RGBA8;
+  info.packet_bytes = (uint64_t)stride * height;
+  return info;
+}
+
+/* Fill a packet whose pixel bytes follow a pattern and whose stride padding is 0xee. */
+static size_t synth_fill(uint32_t width, uint32_t height, uint32_t stride) {
+  size_t y;
+  size_t x;
+
+  (void)memset(synth_packet, 0xee, sizeof synth_packet);
+  for (y = 0u; y < height; y++) {
+    for (x = 0u; x < width * 4u; x++) {
+      synth_packet[y * stride + x] = (uint8_t)((y * 31u + x * 7u + 3u) & 0xffu);
+    }
+  }
+  return (size_t)stride * height;
+}
+
+static bool dest_untouched(size_t length) {
+  size_t i;
+
+  for (i = 0u; i < length; i++) {
+    if (synth_dest[i] != FRAME_SENTINEL) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static void frames_copy_cases(tally *t) {
+  t64_video_packet_info info;
+  size_t packet_length;
+  size_t y;
+  bool rows_equal;
+
+  /* The title's geometry: 128 x 96, stride 512, to a tight buffer of pitch 512, byte for
+   * byte. */
+  info = synth_info(128u, 96u, 512u);
+  packet_length = synth_fill(128u, 96u, 512u);
+  (void)memset(synth_dest, FRAME_SENTINEL, sizeof synth_dest);
+  CHECK(t, t64h_frame_copy(&info, synth_packet, packet_length, synth_dest, 512u * 96u, 512u) ==
+               T64H_FRAME_OK);
+  CHECK(t, memcmp(synth_dest, synth_packet, packet_length) == 0);
+  CHECK_U64(t, synth_dest[512u * 96u], FRAME_SENTINEL);  /* nothing past the frame */
+
+  /* A stride of 520: only 512 bytes of each row are copied, the 8 padding bytes are not. */
+  info = synth_info(128u, 96u, 520u);
+  packet_length = synth_fill(128u, 96u, 520u);
+  (void)memset(synth_dest, FRAME_SENTINEL, sizeof synth_dest);
+  CHECK(t, t64h_frame_copy(&info, synth_packet, packet_length, synth_dest, 512u * 96u, 512u) ==
+               T64H_FRAME_OK);
+  rows_equal = true;
+  for (y = 0u; y < 96u; y++) {
+    rows_equal = rows_equal && memcmp(synth_dest + y * 512u, synth_packet + y * 520u, 512u) == 0;
+  }
+  CHECK(t, rows_equal);
+  CHECK_U64(t, synth_dest[512u * 96u], FRAME_SENTINEL);
+  /* A wider destination pitch: rows land at the pitch and the gap is left alone. */
+  info = synth_info(128u, 96u, 512u);
+  packet_length = synth_fill(128u, 96u, 512u);
+  (void)memset(synth_dest, FRAME_SENTINEL, sizeof synth_dest);
+  CHECK(t, t64h_frame_copy(&info, synth_packet, packet_length, synth_dest, 600u * 95u + 512u,
+                           600u) == T64H_FRAME_OK);
+  rows_equal = true;
+  for (y = 0u; y < 96u; y++) {
+    rows_equal = rows_equal && memcmp(synth_dest + y * 600u, synth_packet + y * 512u, 512u) == 0;
+    if (y < 95u) {
+      rows_equal = rows_equal && synth_dest[y * 600u + 512u] == FRAME_SENTINEL &&
+                   synth_dest[y * 600u + 599u] == FRAME_SENTINEL;
+    }
+  }
+  CHECK(t, rows_equal);
+
+  /* The largest packet the host supports is 320 x 240: accepted exactly, one more is not. */
+  info = synth_info(320u, 240u, 1280u);
+  packet_length = synth_fill(320u, 240u, 1280u);
+  (void)memset(synth_dest, FRAME_SENTINEL, sizeof synth_dest);
+  CHECK(t, t64h_frame_copy(&info, synth_packet, packet_length, synth_dest, 1280u * 240u, 1280u) ==
+               T64H_FRAME_OK);
+  CHECK(t, memcmp(synth_dest, synth_packet, packet_length) == 0);
+  info = synth_info(321u, 96u, 1284u);
+  packet_length = synth_fill(321u, 96u, 1284u);
+  (void)memset(synth_dest, FRAME_SENTINEL, sizeof synth_dest);
+  CHECK(t, t64h_frame_copy(&info, synth_packet, packet_length, synth_dest, sizeof synth_dest,
+                           1284u) == T64H_FRAME_TOO_LARGE);
+  CHECK(t, dest_untouched(sizeof synth_dest));
+  info = synth_info(128u, 241u, 512u);
+  packet_length = synth_fill(128u, 241u, 512u);
+  CHECK(t, t64h_frame_copy(&info, synth_packet, packet_length, synth_dest, sizeof synth_dest,
+                           512u) == T64H_FRAME_TOO_LARGE);
+  CHECK(t, dest_untouched(sizeof synth_dest));
+}
+
+static void frames_refusal_cases(tally *t) {
+  t64_video_packet_info info = synth_info(128u, 96u, 512u);
+  const size_t packet_length = synth_fill(128u, 96u, 512u);
+  t64_video_packet_info other;
+
+  /* The padding after the last row is not needed: a stride 520 packet without it is whole. */
+  other = synth_info(128u, 96u, 520u);
+  (void)synth_fill(128u, 96u, 520u);
+  CHECK(t, t64h_frame_copy(&other, synth_packet, 520u * 95u + 512u, synth_dest, 512u * 96u, 512u) ==
+               T64H_FRAME_OK);
+  (void)synth_fill(128u, 96u, 512u);
+
+  /* A destination one row short is refused and left untouched; so is a packet one byte
+   * short of its rows. */
+  (void)memset(synth_dest, FRAME_SENTINEL, sizeof synth_dest);
+  CHECK(t, t64h_frame_copy(&info, synth_packet, packet_length, synth_dest, 512u * 95u, 512u) ==
+               T64H_FRAME_SHORT_DESTINATION);
+  CHECK(t, dest_untouched(sizeof synth_dest));
+  CHECK(t, t64h_frame_copy(&info, synth_packet, packet_length, synth_dest, 512u * 96u - 1u, 512u) ==
+               T64H_FRAME_SHORT_DESTINATION);
+  CHECK(t, dest_untouched(sizeof synth_dest));
+  CHECK(t, t64h_frame_copy(&info, synth_packet, packet_length - 1u, synth_dest, 512u * 96u, 512u) ==
+               T64H_FRAME_SHORT_SOURCE);
+  CHECK(t, dest_untouched(sizeof synth_dest));
+  /* A stride or pitch under one row, an empty frame, another encoding, NULL pointers. */
+  other = synth_info(128u, 96u, 508u);
+  CHECK(t, t64h_frame_copy(&other, synth_packet, packet_length, synth_dest, sizeof synth_dest,
+                           512u) == T64H_FRAME_BAD_GEOMETRY);
+  CHECK(t, t64h_frame_copy(&info, synth_packet, packet_length, synth_dest, sizeof synth_dest,
+                           508u) == T64H_FRAME_BAD_GEOMETRY);
+  other = synth_info(0u, 96u, 512u);
+  CHECK(t, t64h_frame_copy(&other, synth_packet, packet_length, synth_dest, sizeof synth_dest,
+                           512u) == T64H_FRAME_BAD_GEOMETRY);
+  other = synth_info(128u, 0u, 512u);
+  CHECK(t, t64h_frame_copy(&other, synth_packet, packet_length, synth_dest, sizeof synth_dest,
+                           512u) == T64H_FRAME_BAD_GEOMETRY);
+  other = info;
+  other.output_encoding = 0u;
+  CHECK(t, t64h_frame_copy(&other, synth_packet, packet_length, synth_dest, sizeof synth_dest,
+                           512u) == T64H_FRAME_BAD_ENCODING);
+  CHECK(t, t64h_frame_copy(NULL, synth_packet, packet_length, synth_dest, sizeof synth_dest,
+                           512u) == T64H_FRAME_BAD_ARGUMENT);
+  CHECK(t, t64h_frame_copy(&info, NULL, packet_length, synth_dest, sizeof synth_dest, 512u) ==
+               T64H_FRAME_BAD_ARGUMENT);
+  CHECK(t, t64h_frame_copy(&info, synth_packet, packet_length, NULL, sizeof synth_dest, 512u) ==
+               T64H_FRAME_BAD_ARGUMENT);
+  CHECK(t, dest_untouched(sizeof synth_dest));
+}
+
+static void frames_swap_cases(tally *t) {
+  static const uint8_t bytes[] = {0x12u, 0x34u, 0x80u, 0x00u, 0x7fu, 0xffu, 0xffu, 0xffu,
+                                  0x00u, 0x00u, 0x80u, 0x01u, 0xe0u, 0x00u, 0x20u, 0x00u};
+  static const int expected[] = {0x1234, -32768, 32767, -1, 0, -32767, -8192, 8192};
+  int16_t samples[8];
+  size_t i;
+
+  (void)memset(samples, 0x55, sizeof samples);
+  t64h_swap_s16be(bytes, 8u, samples);
+  for (i = 0u; i < 8u; i++) {
+    CHECK_U64(t, (unsigned)(samples[i] + 32768), (unsigned)(expected[i] + 32768));
+  }
+  /* A count of zero writes nothing. */
+  (void)memset(samples, 0x55, sizeof samples);
+  t64h_swap_s16be(bytes, 0u, samples);
+  CHECK_U64(t, samples[0], 0x5555u);
+}
+
+static int case_frames(const args *a) {
+  tally t = {0ul, 0ul};
+
+  (void)a;
+  frames_copy_cases(&t);
+  frames_refusal_cases(&t);
+  frames_swap_cases(&t);
+  return report("frames", &t);
+}
+
 /* ---- dispatch ----------------------------------------------------------------- */
 
 typedef struct {
@@ -1816,6 +2006,7 @@ static const test_case cases[] = {
     {"title-two-speeds", case_title_two_speeds},
     {"input-map", case_input_map},
     {"script", case_script},
+    {"frames", case_frames},
 };
 
 int main(int argc, char **argv) {

@@ -196,13 +196,14 @@ print(" ".join(out))
       fail "host case script failed"
       ;;
     title-two-speeds)
-      # The committed short script at 240 and 3 Hz of fake time; the binary prints one JSON
+      # The committed short and long scripts at 240 and 3 Hz of fake time; the binary prints one JSON
       # line per run and the comparator judges the lines (oracle and recorded pins).
       _runs="$BUILD/host-title-runs.jsonl"
       python3 -I -B "$ROOT/scripts/check-host-title.py" --selftest || fail "the comparator selftest failed"
       cd "$ROOT"
       if ! "$HOST_BUILD/t64h_tests" --case title-two-speeds --rom "$_rom" \
-        --script fixtures/title/title.short.input.json --slice-hz 240,3 >"$_runs"; then
+        --script fixtures/title/title.short.input.json \
+        --script fixtures/title/title.long.input.json --slice-hz 240,3 >"$_runs"; then
         cat "$_runs"
         fail "host case title-two-speeds failed"
       fi
