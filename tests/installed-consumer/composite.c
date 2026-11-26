@@ -131,7 +131,7 @@ bool t64c_queue_literal_inputs(t64c_fixture *fixture) {
 
 /* ---- run engine ----------------------------------------------------------- */
 
-static bool drain_video(t64c_fixture *fixture, t64c_run *run) {
+bool t64c_drain_video(t64c_fixture *fixture, t64c_run *run) {
   for (;;) {
     t64_video_packet_info info = T64_VIDEO_PACKET_INFO_INIT;
     size_t copied = 0u;
@@ -159,7 +159,7 @@ static bool drain_video(t64c_fixture *fixture, t64c_run *run) {
   }
 }
 
-static bool drain_audio(t64c_fixture *fixture, t64c_run *run) {
+bool t64c_drain_audio(t64c_fixture *fixture, t64c_run *run) {
   for (;;) {
     t64_audio_packet_info info = T64_AUDIO_PACKET_INFO_INIT;
     size_t copied = 0u;
@@ -185,7 +185,7 @@ static bool drain_audio(t64c_fixture *fixture, t64c_run *run) {
   }
 }
 
-static bool drain_text(t64c_fixture *fixture, t64c_run *run) {
+bool t64c_drain_text(t64c_fixture *fixture, t64c_run *run) {
   t64_output_drain_result result = T64_OUTPUT_DRAIN_RESULT_INIT;
   t64_status status;
 
@@ -201,8 +201,8 @@ static bool drain_text(t64c_fixture *fixture, t64c_run *run) {
 }
 
 bool t64c_drain_all(t64c_fixture *fixture, t64c_run *run) {
-  return drain_video(fixture, run) && drain_audio(fixture, run) &&
-         drain_text(fixture, run);
+  return t64c_drain_video(fixture, run) && t64c_drain_audio(fixture, run) &&
+         t64c_drain_text(fixture, run);
 }
 
 bool t64c_run_to_completion(t64c_fixture *fixture, uint64_t slice,

@@ -312,6 +312,14 @@ installed.consumer.ops-input
 installed.consumer.ops-advance
 installed.consumer.ops-reset
 installed.consumer.ops-unload
+installed.consumer.ops-rings
+installed.consumer.ops-text
+installed.consumer.ops-save
+installed.consumer.ops-state
+installed.consumer.ops-queries
+installed.consumer.ops-trace
+installed.consumer.ops-bus
+installed.consumer.ops-poison-query
 repo.consumer-include-guard
 repo.consumer-include-guard-selftest
 repo.abi-layout

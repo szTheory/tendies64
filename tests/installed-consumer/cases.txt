@@ -19,3 +19,11 @@ ops-input
 ops-advance
 ops-reset
 ops-unload
+ops-rings
+ops-text
+ops-save
+ops-state
+ops-queries
+ops-trace
+ops-bus
+ops-poison-query

@@ -20,6 +20,8 @@
 #include "t64c_cases.h"
 #include "t64c_check.h"
 #include "t64c_classes.h"
+#include "t64c_composite.h"
+#include "t64c_sha256.h"
 
 #define T64C_SENTINEL 0xa5u
 
@@ -1230,6 +1232,1260 @@ static int case_unload(const t64c_args *args) {
   return t64c_report("ops-unload", &tally);
 }
 
+/* ---- ops-rings ------------------------------------------------------------- */
+
+/* Advance with the video ring (and optionally the audio ring) drained after every
+ * call, through RESOURCE_LIMIT stops, to a tick or to the guest's completion.
+ * The ISViewer text is left alone. */
+static bool advance_drained(t64c_fixture *fixture, t64c_run *run, uint64_t target,
+                            bool drain_audio) {
+  unsigned guard;
+
+  for (guard = 0u; guard < 4096u; guard++) {
+    t64_stop_result stop = T64_STOP_RESULT_INIT;
+    t64_status status = t64_machine_advance(
+        fixture->machine,
+        &(t64_stop_request)T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, target), &stop);
+
+    if (status != T64_STATUS_OK || !t64c_drain_video(fixture, run) ||
+        (drain_audio && !t64c_drain_audio(fixture, run))) {
+      return false;
+    }
+    run->tick = stop.tick;
+    run->stop_reason = stop.reason;
+    if (stop.reason == T64_STOP_REASON_BOUND) {
+      return stop.tick == target;
+    }
+    if (stop.reason == T64_STOP_REASON_GUEST_COMPLETION) {
+      return true;
+    }
+    if (stop.reason != T64_STOP_REASON_RESOURCE_LIMIT) {
+      return false;
+    }
+  }
+  return false;
+}
+
+/* Run without draining anything until two successive advances end with
+ * RESOURCE_LIMIT at the same tick: the machine stopped at backpressure. */
+static bool run_undrained_to_stall(t64_machine *machine, uint64_t *stall_tick,
+                                   unsigned *budget_stops) {
+  uint64_t tick = 0u;
+  unsigned same = 0u;
+  unsigned guard;
+
+  *budget_stops = 0u;
+  for (guard = 0u; guard < 4096u; guard++) {
+    const uint64_t target =
+        T64C_RUN_BOUND - tick > T64C_RUN_DEFAULT_SLICE ? tick + T64C_RUN_DEFAULT_SLICE
+                                                         : T64C_RUN_BOUND;
+    t64_stop_result stop = T64_STOP_RESULT_INIT;
+    t64_status status = t64_machine_advance(
+        machine, &(t64_stop_request)T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, target),
+        &stop);
+
+    if (status != T64_STATUS_OK) {
+      return false;
+    }
+    if (stop.reason == T64_STOP_REASON_RESOURCE_LIMIT) {
+      if (stop.tick == tick) {
+        same++;
+        if (same >= 2u) {
+          *stall_tick = tick;
+          return true;
+        }
+      } else {
+        same = 0u;
+        (*budget_stops)++;
+      }
+    } else if (stop.reason == T64_STOP_REASON_BOUND) {
+      same = 0u;
+    } else {
+      return false;
+    }
+    tick = stop.tick;
+  }
+  return false;
+}
+
+static int case_rings(const t64c_args *args) {
+  static const uint8_t video_literal[T64C_LIT_VIDEO_PACKET_BYTES] = T64C_LIT_VIDEO_PACKET_INIT;
+  static const uint8_t audio_literal[T64C_LIT_AUDIO_PACKET_COUNT][T64C_LIT_AUDIO_PACKET_BYTES] = {
+      T64C_LIT_AUDIO_PACKET0_INIT, T64C_LIT_AUDIO_PACKET1_INIT};
+  t64c_tally tally = {0ul, 0ul};
+  t64c_fixture *fixture = t64c_fixture_new(args->rom_path);
+  t64c_fixture *empty = t64c_fixture_new(args->rom_path);
+  t64c_run *run = (t64c_run *)calloc(1u, sizeof *run);
+  t64_machine *machine;
+  t64_output_status ring = T64_OUTPUT_STATUS_INIT;
+  t64_video_packet_info video = T64_VIDEO_PACKET_INFO_INIT;
+  t64_audio_packet_info audio = T64_AUDIO_PACKET_INFO_INIT;
+  uint8_t packet[T64C_RUN_VIDEO_BYTES + 8u];
+  uint8_t before[T64_DIGEST_SIZE];
+  uint8_t after[T64_DIGEST_SIZE];
+  size_t length = 0u;
+  uint64_t stall_tick = 0u;
+  unsigned budget_stops = 0u;
+  size_t i;
+
+  if (fixture == NULL || empty == NULL || run == NULL) {
+    free(run);
+    t64c_fixture_free(fixture);
+    t64c_fixture_free(empty);
+    return 2;
+  }
+  machine = fixture->machine;
+  T64C_CHECK_U32(&tally, t64c_fixture_admit(fixture), T64_STATUS_OK);
+  T64C_CHECK_U32(&tally, t64c_fixture_admit(empty), T64_STATUS_OK);
+  T64C_CHECK(&tally, t64c_queue_literal_inputs(fixture));
+
+  /* Empty rings: info and copy answer NOT_READY with the outputs untouched, and
+   * output_status reports empty rings with the full capacity free. */
+  T64C_CHECK(&tally, digest_of(empty->machine, before));
+  {
+    t64_video_packet_info probe = T64_VIDEO_PACKET_INFO_INIT;
+    t64_audio_packet_info probe_audio = T64_AUDIO_PACKET_INFO_INIT;
+    uint8_t raw[sizeof probe];
+    uint8_t raw_audio[sizeof probe_audio];
+
+    poison(&probe, sizeof probe);
+    probe.struct_size = (uint32_t)sizeof probe;
+    (void)memcpy(raw, &probe, sizeof probe);
+    refused(&tally, t64_video_info(empty->machine, &probe), T64_STATUS_NOT_READY,
+            "video_info on an empty ring", empty->machine, before);
+    untouched(&tally, memcmp(raw, &probe, sizeof probe) == 0, "video_info(empty) output");
+    poison(&probe_audio, sizeof probe_audio);
+    probe_audio.struct_size = (uint32_t)sizeof probe_audio;
+    (void)memcpy(raw_audio, &probe_audio, sizeof probe_audio);
+    refused(&tally, t64_audio_info(empty->machine, &probe_audio), T64_STATUS_NOT_READY,
+            "audio_info on an empty ring", empty->machine, before);
+    untouched(&tally, memcmp(raw_audio, &probe_audio, sizeof probe_audio) == 0,
+              "audio_info(empty) output");
+  }
+  poison(packet, sizeof packet);
+  length = 77u;
+  refused(&tally, t64_video_copy(empty->machine, packet, T64C_RUN_VIDEO_BYTES, &length),
+          T64_STATUS_NOT_READY, "video_copy on an empty ring", empty->machine, before);
+  untouched(&tally, length == 77u && all_sentinel(packet, sizeof packet),
+            "video_copy(empty) bytes and length");
+  accepted(&tally,
+           t64_machine_output_status(empty->machine, &ring) == T64_STATUS_OK &&
+               ring.video_queued == 0u && ring.video_free == 2u && ring.video_next_bytes == 0u &&
+               ring.audio_queued == 0u && ring.audio_free == 2u && ring.audio_next_bytes == 0u &&
+               ring.text_pending_bytes == 0u,
+           "output_status of empty rings: nothing queued, capacity two packets each, no text");
+
+  /* (A) An undrained run stops with RESOURCE_LIMIT at backpressure. */
+  accepted(&tally, run_undrained_to_stall(machine, &stall_tick, &budget_stops),
+           "an undrained run reaches a RESOURCE_LIMIT stall at backpressure");
+  (void)printf("observed: undrained composite run stalls at backpressure at guest tick %llu "
+               "(after %u budget stops)\n",
+               (unsigned long long)stall_tick, budget_stops);
+  accepted(&tally, stall_tick > 0u && stall_tick < T64C_PIN_COMPLETION_TICK,
+           "the stall is before the guest's completion tick");
+  accepted(&tally,
+           t64_machine_output_status(machine, &ring) == T64_STATUS_OK && ring.video_queued == 2u &&
+               ring.video_free == 0u && ring.video_next_bytes == T64C_LIT_VIDEO_PACKET_BYTES,
+           "at the stall the video ring is full (two packets queued, none free)");
+  T64C_CHECK(&tally, digest_of(machine, before));
+  {
+    t64_stop_result stop = T64_STOP_RESULT_INIT;
+    const t64_status status = t64_machine_advance(
+        machine,
+        &(t64_stop_request)T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, T64C_RUN_BOUND), &stop);
+
+    accepted(&tally,
+             status == T64_STATUS_OK && stop.reason == T64_STOP_REASON_RESOURCE_LIMIT &&
+                 stop.tick == stall_tick && t64c_stop_class(stop.reason) == T64C_CLASS_GUEST_STOP &&
+                 t64c_stop_resume(stop.reason) == T64C_RESUME_RESUMABLE &&
+                 digest_of(machine, after) && memcmp(before, after, sizeof before) == 0,
+             "a further advance without a drain stops again at the same tick and moves nothing");
+  }
+
+  /* (B) Copy-out: info, size query, short copy refused, exact copy accepted. */
+  accepted(&tally,
+           t64_video_info(machine, &video) == T64_STATUS_OK &&
+               video.width == T64C_LIT_VIDEO_WIDTH && video.height == T64C_LIT_VIDEO_HEIGHT &&
+               video.packet_bytes == T64C_LIT_VIDEO_PACKET_BYTES &&
+               video.output_encoding == T64_VIDEO_ENCODING_RGBA8 &&
+               strcmp(video.profile_id, T64C_PROFILE_ID) == 0,
+           "video_info of the oldest packet: 4x3 RGBA8, 48 bytes, the composite profile");
+  accepted(&tally,
+           t64_machine_output_status(machine, &ring) == T64_STATUS_OK &&
+               ring.video_next_bytes == video.packet_bytes && ring.video_queued == 2u,
+           "output_status agrees with video_info (next packet size, two queued)");
+  length = 0u;
+  refused(&tally, t64_video_copy(machine, NULL, 0u, &length), T64_STATUS_BUFFER_TOO_SMALL,
+          "video_copy size query (NULL, capacity 0)", machine, before);
+  untouched(&tally, length == T64C_LIT_VIDEO_PACKET_BYTES, "the size query reports 48 bytes");
+  poison(packet, sizeof packet);
+  length = 0u;
+  refused(&tally, t64_video_copy(machine, packet, T64C_LIT_VIDEO_PACKET_BYTES - 1u, &length),
+          T64_STATUS_BUFFER_TOO_SMALL, "video_copy into a buffer one byte short", machine, before);
+  untouched(&tally,
+            length == T64C_LIT_VIDEO_PACKET_BYTES && all_sentinel(packet, sizeof packet) &&
+                t64_machine_output_status(machine, &ring) == T64_STATUS_OK &&
+                ring.video_queued == 2u,
+            "the short copy changed no byte and dequeued nothing");
+  refused(&tally, t64_video_copy(machine, NULL, T64C_LIT_VIDEO_PACKET_BYTES, &length),
+          T64_STATUS_INVALID_ARGUMENT, "video_copy into a NULL buffer with a capacity", machine,
+          before);
+  refused(&tally, t64_video_copy(machine, packet, sizeof packet, NULL), T64_STATUS_INVALID_ARGUMENT,
+          "video_copy with a NULL length output", machine, before);
+  refused(&tally, t64_video_info(machine, NULL), T64_STATUS_INVALID_ARGUMENT,
+          "video_info with a NULL output", machine, before);
+  poison(packet, sizeof packet);
+  length = 0u;
+  accepted(&tally,
+           t64_video_copy(machine, packet, sizeof packet, &length) == T64_STATUS_OK &&
+               length == T64C_LIT_VIDEO_PACKET_BYTES &&
+               memcmp(packet, video_literal, sizeof video_literal) == 0 &&
+               all_sentinel(packet + length, sizeof packet - length) &&
+               t64_machine_output_status(machine, &ring) == T64_STATUS_OK && ring.video_queued == 1u &&
+               ring.video_free == 1u,
+           "video_copy copies the 48 literal bytes, writes nothing past them and dequeues one packet");
+  run->video_count = 0u;
+  (void)memcpy(run->video[run->video_count++], packet, T64C_LIT_VIDEO_PACKET_BYTES);
+
+  /* (C) A drain lets the next advance make progress; nothing is lost. */
+  T64C_CHECK(&tally, t64c_drain_video(fixture, run));
+  accepted(&tally,
+           run->video_count == 2u && t64_machine_output_status(machine, &ring) == T64_STATUS_OK &&
+               ring.video_queued == 0u && ring.video_free == 2u,
+           "draining the ring leaves it empty with both slots free");
+  run->tick = stall_tick;
+  accepted(&tally, advance_drained(fixture, run, T64C_RUN_BOUND, false) &&
+                       run->stop_reason == T64_STOP_REASON_GUEST_COMPLETION &&
+                       run->tick > stall_tick,
+           "after the drain the next advance makes progress and the guest completes");
+  T64C_CHECK(&tally, t64c_drain_video(fixture, run));
+  {
+    bool equal = true;
+
+    for (i = 0u; i < run->video_count; i++) {
+      equal = equal && memcmp(run->video[i], video_literal, sizeof video_literal) == 0;
+    }
+    accepted(&tally, equal, "every video packet matches the independent literal bytes");
+  }
+  (void)printf("%s: video packet count %u (pin %u): %s\n", T64C_PIN_LABEL,
+               (unsigned)run->video_count, (unsigned)T64C_PIN_VIDEO_PACKET_COUNT,
+               run->video_count == T64C_PIN_VIDEO_PACKET_COUNT ? "equal" : "DIFFERENT");
+  T64C_CHECK(&tally, run->video_count == T64C_PIN_VIDEO_PACKET_COUNT);
+
+  /* (D) The audio ring holds both packets; the text cursor was never drained. */
+  accepted(&tally,
+           t64_machine_output_status(machine, &ring) == T64_STATUS_OK && ring.audio_queued == 2u &&
+               ring.audio_free == 0u && ring.audio_next_bytes == T64C_LIT_AUDIO_PACKET_BYTES &&
+               ring.text_pending_bytes == T64C_LIT_TRANSCRIPT_BYTES && ring.video_queued == 0u,
+           "output_status at completion: audio ring full, 188 transcript bytes pending, video empty");
+  accepted(&tally,
+           t64_audio_info(machine, &audio) == T64_STATUS_OK &&
+               audio.byte_length == T64C_LIT_AUDIO_PACKET_BYTES &&
+               audio.encoding == T64_AUDIO_ENCODING_S16BE && audio.channels == 2u &&
+               audio.bits_per_sample == 16u && strcmp(audio.profile_id, T64C_PROFILE_ID) == 0,
+           "audio_info of the oldest packet: S16BE stereo, 16 bytes");
+  T64C_CHECK(&tally, digest_of(machine, before));
+  length = 0u;
+  refused(&tally, t64_audio_copy(machine, NULL, 0u, &length), T64_STATUS_BUFFER_TOO_SMALL,
+          "audio_copy size query (NULL, capacity 0)", machine, before);
+  untouched(&tally, length == T64C_LIT_AUDIO_PACKET_BYTES, "the size query reports 16 bytes");
+  poison(packet, sizeof packet);
+  refused(&tally, t64_audio_copy(machine, packet, T64C_LIT_AUDIO_PACKET_BYTES - 1u, &length),
+          T64_STATUS_BUFFER_TOO_SMALL, "audio_copy into a buffer one byte short", machine, before);
+  untouched(&tally, all_sentinel(packet, sizeof packet), "the short audio copy changed no byte");
+  refused(&tally, t64_audio_info(machine, NULL), T64_STATUS_INVALID_ARGUMENT,
+          "audio_info with a NULL output", machine, before);
+  for (i = 0u; i < T64C_LIT_AUDIO_PACKET_COUNT; i++) {
+    poison(packet, sizeof packet);
+    length = 0u;
+    accepted(&tally,
+             t64_audio_copy(machine, packet, sizeof packet, &length) == T64_STATUS_OK &&
+                 length == T64C_LIT_AUDIO_PACKET_BYTES &&
+                 memcmp(packet, audio_literal[i], T64C_LIT_AUDIO_PACKET_BYTES) == 0 &&
+                 all_sentinel(packet + length, sizeof packet - length),
+             i == 0u ? "audio_copy of packet 0 equals the independent literal"
+                     : "audio_copy of packet 1 equals the independent literal");
+  }
+  accepted(&tally,
+           t64_machine_output_status(machine, &ring) == T64_STATUS_OK && ring.audio_queued == 0u &&
+               ring.audio_free == 2u,
+           "both audio packets dequeued: the ring is empty");
+
+  free(run);
+  accepted(&tally, close_balanced(fixture), "destroy balanced the ledger");
+  accepted(&tally, close_balanced(empty), "destroy of the second instance balanced its ledger");
+  return t64c_report("ops-rings", &tally);
+}
+
+/* ---- ops-text -------------------------------------------------------------- */
+
+static int case_text(const t64c_args *args) {
+  static const char literal[] = T64C_LIT_TRANSCRIPT_TEXT;
+  t64c_tally tally = {0ul, 0ul};
+  t64c_fixture *fixture = t64c_fixture_new(args->rom_path);
+  t64c_run *run = (t64c_run *)calloc(1u, sizeof *run);
+  t64_machine *machine;
+  t64_output_status ring = T64_OUTPUT_STATUS_INIT;
+  t64_output_drain_result result = T64_OUTPUT_DRAIN_RESULT_INIT;
+  uint8_t before[T64_DIGEST_SIZE];
+  uint8_t text[T64C_RUN_TEXT_MAX];
+  uint8_t sentinel[T64C_RUN_TEXT_MAX];
+  uint8_t unused[8];
+  char hex[T64C_SHA256_HEX_SIZE];
+  size_t pending;
+  size_t total;
+
+  if (fixture == NULL || run == NULL) {
+    free(run);
+    t64c_fixture_free(fixture);
+    return 2;
+  }
+  machine = fixture->machine;
+
+  /* refused before admission */
+  poison(unused, sizeof unused);
+  refused(&tally, t64_machine_output_drain(machine, unused, sizeof unused, &result),
+          T64_STATUS_NOT_READY, "output_drain before an image is admitted", machine, NULL);
+  untouched(&tally, all_sentinel(unused, sizeof unused), "output_drain(NOT_READY) bytes");
+  T64C_CHECK_U32(&tally, t64c_fixture_admit(fixture), T64_STATUS_OK);
+  T64C_CHECK(&tally, t64c_queue_literal_inputs(fixture));
+
+  /* accepted: an empty drain succeeds with no bytes */
+  accepted(&tally,
+           t64_machine_output_drain(machine, unused, sizeof unused, &result) == T64_STATUS_OK &&
+               result.copied_bytes == 0u && result.lost_output == 0u,
+           "an empty drain succeeds with zero copied bytes");
+
+  /* Run until the guest has printed its first lines (video and audio drained). */
+  accepted(&tally, advance_drained(fixture, run, UINT64_C(546000), true) && run->tick == 546000u,
+           "advance to tick 546000 with the video and audio rings drained");
+  T64C_CHECK_U32(&tally, t64_machine_output_status(machine, &ring), T64_STATUS_OK);
+  pending = (size_t)ring.text_pending_bytes;
+  accepted(&tally, pending > 0u && pending < sizeof literal - 1u,
+           "the guest has printed part of its transcript (output_status text_pending_bytes)");
+  T64C_CHECK(&tally, digest_of(machine, before));
+
+  /* refused: caller faults leave the cursor and the buffers alone */
+  poison(text, sizeof text);
+  (void)memcpy(sentinel, text, sizeof sentinel);
+  refused(&tally, t64_machine_output_drain(machine, text, pending - 1u, &result),
+          T64_STATUS_BUFFER_TOO_SMALL, "output_drain into a buffer one byte short", machine, before);
+  untouched(&tally,
+            result.copied_bytes == 0u && result.required_bytes == pending &&
+                memcmp(text, sentinel, sizeof text) == 0 &&
+                t64_machine_output_status(machine, &ring) == T64_STATUS_OK &&
+                ring.text_pending_bytes == pending,
+            "the short drain reports required_bytes, copies nothing and keeps the cursor");
+  refused(&tally, t64_machine_output_drain(machine, NULL, 0u, &result), T64_STATUS_BUFFER_TOO_SMALL,
+          "output_drain size query (NULL, capacity 0)", machine, before);
+  untouched(&tally, result.required_bytes == pending, "the size query reports the pending bytes");
+  refused(&tally, t64_machine_output_drain(machine, NULL, 16u, &result), T64_STATUS_INVALID_ARGUMENT,
+          "output_drain into a NULL buffer with a capacity", machine, before);
+  refused(&tally, t64_machine_output_drain(machine, text, sizeof text, NULL),
+          T64_STATUS_INVALID_ARGUMENT, "output_drain with a NULL result", machine, before);
+  refused(&tally, t64_machine_output_drain(NULL, text, sizeof text, &result),
+          T64_STATUS_INVALID_ARGUMENT, "output_drain on a NULL machine", machine, before);
+
+  /* accepted: an exact drain copies the printed prefix and moves the cursor */
+  accepted(&tally,
+           t64_machine_output_drain(machine, text, pending, &result) == T64_STATUS_OK &&
+               result.copied_bytes == pending && memcmp(text, literal, pending) == 0 &&
+               result.lost_output == 0u && result.total_attempted_bytes_exact == 1u &&
+               result.total_attempted_bytes == pending &&
+               t64_machine_output_status(machine, &ring) == T64_STATUS_OK &&
+               ring.text_pending_bytes == 0u,
+           "an exact drain copies the printed prefix of the literal transcript, nothing lost");
+  total = pending;
+
+  /* accepted: the rest after completion; the whole transcript equals the literal */
+  T64C_CHECK(&tally, advance_drained(fixture, run, T64C_RUN_BOUND, true));
+  T64C_CHECK_U32(&tally, t64_machine_output_status(machine, &ring), T64_STATUS_OK);
+  pending = (size_t)ring.text_pending_bytes;
+  accepted(&tally,
+           t64_machine_output_drain(machine, text + total, sizeof text - total, &result) ==
+                   T64_STATUS_OK &&
+               result.copied_bytes == pending && total + pending == T64C_LIT_TRANSCRIPT_BYTES &&
+               result.total_attempted_bytes == T64C_LIT_TRANSCRIPT_BYTES &&
+               result.total_attempted_bytes_exact == 1u && result.lost_output == 0u,
+           "the rest of the transcript drains after the guest completes (188 bytes in all)");
+  total += pending;
+  accepted(&tally, total == T64C_LIT_TRANSCRIPT_BYTES && memcmp(text, literal, total) == 0,
+           "the two drains concatenate to the independent literal transcript");
+  t64c_sha256_hex_of(text, total, hex);
+  accepted(&tally, strcmp(hex, T64C_LIT_TRANSCRIPT_SHA256_HEX) == 0,
+           "transcript SHA-256 (consumer's own implementation) equals the literal");
+  accepted(&tally,
+           t64_machine_output_drain(machine, unused, sizeof unused, &result) == T64_STATUS_OK &&
+               result.copied_bytes == 0u,
+           "a drain after the cursor reached the end copies nothing");
+
+  free(run);
+  accepted(&tally, close_balanced(fixture), "destroy balanced the ledger");
+  return t64c_report("ops-text", &tally);
+}
+
+/* ---- ops-save -------------------------------------------------------------- */
+
+#define T64C_SAVE_BYTES 32768u
+
+static void save_pattern(uint8_t *bytes) {
+  size_t i;
+
+  for (i = 0u; i < T64C_SAVE_BYTES; i++) {
+    bytes[i] = (uint8_t)(i * 7u + i / 251u);
+  }
+}
+
+static bool save_generation(t64_machine *machine, uint64_t *generation) {
+  t64_save_info info = T64_SAVE_INFO_INIT;
+
+  if (t64_machine_save_info(machine, T64_SAVE_SRAM_32K, &info) != T64_STATUS_OK) {
+    return false;
+  }
+  *generation = info.write_generation;
+  return true;
+}
+
+static int case_save(const t64c_args *args) {
+  t64c_tally tally = {0ul, 0ul};
+  t64c_fixture *fixture = open_admitted(args);
+  t64c_fixture *empty = t64c_fixture_new(args->rom_path);
+  t64_machine *machine;
+  t64_save_info info = T64_SAVE_INFO_INIT;
+  uint8_t *pattern = (uint8_t *)malloc(T64C_SAVE_BYTES);
+  uint8_t *swapped = (uint8_t *)malloc(T64C_SAVE_BYTES);
+  uint8_t *reversed = (uint8_t *)malloc(T64C_SAVE_BYTES);
+  uint8_t *out = (uint8_t *)malloc(T64C_SAVE_BYTES);
+  uint8_t before[T64_DIGEST_SIZE];
+  uint64_t generation = 0u;
+  uint64_t generation_before = 0u;
+  size_t length = 0u;
+  size_t i;
+  bool blank = true;
+
+  if (fixture == NULL || empty == NULL || pattern == NULL || swapped == NULL || reversed == NULL ||
+      out == NULL) {
+    free(pattern);
+    free(swapped);
+    free(reversed);
+    free(out);
+    t64c_fixture_free(fixture);
+    t64c_fixture_free(empty);
+    return 2;
+  }
+  machine = fixture->machine;
+  save_pattern(pattern);
+  for (i = 0u; i + 1u < T64C_SAVE_BYTES; i += 2u) {
+    swapped[i] = pattern[i + 1u];
+    swapped[i + 1u] = pattern[i];
+  }
+  for (i = 0u; i + 3u < T64C_SAVE_BYTES; i += 4u) {
+    reversed[i] = pattern[i + 3u];
+    reversed[i + 1u] = pattern[i + 2u];
+    reversed[i + 2u] = pattern[i + 1u];
+    reversed[i + 3u] = pattern[i];
+  }
+
+  /* refused before admission (R1) */
+  refused(&tally, t64_machine_save_info(empty->machine, T64_SAVE_SRAM_32K, &info),
+          T64_STATUS_NOT_READY, "save_info before an image is admitted", empty->machine, NULL);
+  refused(&tally,
+          t64_machine_save_export(empty->machine, T64_SAVE_SRAM_32K, T64_SAVE_FORMAT_RAW, out,
+                                  T64C_SAVE_BYTES, &length),
+          T64_STATUS_NOT_READY, "save_export before an image is admitted", empty->machine, NULL);
+  refused(&tally,
+          t64_machine_save_import(empty->machine, T64_SAVE_SRAM_32K, T64_SAVE_FORMAT_RAW, pattern,
+                                  T64C_SAVE_BYTES),
+          T64_STATUS_NOT_READY, "save_import before an image is admitted", empty->machine, NULL);
+
+  /* accepted: info and a blank export of a fresh admission */
+  accepted(&tally,
+           t64_machine_save_info(machine, T64_SAVE_SRAM_32K, &info) == T64_STATUS_OK &&
+               info.kind == T64_SAVE_SRAM_32K && info.size_bytes == T64C_SAVE_BYTES &&
+               info.flags == 0u && info.write_generation == 0u,
+           "save_info: SRAM 32K, 32768 bytes, not busy, write_generation 0");
+  length = 0u;
+  accepted(&tally,
+           t64_machine_save_export(machine, T64_SAVE_SRAM_32K, T64_SAVE_FORMAT_RAW, out,
+                                   T64C_SAVE_BYTES, &length) == T64_STATUS_OK &&
+               length == T64C_SAVE_BYTES,
+           "save_export of a fresh admission copies 32768 bytes");
+  for (i = 0u; i < T64C_SAVE_BYTES; i++) {
+    blank = blank && out[i] == 0u;
+  }
+  accepted(&tally, blank, "a fresh admission's save image is blank (all zero)");
+
+  /* refused: the documented check order of export and import, digest unchanged */
+  T64C_CHECK(&tally, digest_of(machine, before));
+  T64C_CHECK(&tally, save_generation(machine, &generation_before));
+  refused(&tally,
+          t64_machine_save_export(NULL, T64_SAVE_SRAM_32K, T64_SAVE_FORMAT_RAW, out, T64C_SAVE_BYTES,
+                                  &length),
+          T64_STATUS_INVALID_ARGUMENT, "save_export on a NULL machine (R0)", machine, before);
+  refused(&tally,
+          t64_machine_save_import(NULL, T64_SAVE_SRAM_32K, T64_SAVE_FORMAT_RAW, pattern,
+                                  T64C_SAVE_BYTES),
+          T64_STATUS_INVALID_ARGUMENT, "save_import on a NULL machine (R0)", machine, before);
+  refused(&tally,
+          t64_machine_save_import(machine, T64_SAVE_SRAM_32K, T64_SAVE_FORMAT_RAW, NULL,
+                                  T64C_SAVE_BYTES),
+          T64_STATUS_INVALID_ARGUMENT, "save_import of a NULL buffer (R2)", machine, before);
+  refused(&tally,
+          t64_machine_save_export(machine, T64_SAVE_SRAM_32K, T64_SAVE_FORMAT_RAW, out,
+                                  T64C_SAVE_BYTES, NULL),
+          T64_STATUS_INVALID_ARGUMENT, "save_export with a NULL length output (R2)", machine, before);
+  refused(&tally,
+          t64_machine_save_export(machine, T64_SAVE_SRAM_32K, T64_SAVE_FORMAT_RAW, NULL, 5u,
+                                  &length),
+          T64_STATUS_INVALID_ARGUMENT, "save_export into a NULL buffer with a capacity (R2)",
+          machine, before);
+  refused(&tally,
+          t64_machine_save_info(machine, T64_SAVE_SRAM_32K, NULL), T64_STATUS_INVALID_ARGUMENT,
+          "save_info with a NULL output", machine, before);
+  refused(&tally, t64_machine_save_info(machine, 0u, &info), T64_STATUS_SAVE_UNKNOWN_DEVICE,
+          "save_info of kind 0 (R4)", machine, before);
+  refused(&tally,
+          t64_machine_save_export(machine, 8u, T64_SAVE_FORMAT_RAW, out, T64C_SAVE_BYTES, &length),
+          T64_STATUS_SAVE_UNKNOWN_DEVICE, "save_export of kind 8 (R4)", machine, before);
+  refused(&tally, t64_machine_save_info(machine, T64_SAVE_FLASHRAM, &info),
+          T64_STATUS_SAVE_UNSUPPORTED_DEVICE, "save_info of FLASHRAM (R5)", machine, before);
+  refused(&tally,
+          t64_machine_save_import(machine, T64_SAVE_TRANSFER_PAK, T64_SAVE_FORMAT_RAW, pattern,
+                                  T64C_SAVE_BYTES),
+          T64_STATUS_SAVE_UNSUPPORTED_DEVICE, "save_import of the transfer pak (R5)", machine,
+          before);
+  refused(&tally, t64_machine_save_info(machine, T64_SAVE_EEPROM_4K, &info),
+          T64_STATUS_SAVE_DEVICE_MISMATCH, "save_info of EEPROM 4K on an SRAM profile (R6)", machine,
+          before);
+  refused(&tally,
+          t64_machine_save_export(machine, T64_SAVE_EEPROM_16K, T64_SAVE_FORMAT_RAW, out,
+                                  T64C_SAVE_BYTES, &length),
+          T64_STATUS_SAVE_DEVICE_MISMATCH, "save_export of EEPROM 16K on an SRAM profile (R6)",
+          machine, before);
+  refused(&tally, t64_machine_save_export(machine, T64_SAVE_SRAM_32K, 0u, out, T64C_SAVE_BYTES, &length),
+          T64_STATUS_SAVE_BAD_FORMAT, "save_export in format 0 (R7)", machine, before);
+  refused(&tally, t64_machine_save_import(machine, T64_SAVE_SRAM_32K, 4u, pattern, T64C_SAVE_BYTES),
+          T64_STATUS_SAVE_BAD_FORMAT, "save_import in format 4 (R7)", machine, before);
+  refused(&tally,
+          t64_machine_save_import(machine, T64_SAVE_SRAM_32K, T64_SAVE_FORMAT_RAW, pattern,
+                                  T64C_SAVE_BYTES - 1u),
+          T64_STATUS_SAVE_SIZE_MISMATCH, "save_import one byte short (R8)", machine, before);
+  refused(&tally,
+          t64_machine_save_import(machine, T64_SAVE_SRAM_32K, T64_SAVE_FORMAT_RAW, pattern,
+                                  T64C_SAVE_BYTES + 1u),
+          T64_STATUS_SAVE_SIZE_MISMATCH, "save_import one byte long (R8)", machine, before);
+  poison(out, T64C_SAVE_BYTES);
+  length = 0u;
+  refused(&tally,
+          t64_machine_save_export(machine, T64_SAVE_SRAM_32K, T64_SAVE_FORMAT_RAW, out,
+                                  T64C_SAVE_BYTES - 1u, &length),
+          T64_STATUS_BUFFER_TOO_SMALL, "save_export into a buffer one byte short (R8)", machine,
+          before);
+  untouched(&tally, length == T64C_SAVE_BYTES && all_sentinel(out, T64C_SAVE_BYTES),
+            "the short export reports 32768 and leaves the buffer untouched");
+  {
+    uint64_t now = 99u;
+
+    accepted(&tally, save_generation(machine, &now) && now == generation_before,
+             "no refusal moved write_generation");
+  }
+
+  /* accepted: import then export in every byte order */
+  accepted(&tally,
+           t64_machine_save_import(machine, T64_SAVE_SRAM_32K, T64_SAVE_FORMAT_RAW, pattern,
+                                   T64C_SAVE_BYTES) == T64_STATUS_OK &&
+               save_generation(machine, &generation) && generation == 1u,
+           "save_import RAW of a 32768-byte pattern; write_generation becomes 1");
+  accepted(&tally,
+           t64_machine_save_export(machine, T64_SAVE_SRAM_32K, T64_SAVE_FORMAT_RAW, out,
+                                   T64C_SAVE_BYTES, &length) == T64_STATUS_OK &&
+               length == T64C_SAVE_BYTES && memcmp(out, pattern, T64C_SAVE_BYTES) == 0,
+           "save_export RAW returns the imported bytes");
+  accepted(&tally,
+           t64_machine_save_export(machine, T64_SAVE_SRAM_32K, T64_SAVE_FORMAT_SWAP16, out,
+                                   T64C_SAVE_BYTES, &length) == T64_STATUS_OK &&
+               memcmp(out, swapped, T64C_SAVE_BYTES) == 0,
+           "save_export SWAP16 swaps the two bytes of every 16-bit unit");
+  accepted(&tally,
+           t64_machine_save_export(machine, T64_SAVE_SRAM_32K, T64_SAVE_FORMAT_WORDREV32, out,
+                                   T64C_SAVE_BYTES, &length) == T64_STATUS_OK &&
+               memcmp(out, reversed, T64C_SAVE_BYTES) == 0,
+           "save_export WORDREV32 reverses the four bytes of every 32-bit unit");
+  accepted(&tally,
+           t64_machine_save_import(machine, T64_SAVE_SRAM_32K, T64_SAVE_FORMAT_SWAP16, pattern,
+                                   T64C_SAVE_BYTES) == T64_STATUS_OK &&
+               t64_machine_save_export(machine, T64_SAVE_SRAM_32K, T64_SAVE_FORMAT_RAW, out,
+                                       T64C_SAVE_BYTES, &length) == T64_STATUS_OK &&
+               memcmp(out, swapped, T64C_SAVE_BYTES) == 0 && save_generation(machine, &generation) &&
+               generation == 2u,
+           "save_import SWAP16 stores the swapped bytes; write_generation becomes 2");
+
+  /* refused: SAVE_BUSY while a PI DMA to the SRAM window is in flight (R9);
+   * export has no R9 and still returns the committed bytes */
+  T64C_CHECK_U32(&tally, t64_machine_bus_write(machine, UINT32_C(0x04600000), 4u, UINT32_C(0x1000)),
+                 T64_STATUS_OK);
+  T64C_CHECK_U32(&tally,
+                 t64_machine_bus_write(machine, UINT32_C(0x04600004), 4u, UINT32_C(0x08000000)),
+                 T64_STATUS_OK);
+  T64C_CHECK_U32(&tally, t64_machine_bus_write(machine, UINT32_C(0x04600008), 4u, UINT32_C(0x3f)),
+                 T64_STATUS_OK);
+  accepted(&tally,
+           t64_machine_save_info(machine, T64_SAVE_SRAM_32K, &info) == T64_STATUS_OK &&
+               (info.flags & T64_SAVE_INFO_BUSY) != 0u,
+           "a PI DMA into the SRAM window sets T64_SAVE_INFO_BUSY");
+  T64C_CHECK(&tally, digest_of(machine, before));
+  refused(&tally,
+          t64_machine_save_import(machine, T64_SAVE_SRAM_32K, T64_SAVE_FORMAT_RAW, pattern,
+                                  T64C_SAVE_BYTES),
+          T64_STATUS_SAVE_BUSY, "save_import while the SRAM DMA is active (R9)", machine, before);
+  accepted(&tally,
+           t64_machine_save_export(machine, T64_SAVE_SRAM_32K, T64_SAVE_FORMAT_RAW, out,
+                                   T64C_SAVE_BYTES, &length) == T64_STATUS_OK,
+           "save_export while busy still answers with the committed bytes (no R9)");
+
+  free(pattern);
+  free(swapped);
+  free(reversed);
+  free(out);
+  accepted(&tally, close_balanced(fixture), "destroy balanced the ledger");
+  accepted(&tally, close_balanced(empty), "destroy of the second instance balanced its ledger");
+  return t64c_report("ops-save", &tally);
+}
+
+/* ---- ops-state ------------------------------------------------------------- */
+
+#define T64C_STATE_TRAILER 32u
+
+/* Recompute the whole-blob SHA-256 trailer with the consumer's own hash, so a
+ * blob edited past the integrity check reaches the identity checks behind it. */
+static void state_fix_trailer(uint8_t *blob, size_t length) {
+  t64c_sha256(blob, length - T64C_STATE_TRAILER, blob + length - T64C_STATE_TRAILER);
+}
+
+/* An import that must be refused: the exact status, the report's status and
+ * reason, and an unchanged machine digest. */
+static void state_refusal(t64c_tally *tally, t64_machine *machine, const uint8_t before[T64_DIGEST_SIZE],
+                          const char *label, const uint8_t *blob, size_t length, uint32_t flags,
+                          t64_status expected, uint32_t reason) {
+  t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
+  const t64_status status = t64_machine_state_import(machine, blob, length, flags, &report);
+
+  refused(tally, status, expected, label, machine, before);
+  tally->checks++;
+  if (report.status != expected || report.reason != reason ||
+      report.struct_size != (uint32_t)sizeof report) {
+    tally->failures++;
+    (void)printf("refused: %s: report status=%u reason=%u (expected %u and %u) FAILED\n", label,
+                 (unsigned)report.status, (unsigned)report.reason, (unsigned)expected,
+                 (unsigned)reason);
+  } else {
+    (void)printf("refused: %s: report status=%u reason=%u, struct_size kept\n", label,
+                 (unsigned)report.status, (unsigned)report.reason);
+  }
+}
+
+static int case_state(const t64c_args *args) {
+  t64c_tally tally = {0ul, 0ul};
+  t64c_fixture *fixture = open_admitted(args);
+  t64c_fixture *twin = open_admitted(args);
+  t64c_fixture *empty = t64c_fixture_new(args->rom_path);
+  t64_machine *machine;
+  uint8_t d1[T64_DIGEST_SIZE];
+  uint8_t d2[T64_DIGEST_SIZE];
+  uint8_t now[T64_DIGEST_SIZE];
+  uint8_t trailer[T64C_STATE_TRAILER];
+  uint8_t *blob = NULL;
+  uint8_t *probe = NULL;
+  size_t length = 0u;
+  size_t required = 0u;
+  uint8_t saved;
+  t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
+
+  if (fixture == NULL || twin == NULL || empty == NULL) {
+    t64c_fixture_free(fixture);
+    t64c_fixture_free(twin);
+    t64c_fixture_free(empty);
+    return 2;
+  }
+  machine = fixture->machine;
+
+  /* refused before an image exists */
+  refused(&tally, t64_machine_state_export(empty->machine, NULL, 0u, &length), T64_STATUS_NOT_READY,
+          "state_export before an image is admitted", empty->machine, NULL);
+  {
+    uint8_t one[1] = {0u};
+    t64_state_import_report fresh = T64_STATE_IMPORT_REPORT_INIT;
+
+    refused(&tally, t64_machine_state_import(empty->machine, one, sizeof one, 0u, &fresh),
+            T64_STATUS_NOT_READY, "state_import before an image is admitted", empty->machine, NULL);
+  }
+
+  /* accepted: size query, exact export */
+  T64C_CHECK(&tally, advance_to(machine, UINT64_C(3000), NULL));
+  T64C_CHECK(&tally, digest_of(machine, d1));
+  length = 0u;
+  accepted(&tally,
+           t64_machine_state_export(machine, NULL, 0u, &length) == T64_STATUS_BUFFER_TOO_SMALL &&
+               length > 0u,
+           "state_export size query (NULL, capacity 0) reports the container length");
+  required = length;
+  blob = (uint8_t *)malloc(required);
+  probe = (uint8_t *)malloc(required);
+  if (blob == NULL || probe == NULL) {
+    free(blob);
+    free(probe);
+    t64c_fixture_free(fixture);
+    t64c_fixture_free(twin);
+    t64c_fixture_free(empty);
+    return 2;
+  }
+  poison(probe, required);
+  length = 0u;
+  refused(&tally, t64_machine_state_export(machine, probe, required - 1u, &length),
+          T64_STATUS_BUFFER_TOO_SMALL, "state_export into a buffer one byte short", machine, d1);
+  untouched(&tally, length == required && all_sentinel(probe, required),
+            "the short export reports the required length and writes no byte");
+  refused(&tally, t64_machine_state_export(NULL, probe, required, &length),
+          T64_STATUS_INVALID_ARGUMENT, "state_export on a NULL machine", machine, d1);
+  refused(&tally, t64_machine_state_export(machine, probe, required, NULL),
+          T64_STATUS_INVALID_ARGUMENT, "state_export with a NULL length output", machine, d1);
+  accepted(&tally,
+           t64_machine_state_export(machine, blob, required, &length) == T64_STATUS_OK &&
+               length == required && memcmp(blob, "T64STATE", 8u) == 0 && digest_of(machine, now) &&
+               memcmp(now, d1, sizeof now) == 0,
+           "state_export into an exact buffer: a T64STATE container, the machine unchanged");
+  accepted(&tally,
+           memcmp(blob + 0x70, d1, T64_DIGEST_SIZE) == 0,
+           "the container's declared canonical digest equals t64_machine_digest");
+
+  /* accepted: roll back with an import, then run on identically */
+  T64C_CHECK(&tally, advance_to(machine, UINT64_C(6000), NULL));
+  T64C_CHECK(&tally, digest_of(machine, d2));
+  accepted(&tally, memcmp(d1, d2, sizeof d1) != 0, "advancing changed the machine digest");
+  accepted(&tally,
+           t64_machine_state_import(machine, blob, required, 0u, &report) == T64_STATUS_OK &&
+               report.status == T64_STATUS_OK && report.reason == T64_STATE_REASON_NONE &&
+               report.struct_size == (uint32_t)sizeof report && digest_of(machine, now) &&
+               memcmp(now, d1, sizeof now) == 0,
+           "state_import of the exported container restores the exported digest, report OK");
+  T64C_CHECK(&tally, advance_to(machine, UINT64_C(6000), NULL));
+  accepted(&tally, digest_of(machine, now) && memcmp(now, d2, sizeof now) == 0,
+           "advancing again from the imported state reaches the same digest as before");
+  accepted(&tally,
+           t64_machine_state_import(twin->machine, blob, required, 0u, &report) == T64_STATUS_OK &&
+               digest_of(twin->machine, now) && memcmp(now, d1, sizeof now) == 0 &&
+               advance_to(twin->machine, UINT64_C(6000), NULL) && digest_of(twin->machine, now) &&
+               memcmp(now, d2, sizeof now) == 0,
+           "a second instance imports the container and reaches the same digests");
+  accepted(&tally,
+           t64_machine_state_import(machine, blob, required, T64_STATE_IMPORT_DROP_OBSERVERS, NULL) ==
+                   T64_STATUS_OK &&
+               digest_of(machine, now) && memcmp(now, d1, sizeof now) == 0,
+           "state_import with DROP_OBSERVERS and a NULL report is accepted, same canonical digest");
+  T64C_LARGE_OUT("state_import with a report larger than v1 (trailing bytes untouched)",
+                 t64_state_import_report, T64_STATE_IMPORT_REPORT_INIT,
+                 t64_machine_state_import(machine, blob, required, 0u, &big.value),
+                 big.value.status == T64_STATUS_OK && big.value.reason == T64_STATE_REASON_NONE);
+
+  /* refused: hostile blobs, the documented check order, machine unchanged */
+  T64C_CHECK(&tally, digest_of(machine, d1));
+  state_refusal(&tally, machine, d1, "state_import with an unknown flag bit", blob, required, 0x2u,
+                T64_STATUS_INVALID_ARGUMENT, T64_STATE_REASON_ARG_FLAGS);
+  state_refusal(&tally, machine, d1, "state_import of length 0", blob, 0u, 0u,
+                T64_STATUS_INVALID_ARGUMENT, T64_STATE_REASON_ARG_LENGTH);
+  state_refusal(&tally, machine, d1, "state_import of a NULL blob", NULL, required, 0u,
+                T64_STATUS_INVALID_ARGUMENT, T64_STATE_REASON_ARG_NULL);
+  state_refusal(&tally, machine, d1, "state_import of a truncated blob (one byte short)", blob,
+                required - 1u, 0u, T64_STATUS_STATE_FORMAT, T64_STATE_REASON_TOTAL_LENGTH);
+  saved = blob[0];
+  blob[0] = (uint8_t)(blob[0] ^ 1u);
+  state_refusal(&tally, machine, d1, "state_import with a wrong magic", blob, required, 0u,
+                T64_STATUS_STATE_FORMAT, T64_STATE_REASON_MAGIC);
+  blob[0] = saved;
+  saved = blob[0x0b];
+  blob[0x0b] = 9u;
+  state_refusal(&tally, machine, d1, "state_import with an unknown container version", blob, required,
+                0u, T64_STATUS_STATE_FORMAT, T64_STATE_REASON_CONTAINER_VERSION);
+  blob[0x0b] = saved;
+  saved = blob[required / 2u];
+  blob[required / 2u] = (uint8_t)(saved ^ 1u);
+  state_refusal(&tally, machine, d1, "state_import with one flipped body byte", blob, required, 0u,
+                T64_STATUS_STATE_INTEGRITY, T64_STATE_REASON_TRAILER_SHA256);
+  blob[required / 2u] = saved;
+  (void)memcpy(trailer, blob + required - T64C_STATE_TRAILER, sizeof trailer);
+  saved = blob[0x20];
+  blob[0x20] = (uint8_t)(saved ^ 1u);
+  state_fix_trailer(blob, required);
+  state_refusal(&tally, machine, d1, "state_import of another profile digest (trailer recomputed)",
+                blob, required, 0u, T64_STATUS_STATE_PROFILE, T64_STATE_REASON_PROFILE_DIGEST);
+  blob[0x20] = saved;
+  saved = blob[0x40];
+  blob[0x40] = (uint8_t)(saved ^ 1u);
+  state_fix_trailer(blob, required);
+  state_refusal(&tally, machine, d1, "state_import of another content digest (trailer recomputed)",
+                blob, required, 0u, T64_STATUS_STATE_CONTENT, T64_STATE_REASON_CONTENT_DIGEST);
+  blob[0x40] = saved;
+  saved = blob[0xa0];
+  blob[0xa0] = (uint8_t)(saved ^ 1u);
+  state_fix_trailer(blob, required);
+  state_refusal(&tally, machine, d1, "state_import of another build identity (trailer recomputed)",
+                blob, required, 0u, T64_STATUS_STATE_BUILD, T64_STATE_REASON_BUILD_ID);
+  blob[0xa0] = saved;
+  (void)memcpy(blob + required - T64C_STATE_TRAILER, trailer, sizeof trailer);
+  refused(&tally, t64_machine_state_import(NULL, blob, required, 0u, &report),
+          T64_STATUS_INVALID_ARGUMENT, "state_import on a NULL machine", machine, d1);
+
+  free(blob);
+  free(probe);
+  accepted(&tally, close_balanced(fixture), "destroy balanced the ledger");
+  accepted(&tally, close_balanced(twin), "destroy of the second instance balanced its ledger");
+  accepted(&tally, close_balanced(empty), "destroy of the third instance balanced its ledger");
+  return t64c_report("ops-state", &tally);
+}
+
+/* ---- ops-queries ----------------------------------------------------------- */
+
+#define T64C_NOT_READY_OUT(label, type, init_macro, call, digest_arg)         \
+  do {                                                                         \
+    type out = init_macro;                                                     \
+    uint8_t raw[sizeof out];                                                   \
+    t64_status nr_status;                                                      \
+    poison(&out, sizeof out);                                                  \
+    out.struct_size = (uint32_t)sizeof out;                                    \
+    (void)memcpy(raw, &out, sizeof out);                                       \
+    nr_status = (call);                                                        \
+    refused(&tally, nr_status, T64_STATUS_NOT_READY, label, machine, digest_arg); \
+    untouched(&tally, memcmp(raw, &out, sizeof out) == 0, label);              \
+  } while (0)
+
+static int case_queries(const t64c_args *args) {
+  t64c_tally tally = {0ul, 0ul};
+  t64c_fixture *fixture = t64c_fixture_new(args->rom_path);
+  t64c_run *run = (t64c_run *)calloc(1u, sizeof *run);
+  t64_machine *machine;
+  uint8_t content[T64_DIGEST_SIZE];
+  uint8_t before[T64_DIGEST_SIZE];
+  uint8_t header[T64_ROM_HEADER_SIZE];
+  uint8_t digest_slot[T64_DIGEST_SIZE];
+  uint8_t own[T64C_SHA256_SIZE];
+  size_t size_slot = 77u;
+  size_t length_slot = 77u;
+  t64_output_status ring = T64_OUTPUT_STATUS_INIT;
+  const t64_profile_descriptor *shown = NULL;
+  uint32_t poisoned_slot = 5u;
+
+  if (fixture == NULL || run == NULL) {
+    free(run);
+    t64c_fixture_free(fixture);
+    return 2;
+  }
+  machine = fixture->machine;
+
+  /* NOT_READY before admission: every query that needs an image, outputs untouched */
+  poison(digest_slot, sizeof digest_slot);
+  refused(&tally, t64_machine_digest(machine, digest_slot), T64_STATUS_NOT_READY,
+          "digest before an image is admitted", machine, NULL);
+  untouched(&tally, all_sentinel(digest_slot, sizeof digest_slot), "digest(NOT_READY) output");
+  refused(&tally, t64_machine_content_digest(machine, digest_slot), T64_STATUS_NOT_READY,
+          "content_digest before an image is admitted", machine, NULL);
+  untouched(&tally, all_sentinel(digest_slot, sizeof digest_slot), "content_digest(NOT_READY) output");
+  refused(&tally, t64_machine_rom_size(machine, &size_slot), T64_STATUS_NOT_READY,
+          "rom_size before an image is admitted", machine, NULL);
+  poison(header, sizeof header);
+  refused(&tally, t64_machine_rom_header(machine, header, sizeof header, &length_slot),
+          T64_STATUS_NOT_READY, "rom_header before an image is admitted", machine, NULL);
+  untouched(&tally, length_slot == 77u && all_sentinel(header, sizeof header),
+            "rom_header(NOT_READY) outputs");
+  T64C_NOT_READY_OUT("cpu_stop_detail before an image is admitted", t64_cpu_stop_detail,
+                     T64_CPU_STOP_DETAIL_INIT, t64_machine_cpu_stop_detail(machine, &out), NULL);
+  accepted(&tally,
+           t64_machine_output_status(machine, &ring) == T64_STATUS_OK && ring.video_queued == 0u &&
+               ring.video_free == 2u && ring.audio_queued == 0u && ring.audio_free == 2u &&
+               ring.text_pending_bytes == 0u,
+           "output_status needs no image: zero counts, both rings free");
+  accepted(&tally, t64_machine_is_poisoned(machine, &poisoned_slot) == T64_STATUS_OK && poisoned_slot == 0u,
+           "is_poisoned needs no image and reports 0");
+
+  /* accepted after admission */
+  T64C_CHECK_U32(&tally, t64c_fixture_admit(fixture), T64_STATUS_OK);
+  T64C_CHECK(&tally, digest_of(machine, before));
+  accepted(&tally,
+           t64_machine_content_digest(machine, content) == T64_STATUS_OK &&
+               (t64c_sha256(fixture->rom, fixture->rom_length, own), true) &&
+               memcmp(content, own, sizeof own) == 0,
+           "content_digest equals the consumer's own SHA-256 of the ROM file bytes");
+  accepted(&tally,
+           t64_machine_rom_size(machine, &size_slot) == T64_STATUS_OK &&
+               size_slot == fixture->rom_length,
+           "rom_size equals the file length");
+  accepted(&tally,
+           t64_machine_rom_header(machine, header, sizeof header, &length_slot) == T64_STATUS_OK &&
+               length_slot == T64_ROM_HEADER_SIZE && memcmp(header, fixture->rom, sizeof header) == 0,
+           "rom_header copies the 64 header bytes of the file");
+  accepted(&tally,
+           t64_machine_profile(machine, &shown) == T64_STATUS_OK && shown != NULL &&
+               strcmp(shown->profile_id, T64C_PROFILE_ID) == 0,
+           "machine_profile names the composite profile");
+
+  /* refused: NULL machine on every query, outputs untouched */
+  poison(digest_slot, sizeof digest_slot);
+  refused(&tally, t64_machine_digest(NULL, digest_slot), T64_STATUS_INVALID_ARGUMENT,
+          "digest of a NULL machine", machine, before);
+  untouched(&tally, all_sentinel(digest_slot, sizeof digest_slot), "digest(NULL machine) output");
+  refused(&tally, t64_machine_content_digest(NULL, digest_slot), T64_STATUS_INVALID_ARGUMENT,
+          "content_digest of a NULL machine", machine, before);
+  size_slot = 77u;
+  refused(&tally, t64_machine_rom_size(NULL, &size_slot), T64_STATUS_INVALID_ARGUMENT,
+          "rom_size of a NULL machine", machine, before);
+  untouched(&tally, size_slot == 77u, "rom_size(NULL machine) output");
+  refused(&tally, t64_machine_digest(machine, NULL), T64_STATUS_INVALID_ARGUMENT,
+          "digest into a NULL output", machine, before);
+  refused(&tally, t64_machine_rom_size(machine, NULL), T64_STATUS_INVALID_ARGUMENT,
+          "rom_size into a NULL output", machine, before);
+  length_slot = 0u;
+  refused(&tally, t64_machine_rom_header(machine, NULL, 0u, &length_slot), T64_STATUS_BUFFER_TOO_SMALL,
+          "rom_header size query (NULL, capacity 0)", machine, before);
+  untouched(&tally, length_slot == T64_ROM_HEADER_SIZE, "rom_header size query reports 64");
+  poison(header, sizeof header);
+  refused(&tally, t64_machine_rom_header(machine, header, sizeof header - 1u, &length_slot),
+          T64_STATUS_BUFFER_TOO_SMALL, "rom_header into 63 bytes", machine, before);
+  untouched(&tally, all_sentinel(header, sizeof header), "rom_header(short) bytes");
+  refused(&tally, t64_machine_rom_header(machine, NULL, sizeof header, &length_slot),
+          T64_STATUS_INVALID_ARGUMENT, "rom_header into a NULL buffer with a capacity", machine, before);
+  refused(&tally, t64_machine_profile(NULL, &shown), T64_STATUS_INVALID_ARGUMENT,
+          "machine_profile of a NULL machine", machine, before);
+  refused(&tally, t64_machine_output_status(NULL, &ring), T64_STATUS_INVALID_ARGUMENT,
+          "output_status of a NULL machine", machine, before);
+  refused(&tally, t64_machine_output_status(machine, NULL), T64_STATUS_INVALID_ARGUMENT,
+          "output_status into a NULL output", machine, before);
+
+  /* cpu_stop_detail: NOT_READY until the guest stops, then the terminal detail */
+  T64C_NOT_READY_OUT("cpu_stop_detail before the guest stops", t64_cpu_stop_detail,
+                     T64_CPU_STOP_DETAIL_INIT, t64_machine_cpu_stop_detail(machine, &out), before);
+  T64C_CHECK(&tally, t64c_queue_literal_inputs(fixture));
+  T64C_CHECK(&tally, t64c_run_to_completion(fixture, args->slice, run));
+  T64C_CHECK(&tally, digest_of(machine, before));
+  {
+    t64_cpu_stop_detail detail = T64_CPU_STOP_DETAIL_INIT;
+
+    accepted(&tally,
+             t64_machine_cpu_stop_detail(machine, &detail) == T64_STATUS_OK &&
+                 detail.retired_instructions > 0u && detail.struct_size == (uint32_t)sizeof detail,
+             "cpu_stop_detail after the terminal stop: retired instructions, pc and opcode");
+  }
+  T64C_LARGE_OUT("cpu_stop_detail with a struct larger than v1 (trailing bytes untouched)",
+                 t64_cpu_stop_detail, T64_CPU_STOP_DETAIL_INIT,
+                 t64_machine_cpu_stop_detail(machine, &big.value),
+                 big.value.retired_instructions > 0u);
+  refused(&tally, t64_machine_cpu_stop_detail(machine, NULL), T64_STATUS_INVALID_ARGUMENT,
+          "cpu_stop_detail into a NULL output", machine, before);
+  refused(&tally, t64_machine_cpu_stop_detail(NULL, &(t64_cpu_stop_detail)T64_CPU_STOP_DETAIL_INIT),
+          T64_STATUS_INVALID_ARGUMENT, "cpu_stop_detail of a NULL machine", machine, before);
+
+  free(run);
+  accepted(&tally, close_balanced(fixture), "destroy balanced the ledger");
+  return t64c_report("ops-queries", &tally);
+}
+
+/* ---- ops-trace ------------------------------------------------------------- */
+
+typedef struct {
+  t64_trace_record record;
+  uint8_t tail[8];
+} t64c_wide_record;
+
+static int case_trace(const t64c_args *args) {
+  t64c_tally tally = {0ul, 0ul};
+  t64c_fixture *traced = open_admitted(args);
+  t64c_fixture *plain = open_admitted(args);
+  t64_machine *machine;
+  t64_trace_record records[T64_TRACE_RECORD_CAPACITY];
+  t64c_wide_record wide[4];
+  uint8_t before[T64_DIGEST_SIZE];
+  uint8_t d_plain[T64_DIGEST_SIZE];
+  uint8_t d_traced[T64_DIGEST_SIZE];
+  size_t count = 99u;
+  uint64_t dropped = 99u;
+  bool saturated = true;
+  size_t first_count;
+  size_t i;
+  bool ordered = true;
+
+  if (traced == NULL || plain == NULL) {
+    t64c_fixture_free(traced);
+    t64c_fixture_free(plain);
+    return 2;
+  }
+  machine = traced->machine;
+
+  /* refused: a NULL machine (tracing itself needs no image) */
+  refused(&tally, t64_machine_trace_set_enabled(NULL, true), T64_STATUS_INVALID_ARGUMENT,
+          "trace_set_enabled on a NULL machine", NULL, NULL);
+
+  /* accepted: tracing is observer-only (the digest equals an untraced run) */
+  accepted(&tally, t64_machine_trace_set_enabled(machine, true) == T64_STATUS_OK,
+           "trace_set_enabled(true)");
+  T64C_CHECK(&tally, advance_to(machine, UINT64_C(3000), NULL));
+  T64C_CHECK(&tally, advance_to(plain->machine, UINT64_C(3000), NULL));
+  accepted(&tally,
+           digest_of(machine, d_traced) && digest_of(plain->machine, d_plain) &&
+               memcmp(d_traced, d_plain, sizeof d_traced) == 0,
+           "the machine digest of a traced run equals that of an untraced run");
+
+  /* accepted: drain at record_size v1, FIFO, a second drain finds the queue empty */
+  T64C_CHECK(&tally, digest_of(machine, before));
+  poison(records, sizeof records);
+  count = 0u;
+  dropped = 99u;
+  saturated = true;
+  accepted(&tally,
+           t64_machine_trace_drain(machine, NULL, (uint32_t)sizeof records[0], 0u, &count, &dropped,
+                                   &saturated) == T64_STATUS_OK &&
+               count == 0u,
+           "trace_drain with capacity 0 and a NULL buffer copies nothing");
+  accepted(&tally,
+           t64_machine_trace_drain(machine, records, (uint32_t)sizeof records[0],
+                                   T64_TRACE_RECORD_CAPACITY, &count, &dropped, &saturated) ==
+                   T64_STATUS_OK &&
+               count > 0u && count <= T64_TRACE_RECORD_CAPACITY && !saturated,
+           "trace_drain returns the queued records of the first 3000 ticks");
+  first_count = count;
+  for (i = 1u; i < count; i++) {
+    ordered = ordered && records[i].tick >= records[i - 1u].tick;
+  }
+  accepted(&tally, ordered, "the drained records are in FIFO order (ticks never decrease)");
+  accepted(&tally,
+           t64_machine_trace_drain(machine, records, (uint32_t)sizeof records[0],
+                                   T64_TRACE_RECORD_CAPACITY, &count, &dropped, &saturated) ==
+                   T64_STATUS_OK &&
+               (count == 0u || count < first_count),
+           "a second drain does not return the records again");
+
+  /* a record_size above v1: the stride is the caller's, bytes behind v1 untouched */
+  T64C_CHECK(&tally, advance_to(machine, UINT64_C(6000), NULL));
+  poison(wide, sizeof wide);
+  count = 0u;
+  accepted(&tally,
+           t64_machine_trace_drain(machine, &wide[0].record, (uint32_t)sizeof wide[0], 4u, &count,
+                                   &dropped, &saturated) == T64_STATUS_OK &&
+               count > 0u && count <= 4u,
+           "trace_drain with a record_size larger than v1 fills the caller's stride");
+  {
+    bool tails = true;
+
+    for (i = 0u; i < count; i++) {
+      tails = tails && all_sentinel(wide[i].tail, sizeof wide[i].tail);
+    }
+    accepted(&tally, tails, "the bytes behind each v1 record are untouched");
+  }
+
+  /* refused: record_size below v1 and NULL outputs leave the queue alone */
+  T64C_CHECK(&tally, digest_of(machine, before));
+  refused(&tally,
+          t64_machine_trace_drain(machine, records, (uint32_t)sizeof records[0] - 1u, 4u, &count,
+                                  &dropped, &saturated),
+          T64_STATUS_STRUCT_TOO_SMALL, "trace_drain with a record_size one byte below v1", machine,
+          before);
+  refused(&tally,
+          t64_machine_trace_drain(machine, records, (uint32_t)sizeof records[0], 4u, NULL, &dropped,
+                                  &saturated),
+          T64_STATUS_INVALID_ARGUMENT, "trace_drain with a NULL count output", machine, before);
+  refused(&tally,
+          t64_machine_trace_drain(machine, NULL, (uint32_t)sizeof records[0], 4u, &count, &dropped,
+                                  &saturated),
+          T64_STATUS_INVALID_ARGUMENT, "trace_drain into a NULL buffer with a capacity", machine,
+          before);
+  refused(&tally,
+          t64_machine_trace_drain(NULL, records, (uint32_t)sizeof records[0], 4u, &count, &dropped,
+                                  &saturated),
+          T64_STATUS_INVALID_ARGUMENT, "trace_drain on a NULL machine", machine, before);
+  accepted(&tally, t64_machine_trace_set_enabled(machine, false) == T64_STATUS_OK,
+           "trace_set_enabled(false)");
+
+  accepted(&tally, close_balanced(traced), "destroy balanced the ledger");
+  accepted(&tally, close_balanced(plain), "destroy of the second instance balanced its ledger");
+  return t64c_report("ops-trace", &tally);
+}
+
+/* ---- ops-bus --------------------------------------------------------------- */
+
+static int case_bus(const t64c_args *args) {
+  t64c_tally tally = {0ul, 0ul};
+  t64c_fixture *fixture = t64c_fixture_new(args->rom_path);
+  t64_machine *machine;
+  uint8_t before[T64_DIGEST_SIZE];
+  uint8_t after[T64_DIGEST_SIZE];
+  uint32_t value = 0u;
+  uint32_t slot = UINT32_C(0x55555555);
+  t64_trace_record records[8];
+  size_t count = 0u;
+  uint64_t dropped = 0u;
+  bool saturated = false;
+
+  if (fixture == NULL) {
+    return 2;
+  }
+  machine = fixture->machine;
+  T64C_CHECK_U32(&tally, t64c_fixture_admit(fixture), T64_STATUS_OK);
+
+  /* accepted: the cartridge window reads the image bytes big-endian at every width */
+  accepted(&tally,
+           t64_machine_bus_read(machine, UINT32_C(0x10000000), 4u, &value) == T64_STATUS_OK &&
+               value == UINT32_C(0x80371240),
+           "bus_read of the cartridge window word equals the file's first four bytes");
+  accepted(&tally,
+           t64_machine_bus_read(machine, UINT32_C(0x10000000), 2u, &value) == T64_STATUS_OK &&
+               value == UINT32_C(0x8037) &&
+               t64_machine_bus_read(machine, UINT32_C(0x10000000), 1u, &value) == T64_STATUS_OK &&
+               value == UINT32_C(0x80),
+           "bus_read of the halfword and the byte equal the file's first bytes");
+
+  /* accepted: RDRAM writes at every width, read back, the digest follows the write */
+  T64C_CHECK(&tally, digest_of(machine, before));
+  accepted(&tally,
+           t64_machine_bus_write(machine, UINT32_C(0x00001000), 4u, UINT32_C(0xdeadbeef)) ==
+                   T64_STATUS_OK &&
+               t64_machine_bus_read(machine, UINT32_C(0x00001000), 4u, &value) == T64_STATUS_OK &&
+               value == UINT32_C(0xdeadbeef) && digest_of(machine, after) &&
+               memcmp(before, after, sizeof before) != 0,
+           "bus_write of an RDRAM word reads back and changes the machine digest");
+  accepted(&tally,
+           t64_machine_bus_write(machine, UINT32_C(0x00001002), 2u, UINT32_C(0xabcd)) ==
+                   T64_STATUS_OK &&
+               t64_machine_bus_write(machine, UINT32_C(0x00001003), 1u, UINT32_C(0x11)) ==
+                   T64_STATUS_OK &&
+               t64_machine_bus_read(machine, UINT32_C(0x00001000), 4u, &value) == T64_STATUS_OK &&
+               value == UINT32_C(0xdeadab11),
+           "halfword and byte writes land big-endian inside the word");
+  T64C_CHECK(&tally, digest_of(machine, before));
+
+  /* refused: address, width, alignment and range; value_out stays, digest stays */
+  slot = UINT32_C(0x55555555);
+  refused(&tally, t64_machine_bus_read(machine, UINT32_C(0x80000000), 4u, &slot),
+          T64_STATUS_BUS_UNMAPPED, "bus_read of an unmapped address", machine, before);
+  untouched(&tally, slot == UINT32_C(0x55555555), "bus_read(unmapped) output");
+  refused(&tally, t64_machine_bus_write(machine, UINT32_C(0x80000000), 4u, 1u),
+          T64_STATUS_BUS_UNMAPPED, "bus_write of an unmapped address", machine, before);
+  refused(&tally, t64_machine_bus_read(machine, UINT32_C(0x00800000), 4u, &slot),
+          T64_STATUS_BUS_UNSUPPORTED, "bus_read of a recognized, unsupported window", machine, before);
+  refused(&tally, t64_machine_bus_read(machine, UINT32_C(0x00000001), 4u, &slot),
+          T64_STATUS_BUS_ALIGNMENT, "bus_read of a misaligned word", machine, before);
+  refused(&tally, t64_machine_bus_write(machine, UINT32_C(0x00000001), 2u, 1u),
+          T64_STATUS_BUS_ALIGNMENT, "bus_write of a misaligned halfword", machine, before);
+  refused(&tally, t64_machine_bus_read(machine, UINT32_C(0xfffffffe), 4u, &slot),
+          T64_STATUS_BUS_RANGE, "bus_read leaving the 32-bit address space", machine, before);
+  refused(&tally, t64_machine_bus_read(machine, UINT32_C(0x10000000), 3u, &slot),
+          T64_STATUS_INVALID_ARGUMENT, "bus_read of width 3", machine, before);
+  refused(&tally, t64_machine_bus_write(machine, UINT32_C(0x00001000), 8u, 1u),
+          T64_STATUS_INVALID_ARGUMENT, "bus_write of width 8", machine, before);
+  refused(&tally, t64_machine_bus_read(machine, UINT32_C(0x10000000), 4u, NULL),
+          T64_STATUS_INVALID_ARGUMENT, "bus_read into a NULL output", machine, before);
+  refused(&tally, t64_machine_bus_read(NULL, UINT32_C(0x10000000), 4u, &slot),
+          T64_STATUS_INVALID_ARGUMENT, "bus_read on a NULL machine", machine, before);
+  untouched(&tally, slot == UINT32_C(0x55555555), "the refused bus_reads left the output alone");
+
+  /* the carve-out: a device refusal with no record to keep changes nothing */
+  refused(&tally, t64_machine_bus_write(machine, UINT32_C(0x10000000), 4u, UINT32_C(0xdeadbeef)),
+          T64_STATUS_BUS_DEVICE_REFUSED,
+          "bus_write into the read-only cartridge window (device refusal, no latch)", machine, before);
+
+  /* the carve-out: a PI request the device rejects latches its own records and
+   * leaves every public observation alone. The write is refused, the digest may
+   * move (the latched length register) and exactly one PI_REFUSED record appears. */
+  {
+    uint8_t content_before[T64_DIGEST_SIZE];
+    uint8_t content_after[T64_DIGEST_SIZE];
+    size_t size_before = 0u;
+    size_t size_after = 0u;
+    t64_save_info save_before = T64_SAVE_INFO_INIT;
+    t64_save_info save_after = T64_SAVE_INFO_INIT;
+
+    T64C_CHECK_U32(&tally, t64_machine_trace_set_enabled(machine, true), T64_STATUS_OK);
+    T64C_CHECK_U32(&tally,
+                   t64_machine_trace_drain(machine, records, (uint32_t)sizeof records[0], 8u, &count,
+                                           &dropped, &saturated),
+                   T64_STATUS_OK);
+    T64C_CHECK_U32(&tally, t64_machine_bus_write(machine, UINT32_C(0x04600000), 4u, UINT32_C(0x1000)),
+                   T64_STATUS_OK);
+    T64C_CHECK_U32(&tally,
+                   t64_machine_bus_write(machine, UINT32_C(0x04600004), 4u, UINT32_C(0x10100000)),
+                   T64_STATUS_OK);
+    T64C_CHECK_U32(&tally,
+                   t64_machine_trace_drain(machine, records, (uint32_t)sizeof records[0], 8u, &count,
+                                           &dropped, &saturated),
+                   T64_STATUS_OK);
+    T64C_CHECK(&tally,
+               t64_machine_content_digest(machine, content_before) == T64_STATUS_OK &&
+                   t64_machine_rom_size(machine, &size_before) == T64_STATUS_OK &&
+                   t64_machine_save_info(machine, T64_SAVE_SRAM_32K, &save_before) == T64_STATUS_OK);
+    refused(&tally, t64_machine_bus_write(machine, UINT32_C(0x0460000c), 4u, UINT32_C(0x3f)),
+            T64_STATUS_BUS_DEVICE_REFUSED,
+            "bus_write of a PI request the device rejects (carve-out: latches its own records)",
+            NULL, NULL);
+    count = 0u;
+    T64C_CHECK_U32(&tally,
+                   t64_machine_trace_drain(machine, records, (uint32_t)sizeof records[0], 8u, &count,
+                                           &dropped, &saturated),
+                   T64_STATUS_OK);
+    accepted(&tally,
+             count == 1u && records[0].device == T64_TRACE_DEVICE_PI &&
+                 records[0].kind == T64_TRACE_KIND_PI_REFUSED,
+             "exactly one trace record appeared: the PI refusal");
+    accepted(&tally,
+             t64_machine_content_digest(machine, content_after) == T64_STATUS_OK &&
+                 t64_machine_rom_size(machine, &size_after) == T64_STATUS_OK &&
+                 t64_machine_save_info(machine, T64_SAVE_SRAM_32K, &save_after) == T64_STATUS_OK &&
+                 memcmp(content_before, content_after, sizeof content_before) == 0 &&
+                 size_before == size_after && memcmp(&save_before, &save_after, sizeof save_before) == 0,
+             "the content digest, the ROM size and the save info did not move");
+  }
+  accepted(&tally, close_balanced(fixture), "destroy balanced the ledger");
+  return t64c_report("ops-bus", &tally);
+}
+
+/* ---- ops-poison-query ------------------------------------------------------ */
+
+static int case_poison_query(const t64c_args *args) {
+  t64c_tally tally = {0ul, 0ul};
+  t64c_fixture *fixture = t64c_fixture_new(args->rom_path);
+  t64_machine *machine;
+  uint32_t slot = UINT32_C(0x5a5a5a5a);
+  uint8_t before[T64_DIGEST_SIZE];
+  uint8_t after[T64_DIGEST_SIZE];
+
+  if (fixture == NULL) {
+    return 2;
+  }
+  machine = fixture->machine;
+  accepted(&tally, t64_machine_is_poisoned(machine, &slot) == T64_STATUS_OK && slot == 0u,
+           "a fresh instance is not poisoned");
+  T64C_CHECK_U32(&tally, t64c_fixture_admit(fixture), T64_STATUS_OK);
+  accepted(&tally, t64_machine_is_poisoned(machine, &slot) == T64_STATUS_OK && slot == 0u,
+           "an instance with an admitted image is not poisoned");
+  slot = UINT32_C(0x5a5a5a5a);
+  T64C_CHECK(&tally, digest_of(machine, before));
+  refused(&tally, t64_machine_is_poisoned(NULL, &slot), T64_STATUS_INVALID_ARGUMENT,
+          "is_poisoned of a NULL machine", machine, before);
+  untouched(&tally, slot == UINT32_C(0x5a5a5a5a), "is_poisoned(NULL machine) output");
+  refused(&tally, t64_machine_is_poisoned(machine, NULL), T64_STATUS_INVALID_ARGUMENT,
+          "is_poisoned into a NULL output", machine, before);
+
+  /* a caller fault never poisons: a run of refused calls leaves it at 0 */
+  (void)t64_machine_queue_input(machine, UINT64_C(1), 1u, 0u, 0, 0);
+  (void)t64_machine_advance(machine, &(t64_stop_request)T64_STOP_REQUEST_INIT(99u, UINT64_C(1)),
+                            &(t64_stop_result)T64_STOP_RESULT_INIT);
+  (void)t64_machine_admit_rom(machine, fixture->rom, 3u);
+  (void)t64_machine_bus_read(machine, UINT32_C(0x80000000), 4u, &slot);
+  (void)t64_machine_save_import(machine, 9u, 1u, fixture->rom, 1u);
+  slot = UINT32_C(0x5a5a5a5a);
+  accepted(&tally,
+           t64_machine_is_poisoned(machine, &slot) == T64_STATUS_OK && slot == 0u &&
+               digest_of(machine, after),
+           "after refused calls of every kind the instance is still not poisoned");
+  accepted(&tally, close_balanced(fixture), "destroy balanced the ledger");
+  return t64c_report("ops-poison-query", &tally);
+}
+
 /* ---- dispatch -------------------------------------------------------------- */
 
 typedef struct {
@@ -1242,7 +2498,11 @@ static const t64c_ops_case t64c_ops_cases[] = {
     {"ops-struct-size", case_struct_size}, {"ops-profile", case_profile},
     {"ops-admission", case_admission}, {"ops-input", case_input},
     {"ops-advance", case_advance},     {"ops-reset", case_reset},
-    {"ops-unload", case_unload},
+    {"ops-unload", case_unload},       {"ops-rings", case_rings},
+    {"ops-text", case_text},           {"ops-save", case_save},
+    {"ops-state", case_state},         {"ops-queries", case_queries},
+    {"ops-trace", case_trace},         {"ops-bus", case_bus},
+    {"ops-poison-query", case_poison_query},
 };
 
 bool t64c_ops_known(const char *name) {

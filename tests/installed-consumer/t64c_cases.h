@@ -79,6 +79,10 @@ typedef struct {
 /* Drain every queued video packet, every queued audio packet and the new
  * ISViewer text into the run record. False on an unexpected status. */
 bool t64c_drain_all(t64c_fixture *fixture, t64c_run *run);
+/* The three drains separately (video and audio packets; the new ISViewer text). */
+bool t64c_drain_video(t64c_fixture *fixture, t64c_run *run);
+bool t64c_drain_audio(t64c_fixture *fixture, t64c_run *run);
+bool t64c_drain_text(t64c_fixture *fixture, t64c_run *run);
 /* Advance the admitted machine in slices of slice ticks (0: the default) up to
  * T64C_RUN_BOUND, draining after every advance, until the guest completes.
  * Records the stop, the tick and the number of RESOURCE_LIMIT stops. */
