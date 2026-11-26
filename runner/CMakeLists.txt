@@ -805,6 +805,20 @@ add_test(NAME harness.phase10-qualification
 set_tests_properties(harness.phase10-qualification PROPERTIES
   LABELS "harness;qualification;phase10" TIMEOUT 120)
 
+# Phase 11 qualifier controls (plan 11-24): the Phase 10 case set renamed plus the
+# claims, evidence-document and artifact-identity cases, hermetic python cases of
+# scripts/qualify-phase11.py in scratch git repositories with stub stage tables; no
+# build and no nested CTest run here (F-113). COST is the measured native seconds
+# (W-11). TIMEOUT by the F-108 rule: 8 s native (git and interpreter starts, not
+# instrumented code, so the sanitizer preset runs them at the same speed), so a
+# hosted runner at the multiplier 4.3 needs about 35 s and 150 s is more than four
+# times that and more than 18 times the native figure.
+add_test(NAME harness.phase11-qualification
+  COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/tests/test_phase11_qualification.py
+    --selftest)
+set_tests_properties(harness.phase11-qualification PROPERTIES
+  LABELS "harness;qualification;phase11" TIMEOUT 150 COST 8)
+
 # Publisher controls: the module is compiled with the testing hooks, like the
 # test twin of the runner, and never reaches the production runner.
 add_executable(test_artifact_publisher tests/test_artifact_publisher.c

@@ -39,4 +39,5 @@
 # and install.setup join it (1 name plus 2 = 3).
 3	^repo\.installed-case-map$
 1	^unit\.core\.state\.v26-z-product-bound$
-0	^harness\.phase11-qualification$
+# plan 11-24: the hermetic test of scripts/qualify-phase11.py (no fixture: one name).
+1	^harness\.phase11-qualification$

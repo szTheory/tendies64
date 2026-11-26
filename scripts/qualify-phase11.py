@@ -125,10 +125,10 @@ TOOL_PATHS = (
     "docs/abi/FREEZE-CANDIDATE.md", "docs/abi/header.sha256", "docs/abi/public-symbols.txt",
     "docs/abi/layout.c", "docs/abi/status-classes.txt",
     "scripts/preflight-phase11.sh", "scripts/preflight-phase11-regexes.txt",
-    "scripts/qualify-phase11.py",
+    "scripts/qualify-phase11.py", "scripts/tests/test_phase11_qualification.py",
 )
 
-# The four goldens of the freeze record: block key, golden file (PLAN 11-23).
+# The four goldens of the freeze record: block key, golden file (plan 11-23).
 FREEZE_GOLDENS = (
     ("header_sha256", "docs/abi/header.sha256"),
     ("public_symbols_sha256", "docs/abi/public-symbols.txt"),
@@ -529,17 +529,87 @@ def _stage_table(bases: dict[str, str]) -> list[dict[str, Any]]:
                        "--output-junit", "{record}/phase11-junit.xml"]
     return [
         _stage(
+            "ci-scanner",
+            "CI workflow scanner and its 138-case selftest (F-115): measured 0.03 s and 2 s natively; limits of 30 s and 60 s cover interpreter and shell start on a loaded host",
+            [
+                _command(["sh", "scripts/check-ci-yml.sh"], 30, 0.03,
+                         marker=r"^check-ci-yml: ok$"),
+                _command(["sh", "scripts/check-ci-yml.sh", "--selftest"], 60,
+                         2.0, check="ci-selftest",
+                         marker=r"^check-ci-yml selftest: cases=[0-9]+ failures=0$"),
+            ]),
+        _stage(
             "inventory",
             "exact test inventory of the gate preset (the PHASE11_TESTS block is part of it): measured 0.6 to 1 s natively (328 names); limit 60 s",
             [_command(["sh", "scripts/check-test-inventory.sh", "--preset", "gate"],
                       60, 1.0, check="inventory",
                       marker=r"^test inventory PASS preset=gate count=[0-9]+$")]),
         _stage(
+            "oracle",
+            "owner-gated oracle request stays blocked (Phase 10 PIN-IMPACT section 8; no Phase 11 plan changes it): measured 0.09 s per run natively, limit 30 s covers interpreter start on a loaded host",
+            [
+                _command([PYTHON, "-B", "scripts/check-rdp-oracle-authority.py",
+                          "--expect-blocked"], 30, 0.09, expect=0,
+                         marker=r"blocked: no oracle operation is authorized"),
+                _command([PYTHON, "-B", "scripts/check-rdp-oracle-authority.py",
+                          "--require-approved"], 30, 0.09, expect=2,
+                         marker=r"no pinned competent owner/legal decision"),
+            ]),
+        _stage(
+            "abi-cheap",
+            "the build of the gate preset (incremental: measured 2.6 s natively, load 3; the 600 s limit also covers a rebuild after core edits) and the cheap-first ABI, install and API-04 names (the preflight abi-cheap step, 16 names with the install fixture): measured 4.5 s wall natively (PIN-IMPACT plan 11-24 Task 2), so 120 s is 26 times; the earlier figures were 1 s (plan 11-17, load 15) and 8 s (load 20 to 33)",
+            [
+                _command(["cmake", "--build", "--preset", "gate"], 600, 2.6),
+                _command(abi_ctest, 120, 4.5, env=gate_env, marker=r"^100% tests passed"),
+            ]),
+        _stage(
+            "installed",
+            "the Phase 11 CTest names with JUnit on the gate preset (install, installed.consumer, installed.controls, api04, repo.abi, unit.core.api, the case map and this qualifier's own hermetic test): measured 8.8 s wall and 34.7 s summed for 74 names natively at load 3 (PIN-IMPACT plan 11-24 Task 2), so 180 s is 20 times; the hosted multiplier of 4.3 (Phase 10 section 6.1) gives 38 s",
+            [_command(installed_ctest, 180, 8.8, env=gate_env,
+                      marker=r"^100% tests passed", check="junit:phase11-junit.xml")]),
+        _stage(
+            "gate",
+            "the full gate (scripts/gate.sh): measured 156 s in the plan 11-17 closeout (PIN-IMPACT Install steps, load 9 to 11), 145 s in the plan 11-21 closeout and 142 s at load 5.6 to 7.2 in plan 11-22 (326 and 328 names), so 600 s is 3.8 times the largest; a cold Binutils fixture build adds about 186 s (F-111) and stays inside",
+            [_command(["sh", "scripts/gate.sh"], 600, 156,
+                      marker=r"^\[gate\] PASS$", check="gate")],
+            artifacts=("core", "runner_real", "runner_test")),
+        _stage(
+            "sanitize-shipped",
+            "AddressSanitizer and UBSan in the consumer against the shipped Release archive, every case of cases.txt, the sequence at 20,000 steps (check-install.sh sanitize shipped; PIN-IMPACT plan 11-20 Task 2): measured 54 s and 59 s over two runs at load 5 to 19, so 300 s is 5.1 times",
+            [_command(["sh", "scripts/check-install.sh", "sanitize", "shipped"], 300, 59,
+                      marker=r"^check-install: sanitize shipped ok: ",
+                      check="sanitize:shipped")]),
+        _stage(
+            "sanitize-instrumented",
+            "AddressSanitizer and UBSan in the library (cmake --preset asan, the t64_core target, install) and in the consumer, every case, the sequence at 20,000 steps with a machine digest every 8th burst (check-install.sh sanitize instrumented; plan 11-20 Task 2): measured 288 s and 299 s over two runs at load 5 to 19 (the instrumented machine digest costs about 0.35 s), so 1200 s is 4.0 times",
+            [_command(["sh", "scripts/check-install.sh", "sanitize", "instrumented"], 1200,
+                      299, marker=r"^check-install: sanitize instrumented ok: ",
+                      check="sanitize:instrumented")],
+            artifacts=("asan_core",)),
+        _stage(
+            "tsan",
+            "two threads, one instance each, under ThreadSanitizer in library and consumer (check-install.sh tsan; plan 11-20 Task 3): measured 5.4 s in all (library 2 s, consumer 1 s, run 2 s), so 120 s is 22 times and covers a cold configure of the whole tree on a loaded host",
+            [_command(["sh", "scripts/check-install.sh", "tsan"], 120, 5.4,
+                      marker=r"^check-install: tsan ok: two threads, one instance each, no ThreadSanitizer report",
+                      check="tsan")]),
+        _stage(
             "fresh-archive",
             "git archive of HEAD built outside the repository as the gate preset configures it, only t64_core, installed into a prefix with a space, the consumer smoke and composite cases against it (check-install.sh fresh-archive; plan 11-24 Task 1): measured 3.3 s and 4 s in all (library 3 s, consumer under 1 s) at load 3, so 120 s is 30 times and covers a loaded host",
             [_command(["sh", "scripts/check-install.sh", "fresh-archive"], 120, 4,
                       marker=r"^check-install: fresh-archive ok: ", check="fresh-archive")],
             artifacts=("installed_core", "installed_consumer")),
+        _stage(
+            "sweep",
+            "digest sweep of the 21 shipped ids against the Wave 0 base (two tree builds and two sweeps in parallel): measured 41 s and 60.6 s at load 8.5 in Phase 10 (PIN-IMPACT section 7), unchanged by Phase 11 (no production source changed since plan 11-14), so 300 s is 4.9 times the larger",
+            [_command([PYTHON, "-B", "scripts/digest-sweep.py", "--base", wave0, "--head",
+                       "HEAD"], 300, 60.6, check="sweep",
+                      marker=r"^sweep: [0-9]+ shared lines")]),
+        _stage(
+            "freeze",
+            "the bound freeze-candidate record recomputed from the prefix that the fresh-archive stage installed (check-abi.py freeze; the same check as repo.abi-freeze-record on a fresh install): measured 0.11 s natively, limit 60 s covers interpreter, nm and one cc probe on a loaded host",
+            [_command([PYTHON, "-B", "scripts/check-abi.py", "freeze", "--record",
+                       FREEZE_RECORD_SUBPATH, "--prefix", FRESH_PREFIX], 60, 0.2,
+                      marker=r"^check-abi: freeze findings=0$", check="freeze")]),
     ]
 
 
@@ -1036,8 +1106,14 @@ def verify_record(path: Path, *, rehearsal: bool) -> dict[str, Any]:
              "a final record was presented as a rehearsal")
     _require(record.get("statement") == (REHEARSAL_STATEMENT if rehearsal else None),
              "the record statement differs from its rehearsal label")
-    _require(record.get("tier") == TIER and record.get("claims") == CLAIMS,
-             f"the record tier or claims differ from '{TIER}' without hardware or oracle claims")
+    # Every claim must be the JSON value false itself: 0 == False in Python, so a plain
+    # dict comparison would accept a record that says release 0 (a defect of the Phase 10
+    # copy that the claims-pinned case of the hermetic test showed).
+    claims = record.get("claims")
+    _require(record.get("tier") == TIER and isinstance(claims, dict) and
+             sorted(claims) == sorted(CLAIMS) and all(value is False for value in claims.values()),
+             f"the record tier or claims differ from '{TIER}' without hardware, oracle, "
+             "final-ABI or release claims")
     commit = record.get("commit_sha")
     _require(isinstance(commit, str) and HEX40.fullmatch(commit) is not None and
              _git_ok(["merge-base", "--is-ancestor", commit, _head()]),
