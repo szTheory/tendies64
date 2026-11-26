@@ -1540,3 +1540,49 @@ package 0.1.0); the final bind is the last plan of Phase 12; nothing here is a s
 | Other edits | `docs/abi/installed-undefined.txt` comment (the Linux rows are confirmed by the hosted `api04.members` of run 45775107983; the rows are unchanged); `docs/spec/api.md` status line, section 14 (header golden path, the record and its re-bind command) and section 16 (the two new names). No production source, public header, oracle-bound file, `ci.yml` or `gate.sh` changed |
 | Gate growth | 2 names, 0.86 s of COST; far inside the warm spread of 105 s (F-134); the FREEZE ledger row and the cold run are 11-25's (orchestrator-only) |
 | Observation for 11-24 and 11-25 | any later plan that touches a header, the archive's public symbol set, a layout or a class row fails `repo.abi-freeze-record` and needs the amendment steps of the record; 11-25 adds the FREEZE ledger row with the names of 11-22 (`unit.core.state.v26-z-product-bound`, `repo.installed-case-map`) and of this plan; the hosted pair for the bind commits comes with the next push |
+
+### 11-24 The Phase 11 qualifier, the fresh-archive lane and the rehearsal
+
+Evidence tier: unit-tested, authored scope; a software-interface claim only (ABI 0.1, package 0.1.0 candidate; no
+final ABI, no release, no hardware or oracle claim). No production source, public header, bound golden, `ci.yml`
+or `gate.sh` changed. Nothing was pushed. Native seconds are the `Passed` seconds that ctest printed on the local
+host (load 4 to 7).
+
+| Item | Result |
+|------|--------|
+| Commits | `93efcd8` (Task 1: `check-install.sh fresh-archive` and the two-stage qualifier frame), `822500a` (tracer: the tool list names only files that exist at that commit), `292b63c` (RED: the hermetic test against the two-stage frame), `dedb205` (GREEN: twelve-stage table, `harness.phase11-qualification`, inventory and regex rows), then this record |
+| `check-install.sh fresh-archive` (LOCAL or manual lane, no CTest name, not in `ci.yml`) | `git archive HEAD` (1434 files, no `.git` entry) into a `mktemp -d` directory outside the repository; configured as the gate preset does (Ninja, Release, `T64_WERROR=ON`, `-Wdev -Werror=dev --warn-uninitialized`); only `t64_core` is built (3 s); `cmake --install --component Development` into `build/gate/fresh-archive/prefix with space`; exactly the six package files; `check-abi.py abspaths` finds neither the exported tree, its build tree, the repository nor `/Users/ /home/ /private/ /var/folders` in any installed byte; the independent consumer is configured and built against that prefix and its smoke (13 checks) and composite (25 checks) cases pass; 3.1 to 4 s in all at load 3 to 11. The scratch source and build tree are removed at exit |
+| Identity equality (new observation) | the fresh archive's build id equals the gate's: both `t64-build-v1-35e6e1f1d4a1b5fd50b579c0cfb9dd36ac658099d0a207db610006433c1a22d5` (the id hashes production content and build policy, not paths), and the consumer executable embeds exactly that one id. The qualifier requires `core`, `installed_core` and `installed_consumer` to carry the same id whenever a record names them |
+| `scripts/qualify-phase11.py` (thin delta of `qualify-phase10.py`) | schema `t64.phase11-qualification`; private root `build/gate/11-qualification-private`; four base labels read as strict 40-hex lines (`Wave 0 base`, `Install base`, `Freeze base`, `Qualification base`; a rehearsal needs the Wave 0 base, a final record all four); claims `hardware_accuracy`, `oracle_comparison`, `final_abi`, `release` all false and compared as the JSON value `false` itself; exclusions: `.planning/`, `docs/ci-reviews/LOG.md` and the two evidence documents `docs/claims/phase11.md` and `docs/evidence/phase11-qualification.md` (W-9: they cite the record, so a later edit never refuses it); bound inputs: every file changed since the Wave 0 base plus 21 tool paths (the freeze record, its four goldens, `check-install.sh`, `check-abi.py`, the qualifier and its test among them); freeze binding: the machine-read block of `docs/abi/FREEZE-CANDIDATE.md` and the SHA-256 of each of the four golden files, which must equal the block; artifacts: `core`, `runner_real`, `runner_test`, `asan_core`, `installed_core`, `installed_consumer`. The mutant driver of Phase 10 is not a Phase 11 stage |
+| Defect found by the new case `claims-pinned` (Rule 1, in the copy only) | the Phase 10 compare `record["claims"] == CLAIMS` accepts `release: 0` because `0 == False` in Python; the Phase 11 verify requires the same key set and every value `is False`. The closed Phase 10 qualifier was not edited |
+| Hermetic test | `scripts/tests/test_phase11_qualification.py`, 25 cases (`--list-cases`): the 22 Phase 10 cases renamed (the mutant case became `gate-sweep-lane-output-rules`, which also checks the sanitizer, TSan, fresh-archive and freeze output rules) plus `claims-pinned`, `evidence-docs-unbound` and `artifact-identity-and-freeze-binding`. RED (`build/gate/11-24-task2/red.txt`, against the two-stage frame): three failures (`stage-table-shape`, `real-stage-commands-start`, `claims-pinned`); GREEN (`green.txt`): 25 of 25 in 7.9 s |
+| New CTest name | `harness.phase11-qualification`: native 8.46 s (8.77 s inside the gate), `COST 8`, `TIMEOUT 150` (F-108: more than four times the hosted figure 8 x 4.3), labels `harness;qualification;phase11`; `PHASE11_TESTS` has 75 names, the regex row is 1 (no fixture closure), the gate inventory is 329 names |
+| Gate growth | 1 name, 8 s of COST; at the hosted multiplier 4.3 about 35 s of test time spread over four ctest jobs, well inside the warm spread of 105 s (F-134); the fresh-archive, sanitizer and TSan lanes are local and add nothing to `ci.yml`. The FREEZE ledger row and the cold run are 11-25's (orchestrator-only) |
+| Preflight | `sh scripts/preflight-phase11.sh --no-replay` PASS in 45 s (ctest-counts 1 s, abi-cheap 16 names in 4 s, head-ci green on `4b13a90`, linux-compile 233 units under the act image, pii 0 findings) |
+
+Rehearsal (`python3 -B scripts/qualify-phase11.py --native --rehearsal`, then `--verify RECORD --rehearsal`, both exit 0): record
+id `20261126T084217919248Z-dedb2052` at `dedb2052f47ab482d5130a9812726a97c53535b0`, 188 bound inputs, 75 inventory names,
+total 614.07 s, 1-minute host load 5.91 at the start and 7.63 at the end (below the 9 that fails native runs; the origin/main head
+`4b13a90` is hosted-green). A tracer record of the two-stage frame (`20261126T083650266129Z-822500a4`, 187 inputs) also
+verified. Both are private and rehearsals: the record is not final evidence and is refused as such.
+
+| Stage | Seconds | Limit | Table measured | What it ran |
+|-------|---------|-------|----------------|-------------|
+| ci-scanner | 1.78 | 90 | 0.03 and 2.0 | scanner and its 138-case selftest |
+| inventory | 0.55 | 60 | 1.0 | exact inventory, 329 names |
+| oracle | 0.15 | 60 | 0.09 each | blocked (exit 0), approval refused (exit 2) |
+| abi-cheap | 6.55 | 720 | 2.6 and 4.5 | incremental gate build 2.44 s, 16 names in 4.11 s |
+| installed | 11.02 | 180 | 8.8 | `ctest -L phase11` with JUnit: 75 names, all passed |
+| gate | 141.38 | 600 | 156 | `scripts/gate.sh` PASS, 329 of 329, ctest wall 86.25 s |
+| sanitize-shipped | 73.59 | 300 | 59 | 24 cases, sequence 20,000 steps, 0 AddressSanitizer references in the archive |
+| sanitize-instrumented | 328.46 | 1200 | 299 | 24 cases, 733 references in the archive, stride 8 |
+| tsan | 5.51 | 120 | 5.4 | two threads, both digests `97f27027...1267c`, 564 and 21 references |
+| fresh-archive | 3.11 | 120 | 4 | 1434 files archived, build id equal to the gate's |
+| sweep | 41.08 | 300 | 60.6 | `sweep: 1599 shared lines, 0 differences, 0 head-only lines` |
+| freeze | 0.28 | 60 | 0.2 | `abi=0.1 package=0.1.0 symbols=35 layout=14/165/190 holes=8 statuses=39 stop_reasons=8`, 0 findings |
+
+| Item | Result |
+|------|--------|
+| Observation for 11-25 (derivation constants) | three stages ran above the table's measured constant: installed 11.02 s (8.8), sanitize-shipped 73.59 s (59) and sanitize-instrumented 328.46 s (299), because the table took the earlier figures of 11-20 (load 5 to 19) and 11-24 Task 2; every limit still holds at least 3.6 times the observed seconds, so no stage is near its kill deadline and nothing was widened. The constants and derivation text may be refreshed only by a commit before the Qualification base is recorded (a later edit of `qualify-phase11.py` is a bound-input change) |
+| Observation for 11-25 (inputs it must not touch) | the freeze record, its four goldens, `check-install.sh`, `check-abi.py` and the qualifier with its test are bound tools; the two evidence documents are the only files a plan may write after the record; the `Qualification base` line is a strict `- Qualification base: <40-hex>` line in a commit that changes only this file; the final run needs the ASan tree `build/asan` and the fresh-archive tree `build/gate/fresh-archive`, which the stages themselves create |
+| Not changed | no production core source, public header, bound golden, oracle-bound file, `ci.yml` or `gate.sh`; no hosted timeout; no tag; nothing pushed (11-25 pushes) |
