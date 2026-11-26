@@ -45,6 +45,11 @@ Modes:
            (CTest repo.abi-freeze-record). --write rewrites header.sha256 and
            the block of FILE after the three other goldens match the tree.
            --nm-file replaces the nm run on the archive by a listing file.
+           The ABI minor of the installed header must equal 1 plus the
+           dated rows of the amendment log (a candidate record), or, when
+           the block holds bound_minor and candidate_amendments (a bound
+           record, plan 12-13), bound_minor plus the rows made after the
+           bind (rows minus candidate_amendments).
 Self-test (CTest repo.abi-selftest):
   --list-cases | --case NAME | --selftest
            seeded breakages of temporary copies of the header and the table,
@@ -692,7 +697,8 @@ def run_abspaths(args):
 
 FREEZE_FENCE = "```freeze-record"
 FREEZE_CLOSE = "```"
-FREEZE_CANDIDATE_MINOR = 1  # the candidate is ABI 0.1; every amendment adds one
+# A record without bound keys is the ABI 0.1 candidate; every amendment adds one.
+FREEZE_CANDIDATE_MINOR = 1
 REAL_RECORD = ROOT / "docs" / "abi" / "FREEZE-CANDIDATE.md"
 REAL_ABI_DIR = ROOT / "docs" / "abi"
 GOLDEN_FILES = (("header", "header.sha256"),
@@ -705,6 +711,9 @@ SCALAR_KEYS = ("abi_version", "package_version", "amendments",
                "stop_reason_count", "layout_structs", "layout_members",
                "layout_constants", "padding_holes")
 LIST_KEYS = ("padding_hole",)
+# Present together only in a record that has been bound (Phase 12, plan 12-13; DR-25):
+# the ABI minor the bind fixed and the number of log rows made before it.
+BOUND_KEYS = ("bound_minor", "candidate_amendments")
 RECORD_LINE_RE = re.compile(r"^([a-z0-9_]+): (\S.*)$")
 AMENDMENT_ROW_RE = re.compile(r"^\|\s*\d{4}-\d{2}-\d{2}\s*\|", re.MULTILINE)
 VERSION_PART_RE = re.compile(
@@ -842,7 +851,7 @@ def parse_record(text):
             findings.append(f"not a key: value line: {line}")
             continue
         key, value = found.group(1), found.group(2).strip()
-        if key not in SCALAR_KEYS and key not in LIST_KEYS:
+        if key not in SCALAR_KEYS and key not in LIST_KEYS and key not in BOUND_KEYS:
             findings.append(f"unknown key: {key}")
         elif key in values and key not in LIST_KEYS:
             findings.append(f"duplicate key: {key}")
@@ -932,6 +941,35 @@ def block_values(measured, golden, amendments):
     return pairs
 
 
+def minor_findings(values, rows, minor):
+    """Findings of the rule that ties the ABI minor of the header to the amendment log.
+
+    A candidate record (no bound keys): minor == FREEZE_CANDIDATE_MINOR + rows.
+    A bound record (bound_minor and candidate_amendments):
+    minor == bound_minor + (rows - candidate_amendments); the rows made before
+    the bind do not pay for a minor raised after it.
+    """
+    if not all(key in values for key in BOUND_KEYS):
+        if minor != FREEZE_CANDIDATE_MINOR + rows:
+            return [f"freeze-record: amendments differs: ABI minor {minor} of the installed "
+                    f"header needs {minor - FREEZE_CANDIDATE_MINOR} amendment row(s) (the "
+                    f"candidate is minor {FREEZE_CANDIDATE_MINOR}), the log has {rows}"]
+        return []
+    numbers = {}
+    for key in BOUND_KEYS:
+        if not re.fullmatch(r"[0-9]+", values[key][0]):
+            return [f"freeze-record: {key} differs: {values[key][0]!r} is not a decimal number"]
+        numbers[key] = int(values[key][0])
+    bound, before = numbers["bound_minor"], numbers["candidate_amendments"]
+    after = rows - before
+    if minor != bound + after:
+        return [f"freeze-record: amendments differs: ABI minor {minor} of the installed header "
+                f"needs {minor - bound} amendment row(s) after the bind (the bound minor is "
+                f"{bound}), the log has {after} after the bind ({rows} in all, {before} of them "
+                f"made before it)"]
+    return []
+
+
 def record_findings(record_text, measured, golden):
     """Findings of the record's block against the golden files and the tree."""
     values, block_findings = parse_record(record_text)
@@ -954,12 +992,7 @@ def record_findings(record_text, measured, golden):
             else:
                 hint = f" (measured {wanted[key]}, recorded {values[key][0]})"
             findings.append(f"freeze-record: {key} differs:{hint}")
-    minor = measured["abi_minor"]
-    if minor != FREEZE_CANDIDATE_MINOR + rows:
-        findings.append(
-            f"freeze-record: amendments differs: ABI minor {minor} of the installed header "
-            f"needs {minor - FREEZE_CANDIDATE_MINOR} amendment row(s) (the candidate is minor "
-            f"{FREEZE_CANDIDATE_MINOR}), the log has {rows}")
+    findings.extend(minor_findings(values, rows, measured["abi_minor"]))
     recorded = sorted(values.get("padding_hole", []))
     for row in sorted(set(measured["holes"]) - set(recorded)):
         findings.append(f"freeze-record: padding_hole differs: measured {row}, not in the record")
@@ -1491,6 +1524,68 @@ def seed_record_no_block(ctx):
     ctx.edit_record(lambda text: text.replace(FREEZE_FENCE, "```text"))
 
 
+# The rule cases rebind a scratch copy at another ABI version: the major and minor
+# of the header are edited, docs/abi/layout.c is regenerated from the edited header,
+# the amendment log gets the wanted number of dated rows, --write rewrites
+# header.sha256 and the block, and the bound keys are put back last, so the seeded
+# state does not depend on what --write keeps. The committed tree never changes.
+
+SEED_ROW = "| 2000-01-01 | header | seeded change | seeded evidence | seeded suite run | {minor} |"
+BOUND_LINE_PREFIXES = ("bound_minor: ", "candidate_amendments: ")
+
+
+def header_with_version(text, major, minor):
+    """The header text with T64_ABI_VERSION_MAJOR and _MINOR set (None keeps one)."""
+    for part, value in (("MAJOR", major), ("MINOR", minor)):
+        if value is None:
+            continue
+        text, count = re.subn(
+            rf"^(#\s*define\s+T64_ABI_VERSION_{part}\s+UINT32_C\(\s*)\d+(\s*\))",
+            lambda m: f"{m.group(1)}{value}{m.group(2)}", text, flags=re.MULTILINE)
+        if count != 1:
+            raise ValueError(f"T64_ABI_VERSION_{part} occurs {count} times")
+    return text
+
+
+def record_with_bound(text, lines):
+    """The record with its bound key lines replaced by LINES (after the amendments line)."""
+    kept = [line for line in text.split("\n") if not line.startswith(BOUND_LINE_PREFIXES)]
+    hits = [i for i, line in enumerate(kept) if line.startswith("amendments: ")]
+    if len(hits) != 1:
+        raise ValueError(f"record line 'amendments' occurs {len(hits)} times")
+    kept[hits[0] + 1:hits[0] + 1] = list(lines)
+    return "\n".join(kept)
+
+
+def record_with_rows(text, count):
+    """The record with exactly COUNT dated rows in its amendment log."""
+    lines = [line for line in text.split("\n") if not AMENDMENT_ROW_RE.match(line)]
+    heads = [i for i, line in enumerate(lines) if line.startswith("| date |")]
+    if len(heads) != 1:
+        raise ValueError(f"the amendment log head occurs {len(heads)} times")
+    lines[heads[0] + 2:heads[0] + 2] = [SEED_ROW.format(minor=n + 1) for n in range(count)]
+    return "\n".join(lines)
+
+
+def seed_rebound(major, minor, bound=(), rows=0):
+    """A seed: the scratch tree rebound at ABI MAJOR.MINOR, ROWS log rows, BOUND key lines."""
+    def seed(ctx):
+        ctx.edit_header(lambda text: header_with_version(text, major, minor))
+        measured = measure_install(ctx.tree, ctx.nm)
+        if measured["layout_text"] is None:
+            raise ValueError("the layout probe of the edited header failed")
+        (ctx.docs / "layout.c").write_text(measured["layout_text"], encoding="utf-8")
+        ctx.edit_record(lambda text: record_with_rows(record_with_bound(text, ()), rows))
+        status, printed = ctx.run(write=True)
+        if status != 0:
+            raise ValueError(f"the scratch rebind was refused: {printed.strip()[-160:]}")
+        ctx.edit_record(lambda text: record_with_bound(text, bound))
+    return seed
+
+
+BOUND_ZERO = ("bound_minor: 0", "candidate_amendments: 0")
+
+
 STOP_RESULT_TAIL = "  uint64_t tick;\n} t64_stop_result;"
 STOP_REQUEST_TAIL = "  uint32_t kind;\n  uint64_t value;\n} t64_stop_request;"
 COMMENT_LINE = "/* A stop request of the given T64_STOP_* kind and value. */"
@@ -1581,6 +1676,19 @@ FREEZE_CASES = {
     "freeze-record-block-missing": (
         "the machine-read block removed from the record", seed_record_no_block,
         ("freeze-record: record malformed:",), (), 1),
+    "freeze-candidate-clean": (
+        "a candidate record (no bound keys) at ABI minor 1 with no amendment row",
+        seed_rebound(None, 1), ("check-abi: freeze findings=0",), ("differs",), 0),
+    "freeze-bound-clean": (
+        "a bound record (bound_minor 0, candidate_amendments 0) at ABI 1.0, no amendment row",
+        seed_rebound(1, 0, BOUND_ZERO),
+        ("check-abi: freeze findings=0", "abi-freeze: headers=1"), ("differs",), 0),
+    "freeze-bound-minor-raised": (
+        "a bound record at ABI 1.1 with no amendment row",
+        seed_rebound(1, 1, BOUND_ZERO),
+        ("freeze-record: amendments differs: ABI minor 1 of the installed header needs 1 "
+         "amendment row(s) after the bind (the bound minor is 0)",),
+        ("abi_version differs", "header_sha256 differs"), 1),
 }
 
 
