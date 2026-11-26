@@ -175,6 +175,35 @@ set_tests_properties(repo.host-isolation PROPERTIES
   TIMEOUT 60
   COST 1.30)
 
+# repo.host-policy (plan 12-09, SC3, T-12-28 to T-12-31, decisions DR-16 to DR-18): the host
+# files below host/ fetch, build, vendor or install no SDL3 source (no FetchContent, no
+# ExternalProject, no add_subdirectory of an SDL, third_party or vendor path, no third_party or
+# vendor directory, no sdl*.c or sdl*.h file, no install rule), carry no application bundle,
+# icon or resource file, show no string that holds the product name, create the window with
+# exactly the title "t64 minimal host (development)" and use no renderer, GPU path or keyboard
+# event. Script-only, no fixture. The shell itself and its smoke lane are never a CTest name:
+# the local lane of scripts/check-host.sh builds them outside this build tree.
+add_test(NAME repo.host-policy
+  COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/check-host-policy.sh
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(repo.host-policy PROPERTIES
+  LABELS "repo;phase12"
+  TIMEOUT 30
+  COST 0.07)
+
+# repo.host-policy-selftest: seeded copies of the host (one seed per rule and per way of
+# breaking it, 30 failing cases with their rule ids) and the clean controls (the exact title
+# through the macro and the literal, comments and string contents that name forbidden things,
+# the package lines of the CMake file, the shell's own directory); a rule without a seeded
+# case, or an empty scan, fails the selftest.
+add_test(NAME repo.host-policy-selftest
+  COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/check-host-policy.sh --selftest
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(repo.host-policy-selftest PROPERTIES
+  LABELS "repo;phase12"
+  TIMEOUT 60
+  COST 1.35)
+
 # repo.p12-mutant-anchors (plan 12-08, decision DR-32): the mutant table of the Phase 12 host
 # pump and title (8 pump mutants, 4 title mutants and 2 controls of scripts/p12-mutants.py):
 # every edit anchor occurs exactly once in its tracked file, every killing test is registered

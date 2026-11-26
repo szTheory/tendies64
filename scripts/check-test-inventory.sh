@@ -374,6 +374,8 @@ host.pump.frames
 repo.host-include-guard
 repo.host-include-guard-selftest
 repo.host-isolation
+repo.host-policy
+repo.host-policy-selftest
 repo.p12-mutant-anchors'
 
 CPU_COVERAGE_OPCODES='ADD

@@ -48,7 +48,7 @@
 # plan 12-07 to 12-09: repo.host-include-guard, repo.host-include-guard-selftest and repo.host-isolation
 # (12-07), repo.host-policy and repo.host-policy-selftest (12-09); script-only names, no fixture
 # closure unless the owning plan registers one (5 names at the end of 12-09).
-3	^repo\.host-
+5	^repo\.host-
 # plan 12-10: repo.api07-evaluation is a script-only name (one name).
 0	^repo\.api07-evaluation$
 # plan 12-08: repo.p12-mutant-anchors is a script-only name (one name).
