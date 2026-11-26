@@ -40,10 +40,14 @@ Usage:
   python3 -B scripts/check-api-init.py --list-cases | --case NAME | --selftest
 
 PATH is a file or a directory (every *.c and *.h below it), relative to the
-root; the default is core/tests runner tests tools. --exclude-oracle-bound
-skips every path of EXPECTED_CORPUS_PATHS of scripts/check-rdp-oracle-authority.py
-(read with ast, never imported): those files carry the old forms until the
-isolated bound-file commit of plan 11-14, and plan 11-16 removes the flag.
+root; the default is core/tests runner tests tests/installed-consumer tools
+(the consumer root is named although tests already covers it, so that every
+consumer of the installed header stays scanned if the roots are ever narrowed).
+--exclude-oracle-bound skips every path of EXPECTED_CORPUS_PATHS of
+scripts/check-rdp-oracle-authority.py (read with ast, never imported): those
+files carried the old forms until the isolated bound-file commit of plan 11-14;
+plan 11-16 removed the flag from the repo.api-init-guard registration, so the
+bound files are scanned, and the option stays only for the selftest.
 
 Standard library only. Exit codes: 0 clean, 1 findings (or a failed selftest),
 2 usage error or unreadable input.
@@ -63,7 +67,7 @@ import tempfile
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 HEADER = "core/include/tendies64/t64_machine.h"
 ORACLE_CHECKER = "scripts/check-rdp-oracle-authority.py"
-DEFAULT_PATHS = ("core/tests", "runner", "tests", "tools")
+DEFAULT_PATHS = ("core/tests", "runner", "tests", "tests/installed-consumer", "tools")
 SUFFIXES = (".c", ".h")
 
 # Files that are never scanned, with the reason (a file outside the scanned
@@ -711,6 +715,17 @@ case("oracle-bound-flag",
       "core/tests/test_bound.c": seed_function(
           "  t64_stop_result s = {0u, 0u};\n  (void)s;\n  (void)machine;")},
      expect_rules=[POSITIONAL], flag=True, also_clean_with_flag=True)
+case("installed-consumer-uninit",
+     {"tests/installed-consumer/main.c": seed_function(
+         "  t64_machine_create_info info;\n  info.struct_size = 0u;\n"
+         "  (void)info;\n  (void)machine;")},
+     expect_rules=[UNINIT])
+case("installed-consumer-init-clean",
+     {"tests/installed-consumer/main.c": seed_function(
+         "  t64_stop_request r = T64_STOP_REQUEST_INIT(1u, 2u);\n"
+         "  t64_host_allocator a = T64_HOST_ALLOCATOR_INIT(f, g, NULL);\n"
+         "  (void)r;\n  (void)a;\n  (void)machine;")},
+     expect_clean=True)
 case("digest-sweep-excluded",
      {"tools/digest-sweep/t64_digest_sweep.c": seed_function(
          "  t64_stop_result s = {0u, 0u};\n  (void)s;\n  (void)machine;")},

@@ -47,12 +47,11 @@ set_tests_properties(repo.abi-selftest PROPERTIES
 # repo.api-init-guard (plan 11-10): every declaration, brace initializer,
 # compound literal and memset of a public in/out struct of the header uses the
 # T64_*_INIT form (a caller-filled leading struct_size is not visible to the
-# compiler otherwise). --exclude-oracle-bound skips the ten oracle-bound test
-# files until plan 11-16 removes the flag; the rule set and the exempt types
-# are in the script header.
+# compiler otherwise). Since plan 11-16 it scans every root, the oracle-bound
+# test files (call-site-only edits of plan 11-14) and the installed consumer
+# included; the rule set and the exempt types are in the script header.
 add_test(NAME repo.api-init-guard
   COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/check-api-init.py
-          --exclude-oracle-bound
   WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 set_tests_properties(repo.api-init-guard PROPERTIES
   LABELS "repo;phase11"
@@ -157,3 +156,29 @@ set_tests_properties(installed.consumer.smoke PROPERTIES
   TIMEOUT 60
   COST 0.02
   FIXTURES_REQUIRED t64_consumer)
+
+# repo.consumer-include-guard (plan 11-16, T-11-28): a consumer of the installed
+# package below tests/installed-consumer includes only <tendies64/...>, system
+# headers of a fixed list and its own local headers, and its CMakeLists names no
+# source-tree path (no add_subdirectory, no include_directories, no CMAKE_SOURCE_DIR,
+# no ../ and no core/, runner/ or tools/ path). The rule ids are CONSUMER-INCLUDE
+# and CONSUMER-CMAKE.
+add_test(NAME repo.consumer-include-guard
+  COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/check-consumer-includes.sh
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(repo.consumer-include-guard PROPERTIES
+  LABELS "repo;phase11"
+  TIMEOUT 30
+  COST 0.07)
+
+# repo.consumer-include-guard-selftest: seeded copies of the committed consumer
+# (an internal include, a relative include out of the directory, a CMake path
+# into the source tree and more, plus clean controls and the empty-scan error)
+# must be reported or accepted exactly as seeded.
+add_test(NAME repo.consumer-include-guard-selftest
+  COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/check-consumer-includes.sh --selftest
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(repo.consumer-include-guard-selftest PROPERTIES
+  LABELS "repo;phase11"
+  TIMEOUT 60
+  COST 1.01)

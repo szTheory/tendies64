@@ -299,7 +299,9 @@ unit.core.api.handshake
 unit.core.api.struct-size
 install.setup
 installed.consumer.build
-installed.consumer.smoke'
+installed.consumer.smoke
+repo.consumer-include-guard
+repo.consumer-include-guard-selftest'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU
