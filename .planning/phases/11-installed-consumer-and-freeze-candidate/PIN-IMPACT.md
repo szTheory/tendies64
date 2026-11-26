@@ -16,6 +16,7 @@ commit has this base as its parent. Later labels ("Install base" by plan 11-15,
 plans. No check uses the moving reference HEAD as a base.
 
 - Wave 0 base: f9124ae9fce134f31b645c6f2911a6f27fa41b9a
+- Install base: 06e31ecab5b84c08996aba79cb3ab6e29bb021cc
 
 ## Bound-file inventory
 
