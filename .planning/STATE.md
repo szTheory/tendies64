@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 11
 current_phase_name: Installed Consumer and Freeze Candidate
 status: executing
-stopped_at: Completed 11-23-PLAN.md (freeze-candidate record bound, repo.abi-freeze-record and repo.abi-freeze-selftest; gate 328/328; next plan 11-24)
-last_updated: "2026-11-26T08:27:48.324Z"
+stopped_at: Completed 11-24-PLAN.md (Phase 11 qualifier, fresh-archive lane and one verified rehearsal; harness.phase11-qualification; gate 329/329; next plan 11-25)
+last_updated: "2026-11-26T08:55:58.330Z"
 last_activity: 2026-11-25
 last_activity_desc: Phase 11 execution started
-state_head: 6bd542c085f5ade383790894c00c3881f156f31e
+state_head: 25acb55a879f1a65d5ecdc9702030095e67606c9
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 50
-  completed_plans: 48
+  completed_plans: 49
   percent: 33
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 ## Current Position
 
 Phase: 11 (Installed Consumer and Freeze Candidate) — EXECUTING
-Plan: 24 of 25
+Plan: 25 of 25
 Status: Ready to execute
 Last activity: 2026-11-25 — Phase 11 execution started
 Note: plan 11-21 (the INSTALL review) is complete: origin/main is 4b13a90 with a green hosted pair (run 45775107983, gate-linux 240 s, gate-macos 592 s, 324 of 324); cold gate-macos measured 731 s (margin 169 s, F-133); Freeze base 189afa8ff454415870b5a703e9f728e4ae3dc5ea. Plan 11-22 is complete (docs/spec/api.md, the W2-01 boundary case with two killed mutants, W1-03, D-10-17-01 and T8; full gate 326 of 326 at 8388042; the carry-in triage is final: 8 done, 5 deferred). Plan 11-23 is complete (the freeze candidate ABI 0.1 is bound by docs/abi/FREEZE-CANDIDATE.md and docs/abi/header.sha256; repo.abi-freeze-record recomputes the four goldens from the installed tree and repo.abi-freeze-selftest has 21 seeded incompatible changes; the eight S-05 padding holes are bound; full gate 328 of 328 at 6bd542c; a candidate only, the final bind is the last plan of Phase 12). The commits after 4b13a90 (11-21 records, 11-22 and 11-23) are unpushed and go out with the next push a plan names. Next: 11-24
@@ -109,6 +109,7 @@ Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 | Phase 11 P21 | 50min | 3 tasks | 4 files |
 | Phase 11 P22 | 30min | 3 tasks | 13 files |
 | Phase 11 P23 | 12min | 3 tasks | 9 files |
+| Phase 11 P24 | 23 min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -262,6 +263,7 @@ Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 - [Phase 11]: 11-21: Freeze base is 189afa8ff454415870b5a703e9f728e4ae3dc5ea, the head of the records commit (docs-only descendant of the pushed green head 4b13a90), recorded by a commit that changes only PIN-IMPACT.md; no requirement marked complete (11-25 closes VER-05 and API-01 to API-04)
 - [Phase 11]: 11-22: api.md describes the code as it is (read from each entry's code, not only the header comments); the Z product dy boundary needs the tallest triangle (row bound 2^30) and the W2-01 mutants are killed by case z-product-bound; the repo.installed-case-map count row is 3 with its fixture closure
 - [Phase 11]: 11-23: the freeze candidate (ABI 0.1, package 0.1.0) is bound by docs/abi/FREEZE-CANDIDATE.md and docs/abi/header.sha256; repo.abi-freeze-record recomputes the LF-normalised header manifest, the 35 public symbols, the regenerated layout pins and the status classes from the installed tree and compares each golden, each golden's own SHA-256, the counts, the versions, the amendment rows (ABI minor must equal 1 plus the rows) and the eight S-05 padding holes; repo.abi-freeze-selftest has 21 seeded cases (RED by nine blinded checker copies); the record is a candidate only, the final bind is the last plan of Phase 12; API-03 stays open for 11-24 and 11-25; gate 328/328, 0.86 s of COST added
+- [Phase 11]: 11-24: the Phase 11 qualifier is a thin delta of the Phase 10 qualifier with twelve stages; the installed suite stage is the phase11 label with JUnit; core, installed_core and installed_consumer must carry one build id; claims are compared as the JSON value false (0 == False defect fixed in the copy only); the two evidence documents are excluded from the bound inputs; VER-05 and API-03 stay open for 11-25
 
 ### Pending Todos
 
@@ -287,8 +289,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-26T08:27:48.163Z
-Stopped at: Completed 11-23-PLAN.md (freeze-candidate record bound, repo.abi-freeze-record and repo.abi-freeze-selftest; gate 328/328; next plan 11-24)
+Last session: 2026-11-26T08:55:58.182Z
+Stopped at: Completed 11-24-PLAN.md (Phase 11 qualifier, fresh-archive lane and one verified rehearsal; harness.phase11-qualification; gate 329/329; next plan 11-25)
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
