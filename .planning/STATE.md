@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 12
 current_phase_name: Minimal Host, Playable Homebrew and Final Bind
 status: executing
-stopped_at: Completed 12-02-PLAN.md (title spec, independent oracle, four input scripts and committed expectations, harness.title-oracle; no guest, ROM, manifest or runner edit; next plan 12-03)
-last_updated: "2026-11-26T16:37:28.464Z"
+stopped_at: Completed 12-03-PLAN.md (authored title guest frozen at 7b96296, builder and fixture target, probe equal to the oracle on every scenario, two manifest rows; next plan 12-04)
+last_updated: "2026-11-26T17:03:53.878Z"
 last_activity: 2026-11-26
-last_activity_desc: Plan 12-02 complete (title spec, independent oracle, input scripts, committed expectations)
-state_head: a6bb66de55848b24a838298ef27435323159869a
+last_activity_desc: Plan 12-03 complete (authored title guest, builder and fixture target, probe equal to the oracle, manifest rows)
+state_head: c47bc55e4abe70d9c59385fde82a32a230cfb706
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 68
-  completed_plans: 52
+  completed_plans: 53
   percent: 67
 ---
 
@@ -30,10 +30,10 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 ## Current Position
 
 Phase: 12 (Minimal Host, Playable Homebrew and Final Bind) — EXECUTING
-Plan: 3 of 18
+Plan: 4 of 18
 Status: Ready to execute
-Last activity: 2026-11-26 — Plan 12-02 complete (title spec, independent oracle, input scripts, committed expectations)
-Note: plan 12-02 is complete (oracle first, no guest source): `fixtures/title/title-spec.md` is the behavior authority (TS-1 to TS-16), `fixtures/title/title_oracle.py` (standard library only, 114 selftest cases) generated the four `t64.input` scripts and `fixtures/title/title.expected.json` (checkpoint frame digests: short 3, short-wrong 3, long 12, shifted 13, persist 3; audio, save and transcript values; the blank digest 2aae7dc8...); `harness.title-oracle` (COST 0.09) is registered, the inventory is 330 names and the `PHASE12_TESTS` block exists. Open assumption for plan 12-03: the field boundaries use a NOMINAL VI enable tick of 550,000 (stamps keep 200,000 ticks from every boundary, so a real value within 100,000 ticks of it is safe); 12-03 measures the real tick and changes TS-4 first if it lies outside. origin/main is dc247faaa3f5ceda17870c5e66b7ec181c767637 (hosted green); everything after it is local and nothing is pushed (the first push a plan names is 12-06). Next: plan 12-03 (the authored title guest, builder copy, fixture target and probe against the oracle).
+Last activity: 2026-11-26 — Plan 12-03 complete (authored title guest, builder and fixture target, probe equal to the oracle, manifest rows)
+Note: plan 12-03 is complete: `fixtures/title/title.S` (522 non-empty lines of composed composite idioms, polled frame lock, no handler, TLB, Z, texture or RSP microcode) is frozen at source revision 7b962961fcb8e1c1600dc84dae8a67f0c88dce26, built by `scripts/build-title-fixture.sh` (a copy of the composite builder) through the target `t64-phase12-title-fixture` into the build-only ROMs `phase12-title-s32k` (SHA-256 dfe77f58..., 7,568 bytes) and `phase12-title-refused-s32k` (7989af8a...), whose manifest rows were appended by commit 54731f4 with no oracle-authority rebind. A throwaway probe against the moved installed prefix matched `title.expected.json` on every scenario (41 keys, 0 mismatches; refused ROM blank with no completion). Measured VI enable tick 546,614 and controller sampling at B(p-1) + 14,860 or 14,861 ticks, inside the TS-4 bands, so the spec and expectations stand. origin/main is dc247faaa3f5ceda17870c5e66b7ec181c767637 (hosted green); everything after it is local and nothing is pushed (the first push a plan names is 12-06). Next: plan 12-04 (runner rows, the title two-run test, the wrong-input and refused-frame controls, runner-recorded pins).
 
 Progress: [███████░░░] 67% (0 of 3 v1.2 phases complete)
 
@@ -113,6 +113,7 @@ Progress: [███████░░░] 67% (0 of 3 v1.2 phases complete)
 | Phase 11 P25 | 43 min | 4 tasks | 5 files |
 | Phase 12 P01 | 13 min | 3 tasks | 3 files |
 | Phase 12 P02 | 13 min | 3 tasks | 11 files |
+| Phase 12 P03 | 16min | 4 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -272,6 +273,8 @@ Progress: [███████░░░] 67% (0 of 3 v1.2 phases complete)
 - [Phase 12]: Plan 12-01: final bind DR-25 as ABI 1.0 / package 1.0.0 SameMajorVersion, an ABI identity not a release version (owner confirmed 2026-11-26); four plans 12-13 to 12-16; S-05 and I-05 kept as accepted limits; route B (libdragon) a documented costly non-goal
 - [Phase 12]: Plan 12-01: Phase 12 G4 exception for owner review (no equal-time offset; baseline cold gate-macos 729 s of 900 s, margin 171 s); reversal rule: a measured or projected cold above 900 s or a margin under 120 s moves non-essential names to a local lane first; LibFuturo pin 4177a43 is a local unpublished SHA
 - [Phase 12]: 12-02: poll p follows the VI pending bit of field p-1 (poll 1 after the VI enable), the frame after poll p is the packet at B(p), event field j is first seen by poll j+2; nominal VI enable tick 550,000 with a 200,000-tick stamp margin (plan 12-03 measures the real value)
+- [Phase 12]: 12-03: measured VI enable tick 546,614 (nominal 550,000) and controller sampling at B(p-1)+14,860..14,861 ticks, both inside the TS-4 bands, so the title spec, scripts and expectations stand unchanged
+- [Phase 12]: 12-03: title guest frozen at source revision 7b962961fcb8e1c1600dc84dae8a67f0c88dce26 (authoring-once rule); manifest rows phase12-title-s32k and phase12-title-refused-s32k in commit 54731f4 with no oracle-authority rebind
 
 ### Pending Todos
 
@@ -297,8 +300,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-26T16:37:28.077Z
-Stopped at: Completed 12-02-PLAN.md (title spec, independent oracle, four input scripts and committed expectations, harness.title-oracle; no guest, ROM, manifest or runner edit; next plan 12-03)
+Last session: 2026-11-26T17:03:53.301Z
+Stopped at: Completed 12-03-PLAN.md (authored title guest frozen at 7b96296, builder and fixture target, probe equal to the oracle on every scenario, two manifest rows; next plan 12-04)
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
