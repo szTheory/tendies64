@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 11
 current_phase_name: Installed Consumer and Freeze Candidate
 status: executing
-stopped_at: Completed 11-21-PLAN.md (INSTALL review finished; origin/main 4b13a90 green; Freeze base 189afa8; next plan 11-22)
-last_updated: "2026-11-26T07:39:10.854Z"
+stopped_at: Completed 11-22-PLAN.md (api.md, W2-01, W1-03, D-10-17-01, T8 closed; gate 326/326; next plan 11-23)
+last_updated: "2026-11-26T08:08:24.553Z"
 last_activity: 2026-11-25
 last_activity_desc: Phase 11 execution started
-state_head: 0d17d6f2c52c8d998dfbd951314f2023fb8018cf
+state_head: ec471dffaaf55a95048cde3a9eb51a9c8d33043a
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 50
-  completed_plans: 46
+  completed_plans: 47
   percent: 33
 ---
 
@@ -30,10 +30,10 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 ## Current Position
 
 Phase: 11 (Installed Consumer and Freeze Candidate) — EXECUTING
-Plan: 22 of 25
+Plan: 23 of 25
 Status: Ready to execute
 Last activity: 2026-11-25 — Phase 11 execution started
-Note: plan 11-21 (the INSTALL review) is complete: origin/main is 4b13a90 with a green hosted pair (run 45775107983, gate-linux 240 s, gate-macos 592 s, 324 of 324); cold gate-macos measured 731 s (margin 169 s, F-133); Freeze base 189afa8ff454415870b5a703e9f728e4ae3dc5ea. The commits after 4b13a90 are docs only and go out with the next push a plan names. Next: 11-22
+Note: plan 11-21 (the INSTALL review) is complete: origin/main is 4b13a90 with a green hosted pair (run 45775107983, gate-linux 240 s, gate-macos 592 s, 324 of 324); cold gate-macos measured 731 s (margin 169 s, F-133); Freeze base 189afa8ff454415870b5a703e9f728e4ae3dc5ea. Plan 11-22 is complete (docs/spec/api.md, the W2-01 boundary case with two killed mutants, W1-03, D-10-17-01 and T8; full gate 326 of 326 at 8388042; the carry-in triage is final: 8 done, 5 deferred). The commits after 4b13a90 (11-21 records and 11-22) are unpushed and go out with the next push a plan names. Next: 11-23
 
 Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 
@@ -107,6 +107,7 @@ Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 | Phase 11 P28 | 45min | 3 tasks | 6 files |
 | Phase 11 P29 | 25min | 2 tasks | 3 files |
 | Phase 11 P21 | 50min | 3 tasks | 4 files |
+| Phase 11 P22 | 30min | 3 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -258,6 +259,7 @@ Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 - [Phase 11]: 11-21: INSTALL wave reviewed and finished after the 11-28 and 11-29 repairs; origin/main 4b13a90 (fast-forward from 0e6b96d, no tag) has a green hosted pair (run 45775107983: gate-linux 240 s, gate-macos 592 s, 324 of 324); Linux undefined rows confirmed by api04.members on gate-linux; I-01, I-07, I-11 resolved by 11-28, I-02 to I-04 by 11-29, I-05, I-06, I-08 to I-10 accepted
 - [Phase 11]: 11-21: cold gate-macos MEASURED 731 s (run 45772586364, margin 169 s, F-133) replaces every cold projection in the Gate-growth ledger; slowest warm sample 592 s plus the 193 s cold cost is 785 s (margin 115 s), a sensitivity warning for 11-25's own cold run (no CTest name added since; keep new names cheap)
 - [Phase 11]: 11-21: Freeze base is 189afa8ff454415870b5a703e9f728e4ae3dc5ea, the head of the records commit (docs-only descendant of the pushed green head 4b13a90), recorded by a commit that changes only PIN-IMPACT.md; no requirement marked complete (11-25 closes VER-05 and API-01 to API-04)
+- [Phase 11]: 11-22: api.md describes the code as it is (read from each entry's code, not only the header comments); the Z product dy boundary needs the tallest triangle (row bound 2^30) and the W2-01 mutants are killed by case z-product-bound; the repo.installed-case-map count row is 3 with its fixture closure
 
 ### Pending Todos
 
@@ -283,8 +285,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-26T07:39:10.701Z
-Stopped at: Completed 11-21-PLAN.md (INSTALL review finished; origin/main 4b13a90 green; Freeze base 189afa8; next plan 11-22)
+Last session: 2026-11-26T08:08:24.402Z
+Stopped at: Completed 11-22-PLAN.md (api.md, W2-01, W1-03, D-10-17-01, T8 closed; gate 326/326; next plan 11-23)
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
