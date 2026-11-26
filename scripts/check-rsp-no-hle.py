@@ -1043,6 +1043,9 @@ def _check_source_route(root: pathlib.Path) -> tuple[list[str], list[str], int]:
     return findings, evidence, len(CANONICAL_CORE_SOURCES) + len(softfloat)
 
 
+FOLDED_SHA256_OBJECT = "core/CMakeFiles/t64_core.dir/__/tools/common/t64_sha256.c.o"
+
+
 def _expected_object_sources(root: pathlib.Path) -> dict[str, pathlib.Path]:
     names, findings = _softfloat_sources(root)
     if findings:
@@ -1054,6 +1057,9 @@ def _expected_object_sources(root: pathlib.Path) -> dict[str, pathlib.Path]:
     for name in names:
         target = f"core/CMakeFiles/t64_core.dir/softfloat/{name}.o"
         expected[target] = root / "core" / "softfloat" / name
+    # Plan 11-16 (DR-20): the shared SHA-256 source is folded into the archive
+    # (renamed t64i_sha256_* by compile definitions) so install(EXPORT) works.
+    expected[FOLDED_SHA256_OBJECT] = root / "tools" / "common" / "t64_sha256.c"
     return expected
 
 
@@ -1147,6 +1153,9 @@ def _check_build_route(root: pathlib.Path, build: pathlib.Path) -> tuple[list[st
         softfloat_object_root = object_root / "softfloat"
         if softfloat_object_root.is_dir():
             active_object_files.extend(softfloat_object_root.rglob("*.c.o"))
+        folded_sha256_object = object_root / "__" / "tools" / "common" / "t64_sha256.c.o"
+        if folded_sha256_object.is_file():
+            active_object_files.append(folded_sha256_object)
         disk_objects = {
             "core/CMakeFiles/t64_core.dir/" + path.relative_to(object_root).as_posix()
             for path in active_object_files
