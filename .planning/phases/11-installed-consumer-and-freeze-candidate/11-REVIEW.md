@@ -347,3 +347,180 @@ warm sample; no rerun): conclusion success.
 
 Result of the review: zero blocking findings and no open warning; the INSTALL wave is reviewed in a scratch clone,
 repaired where the review found defects (11-28, 11-29), pushed, and green on both hosted operating systems.
+
+## FINAL (11-01 to 11-29)
+
+The final independent audit of the whole phase before qualification (plan 11-25 Task 1): every plan of
+the three phase-waves, the FREEZE wave (11-22 to 11-24, which no earlier review read) and the four
+numbered defect-fix plans 11-26 to 11-29. The reviewer read the code, the tests and the records at the
+reviewed head and re-ran the cited commands instead of trusting the plan summaries; the reviewer fixed
+nothing. Evidence tier: code observation and command results at the reviewed head; a software-interface
+claim only, nothing here is a compatibility, accuracy or hardware claim. No oracle material (D5) was used.
+
+| Item | Value |
+|------|-------|
+| Wave 0 base | `f9124ae9fce134f31b645c6f2911a6f27fa41b9a` (the base idiom: exactly one 40-hex line in PIN-IMPACT.md "Wave bases", an existing commit, an ancestor of the head); Install base `06e31ecab5b84c08996aba79cb3ab6e29bb021cc` and Freeze base `189afa8ff454415870b5a703e9f728e4ae3dc5ea` are ancestors too |
+| Reviewed head | `2c53513c0ddf2b1e31e0bbc261f7629ce2268658` (168 commits after the Wave 0 base; 223 files changed, 183 of them outside `.planning/`; 19 commits and 19 files outside `.planning/` after the Freeze base) |
+| Unpublished range | `origin/main` is `4b13a90` (hosted-green, run 45775107983); 20 local commits after it (the 11-21 records and 11-22 to 11-24) |
+| Host | Darwin arm64, Apple clang 21.0.0, cmake 4.4.3, ninja 1.13.2; 1-minute load 4.5 to 6.2 during the scratch runs (unrelated processes on the same machine, so seconds are upper bounds for a quiet host) |
+
+### Task 1: scratch gate and the mechanical checks
+
+Method (the 11-15 and 11-21 form): `git clone --no-checkout --no-hardlinks` of the main repository into
+`build/11-review/final/src`, `git checkout --detach 2c53513c0ddf2b1e31e0bbc261f7629ce2268658`, and a copy (not a
+symlink) of `build/tools/install` into the clone's `build/tools/install`. `git archive` of the head in the clone and
+in the main repository have the same SHA-256 (`971d994c41c5bb6b4a29c5ce0b4428b7251ceb4c41f20ab109aa7648f19a0561`), so
+the gated tree is exactly the committed head; `git status --short` of the clone is empty before and after every
+command below. Outputs were written outside the clone tree (`build/11-review/final/*.out`, ignored, not committed).
+
+| Check | Command or method | Result |
+|-------|-------------------|--------|
+| (a) scratch gate | `sh scripts/gate.sh` in the clone, default environment (no `CI` variable) | `[gate] PASS`, `[gate] total 145s`, exit 0: sh-n 0 (38 scripts), lint-selftest 4, fixture-qualification 1, configure 1, build 4, boot-evidence-selftest 11, test-inventory-selftest 29, test-inventory 1, ctest 85 (`100% tests passed out of 329`, `Total Test time (real) = 84.98 sec`), core-lint 9. No name excluded, no limit widened |
+| (b) digest sweep | `python3 -B scripts/digest-sweep.py --base f9124ae9fce134f31b645c6f2911a6f27fa41b9a --head HEAD` | `sweep: 1599 shared lines, 0 differences, 0 head-only lines`, exit 0, 42 s: the whole phase moved no shipped digest |
+| (c) freeze record against a fresh install | `sh scripts/check-install.sh fresh-archive` (archive of `2c53513c` with 1435 files, built outside the repository, six files installed into a prefix with a space, smoke and composite pass, installed archive build id `t64-build-v1-35e6e1f1d4a1b5fd50b579c0cfb9dd36ac658099d0a207db610006433c1a22d5`), then `python3 -B scripts/check-abi.py freeze --record docs/abi/FREEZE-CANDIDATE.md --prefix "build/gate/fresh-archive/prefix with space"` | `abi-freeze: headers=1 abi=0.1 package=0.1.0 symbols=35 layout=14/165/190 holes=8 statuses=39 stop_reasons=8`, `check-abi: freeze findings=0`, exit 0 |
+| (d) authority still blocked, rebind identity-only | `python3 -B scripts/check-rdp-oracle-authority.py --expect-blocked`; `--require-approved`; `git diff BASE..HEAD -- scripts/check-rdp-oracle-authority.py`; `git log BASE..HEAD` over the ten bound test files | exit 0 `authority record valid; blocked: no oracle operation is authorized`; exit 2 `no pinned competent owner/legal decision; oracle operations remain blocked`; the checker diff is the one `PINNED_REQUEST_SHA256` line (`e131cbe7...` to `75f2b651...`); the bound files moved in exactly one commit, `e66625a` (the orchestrator's bound commit of 11-14, call-site-only by SHAPE check (c)); nothing after it |
+| (e) CI files unchanged across the phase | `git diff --name-only BASE..HEAD -- .github/workflows/ci.yml scripts/check-ci-yml.sh scripts/gate.sh` | empty |
+| (f) claims | `sh scripts/check-claims.sh` (repository scan) | `claims: files=73 blocks=22 errors=0` (no Phase 11 claim block exists before Task 3) |
+| (g) PII | `sh scripts/pii-scan.sh --range BASE..HEAD` (clone); `--tree` (clone); `--history` (main repository) | `commits=168 findings=0`; `tree_files=1435 findings=0`; `commits=1337 findings=0` |
+| (h) no tag | `git tag --list` and `git ls-remote --tags origin` | three tags, `phase09-fh`, `phase09-fr` and `phase09-f2` (2026-11-19 and 2026-11-20, Phase 9 history), each an ancestor of the Wave 0 base; no tag points at a Phase 11 commit, locally or on the remote |
+| (i) DEV-11-01 window never pushed | `git rev-list 0338380^..e66625a^` (12 commits, the flip up to the parent of the bound commit) against the head SHA of every `ci.yml` run (`gh run list --workflow ci.yml --limit 40`) | no run head lies in the window; the six Phase 11 pushed heads (`43b31e2`, `e5a2e3c`, `c6f28f6`, `463bd09`, `0e6b96d`, `4b13a90`) all descend from `e66625a`, so every published head compiles every target |
+| (j) COST and TIMEOUT on every phase11 name | `ctest --test-dir build/gate -L phase11 --show-only=json-v1` in the clone | 75 names (14 `unit.core.`, 14 `repo.`, 5 `install.`, 27 `installed.consumer.`, 10 `installed.controls.`, 4 `api04.`, 1 `harness.`), every one with `COST` (sum 65.83) and a `TIMEOUT` of 30, 60, 120, 150 or 180; the five FREEZE names `unit.core.state.v26-z-product-bound` (COST 1), `repo.installed-case-map` (0.12), `repo.abi-freeze-record` (0.16), `repo.abi-freeze-selftest` (0.7) and `harness.phase11-qualification` (8) sum 9.98 s of COST; `ctest -N -R '^installed\.consumer\.threads'` lists 0 (TSan stays local); the whole preset has 329 names |
+| (k) installed suite, log level | `ctest --test-dir build/gate -R '^(installed\.\|install\.\|api04\.)' -V` in the clone | `100% tests passed out of 46` (25.96 s). Read from the log: three-way prints runner = consumer for tick 599357, `GUEST_COMPLETION`, the digest `97f27027...1267c` and 3 video packets, each labeled `(runner-recorded pin, not independent)`; the independent literals (3 video, 2 audio, transcript and save) are labeled `independent literal`; `hostloop: forced backpressure: 1 stop(s) with RESOURCE_LIMIT at guest tick 540952, resumed after a drain, completed at tick 599357`; `two-instance: checks=27 failures=0` with the second instance's digest and ledger unchanged after the first is destroyed; `sequence: checks=5469 failures=0`, backpressure stalls 2 resumed after a drain 2; every control fails or passes for its own stated reason (version rows on `compatible with requested version "0.2"`/`"0.1.5"`, doctored ABI status 34, doctored size status 35, `f32_add calls: 0`) |
+
+#### api.md postcondition table against the tests (T-11-49)
+
+Method: the reviewer's own scratch reader (outside the repository, not committed) splits the 35 rows of
+`docs/spec/api.md` section 12, collects every status name in each row and, for each, looks for a test source
+(`core/tests`, `runner/tests`, `tests/installed-consumer`) that names that status within twelve lines after a direct
+call of the row's function; the rest was read by hand. The row set equals `docs/abi/public-symbols.txt` (35). Every
+named status of every row has such a test, except three kinds of rows read by hand:
+
+- `POISONED` (24 rows) and `STRUCT_TOO_SMALL` (8 rows) are asserted through tables rather than direct calls:
+  `core/tests/test_api_poison.c` drives all 26 guarded entries through `call_entry` (`ENTRY_COUNT 26u`) and checks
+  `T64_STATUS_POISONED` with every output untouched; `core/tests/test_api_struct_size.c` `check_floor` and
+  `check_larger` cover the advance, CPU stop detail, output drain, state import, video and audio info, output status,
+  save info, descriptor and trace record-size entries. Covered.
+- The advance row's `INTERNAL_DEFECT` is pinned by `defect_cp0_phase` (a corrupt CP0 phase answers `INTERNAL_DEFECT`,
+  poisons, the result stays untouched) and by the scheduler whitelist cases of `unit.core.api.defect-sites`; the row
+  names only the masked handler status as the source (finding FN-02).
+- Two defensive branches have no triggering input and no test: `t64_machine_reset`'s `INTERNAL_DEFECT` after a failing
+  `reset_guest_state` on an image that admission already accepted, and `t64_machine_state_export`'s
+  `RESOURCE_EXHAUSTED` (section-count ceiling, build-id length, container length overflow in `core/t64_state.c`
+  `state_layout`) (finding FN-01).
+
+Hand-read check orders (code against row): `t64_machine_save_export` answers `NOT_READY` before the pointer row, then
+the length and buffer spans, then R3 to R6, then the format, then the capacity (`core/t64_save.c`); `t64_machine_queue_input`
+answers port and axis `INVALID_ARGUMENT` before `NOT_READY` and takes `TIME_REVERSED`, `QUEUE_FULL` and
+`SEQUENCE_EXHAUSTED` from the schedule reservation (`core/t64_observe.c`); `t64_machine_reset` and
+`t64_machine_unload` answer `NOT_READY` without an image (`core/t64_machine.c`). Each equals its row. Verdict: the
+table agrees with the code and the tests; no row states a postcondition that the code contradicts.
+
+#### Record and claim wording
+
+- `docs/abi/FREEZE-CANDIDATE.md` makes no stable-ABI promise: "until then this record is a candidate and nothing
+  more", "`0.1.0` is the number of the candidate, not a version a host may rely on keeping the same layout", "This
+  record makes no promise that it will; ... no stable-ABI statement exists before that plan"; it says it "announces
+  nothing and makes no distribution, compatibility or accuracy statement about any profile". `docs/spec/api.md` says
+  "no tag, package channel or version promise is made" and "does not promise a 1.0 version, a tag or a release"; the
+  header's first comment says "it is not a frozen ABI yet". A grep for `stable`, `guarantee`, `promise`, `frozen` and
+  `final ABI` over the three finds no sentence that promises stability. Verdict: no stable-ABI promise.
+- Three-way wording (DR-32, B-1): `fixtures/composite/composite.runner-pins.json` carries
+  `"label": "runner-recorded pin, not independent"` for the completion tick, stop reason, final digest and video
+  packet count; `tests/installed-consumer/t64c_composite.h` keeps them under the `RUNNER-RECORDED PINS` banner with
+  `T64C_PIN_LABEL`; `scripts/check-install.sh` three-way and every consumer case label each of the four as a
+  runner-recorded pin (check (k)). Nothing in the tree calls them independent.
+- Claims: no Phase 11 claim block exists at the reviewed head; the qualifier pins `tier: unit-tested, authored scope`
+  and `hardware_accuracy`, `oracle_comparison`, `final_abi` and `release` as the JSON value `false`
+  (`scripts/qualify-phase11.py` `CLAIMS` and `verify_record`). Task 3 writes the claim file at that tier.
+
+#### Requirements and success criteria
+
+| Item | Evidence at the reviewed head (files, test names, records) | Verdict |
+|------|-------------------------------------------------------------|---------|
+| VER-05 (clean relocated install, independent consumer agreeing with the runner and independent literals, the five negative-control kinds) | `core/CMakeLists.txt` install rules (Development component, six files), `tests/installed-consumer/` (separate top-level project, `find_package(tendies64 0.1 REQUIRED CONFIG)`), `scripts/check-install.sh` (`setup`, `three-way`, `control`, `fresh-archive`); `install.setup`, `installed.consumer.composite`, `.literals`, `.three-way`, `installed.controls.*` (missing-package, version-mismatch-minor/-patch, visible-source-tree and -seed, doctored-header-abi and -size, relocated-spaces, symbol-collision, plain-cc); checks (a), (c), (k); hosted green on both OS in run 45775107983 | met |
+| API-01 (lifetime, handshake, `struct_size`, profile selection, transactional admission, timed input, bounded advance, rings with backpressure, reset, unload; installable package; internal prefix) | header: create-info with `struct_size` and `abi_version`, `t64_abi_version`, 13 structs with a leading `uint32_t struct_size` (`t64_trace_record` exempt through `record_size`), no `size_t`/`bool`/`int`/`enum` struct member (scripted parse), 35 `T64_API` declarations, `extern "C"` guard, 12 `T64_*_INIT` macros; `core/t64_prefix.h` (236 lines) and 35 public plus `t64i_` names; `unit.core.api.*` (13), `installed.consumer.ops-*` (17: one accepted case and one refusal per operation), `repo.abi-prefix`, `install.abi-symbols` | met |
+| API-02 (three classes with tested postconditions, one class table, refusal-is-a-no-op harness under ASan and UBSan against the shipped library) | `docs/abi/status-classes.txt` (39 statuses, 8 stop reasons, each once; classes ok, refused, guest-stop, defect, reserved); `repo.abi-status-classes`, `unit.core.api.poison`, `.refusals-never-poison`, `.defect-sites`, `.reentrant`, `.null-machine`; `installed.consumer.sequence` (gate sample) and `check-install.sh sanitize shipped` (local lane, the qualifier's `sanitize-shipped` stage; run 20,000 steps at stride 1 in the 11-24 rehearsal) | met (sanitizer evidence is the Task 2 record) |
+| API-03 (freeze candidate after the postconditions pass through the installed consumer, host-shaped loop included; final bind later; amendments only by evidence and a re-run) | `docs/abi/FREEZE-CANDIDATE.md` (block, amendment rule ABI minor = 1 + rows, re-bind procedure, final bind in Phase 12), `docs/abi/header.sha256`, `docs/spec/api.md` sections 12 to 14; the candidate was bound by 11-23 after the green hosted pair of the installed suite at `4b13a90`; `repo.abi-freeze-record`, `repo.abi-freeze-selftest` (21 seeded cases); check (c) | met |
+| API-04 (no file, clock, entropy or thread in the core; mechanical check on the installed archive members; seeded object fails) | `scripts/check-api04.sh`, `tools/lint/lint-objects.sh --allow tools/lint/allowlist-installed.txt` (3 rows), `docs/abi/installed-undefined.txt` (Darwin and hosted-confirmed Linux rows); `api04.members`, `.disasm`, `.headers`, `.seeded` (four `L2-UNDEF-SYMBOL` lines for `clock_gettime`, `fopen`, `getentropy`, `pthread_create`) | met |
+| SC1 (relocated clean install runs the composite and agrees three ways; missing-package, version-mismatch, visible-source-tree, doctored-header and symbol-collision controls fail) | as VER-05; three-way labels per DR-32 (Record and claim wording above) | met |
+| SC2 (every API-01 operation accepted and refused through the installed consumer; rings with forced backpressure; two instances; host-shaped loop) | `installed.consumer.ops-*` (17), `.hostloop` (forced backpressure at tick 540952, resumed after a drain), `.hostloop-cadence`, `.hostloop-delay` (digest independent of drain cadence and a 1 ms host delay), `.two-instance` (check (k)) | met |
+| SC3 (generator: refused statuses leave observations bit-identical, a guest-stop resumes, a defect poisons, under ASan and UBSan against the shipped library; every status and stop reason once in the table) | `tests/installed-consumer/sequence.c` (15 advance variants, refusal bursts, stalls resumed, terminal stops, defect poison through the published API); gate sample at stride 2 (I-06, re-judged below), local shipped lane at stride 1; `repo.abi-status-classes` | met |
+| SC4 (installed archive members import no file, clock, entropy or thread symbol; seeded object fails) | as API-04 | met |
+| SC5 (bound freeze-candidate record; an incompatible change fails a check; additive-extension rule documented) | the record and the four goldens; `repo.abi-freeze-selftest` (member removed or reordered, status renumbered, unclassified or reclassified, function removed or added, header edited, second header, golden or count edited, minor raised without a row, padding row dropped); `docs/spec/api.md` section 13 (trailing size-guarded fields, appended functions, statuses and subcodes, additive profiles and devices) | met |
+
+#### CONTEXT decisions, one row each
+
+| Decision | Where implemented (reviewed head) | Evidence | Verdict |
+|----------|-----------------------------------|----------|---------|
+| L1 Candidate then final; between them only defect-driven amendments with evidence and a consumer re-run | `docs/abi/FREEZE-CANDIDATE.md` "The rule between this record and the final bind", amendment log (0 rows); DR-02 minor rule | `repo.abi-freeze-record` enforces minor = 1 + rows; selftest case "ABI minor raised with no amendment row" | implemented |
+| L2 Leading caller-filled `uint32_t struct_size`, `min(caller, known)`, refuse below v1, no `sType`/`pNext` | header (13 structs), `core/t64_internal.h` v1 floors, `t64_internal_copy_out`; INFO-03 exception for `t64_host_storage` (core-filled, DR-06) | `unit.core.api.struct-size`, `installed.consumer.ops-struct-size`, `repo.api-init-guard` | implemented (INFO-03 recorded) |
+| L3 Create-info handshake, distinct ABI mismatch, `t64_abi_version()`, build identity | `t64_machine_create`, `abi_version_is_accepted`, `t64_abi_version`, `tendies64_BUILD_ID` in the package config | `unit.core.api.handshake`, `.abi-version`, `installed.consumer.ops-handshake`, `installed.controls.doctored-header-abi` | implemented |
+| L4 Three classes, one table, poison never from a caller fault, unclassified status fails | `docs/abi/status-classes.txt`, `scripts/check-abi.py classes`, `t64_internal_defect` the only setter | `repo.abi-status-classes`, `repo.abi-selftest`, `unit.core.api.refusals-never-poison`, `.poison` | implemented |
+| L5 Public reset and unload; `bool`/`size_t` out of structs; `extern "C"`; copy-out rings; advance never drops output and stops resumably at backpressure; host wall time never an input | `t64_machine_reset`, `t64_machine_unload`; header parse (no banned member type); ring copy calls; `RESOURCE_LIMIT` resumable row | `unit.core.api.reset`, `.unload`, `installed.consumer.hostloop` (forced backpressure resumed), `.hostloop-delay` (digest independent of a host delay), `api04.members` (no clock import) | implemented; `t64_machine_profile` still returns a borrowed pointer to the instance's descriptor copy (S-01, header text fixed by 11-26) |
+| L6 Installability: sha256 folded, relocatable config and version file (SameMinorVersion), alias, package version = ABI candidate, `project(VERSION)` untouched, build id recorded, internal prefix, one `T64_API`, `nm` golden | `core/CMakeLists.txt` (folded `tools/common/t64_sha256.c` with four `t64i_sha256_*` definitions, `tendies64::core`, `install(EXPORT)`, `VERSION 0.1.0 COMPATIBILITY SameMinorVersion`), root `project(tendies64 VERSION 0.0.0)`, `core/t64_prefix.h`, `docs/abi/public-symbols.txt` | `install.setup`, `install.abi-symbols`, `repo.abi-prefix`, `install.abs-paths`, check (c) | implemented |
+| L7 Independent consumer, three-way, runner not re-pointed, include guard | `tests/installed-consumer/`, `scripts/check-consumer-includes.sh`, `scripts/check-consumer-literals.py`; runner still links the in-tree core | `repo.consumer-include-guard`(`-selftest`), `installed.consumer.literals`, `.three-way` | implemented (DR-32 scope) |
+| L8 Negative controls fail loudly | `tests/installed-consumer/controls.tsv` (10 rows), `cmd_control` | `installed.controls.*`, check (k) | implemented |
+| L9 Host-shaped loop, two instances, digest independent of draining | `tests/installed-consumer/hostloop.c` | `installed.consumer.hostloop`, `-cadence`, `-delay`, `.two-instance` | implemented |
+| L10 Refusal-is-a-no-op harness, guest-stop resume, defect poison, ASan/UBSan against the shipped library | `tests/installed-consumer/sequence.c`, `check-install.sh sanitize` | `installed.consumer.sequence`; the sanitizer lanes are qualifier stages (Task 2) | implemented |
+| L11 API-04 on the shipped objects | `scripts/check-api04.sh`, `tools/lint/installed-seeds/` | `api04.*` | implemented |
+| L12 Owner approval: call-site-only rebind, identity-only, orchestrator-only, one isolated commit last in the shape wave | `e66625a` (orchestrator commit), `PINNED_REQUEST_SHA256` `75f2b651...`, `local_decision` blocked | check (d); SHAPE check (b) and (c) (17/92/1 hunks, the one category (c) hunk of answer A) | implemented within the approval; not widened |
+| L13 Order of work: shape once and early with a digest proof; cheap-first; relabel of the stale Phase 10 text in the shape wave | waves SHAPE, INSTALL, FREEZE in that order; `git grep -n -i -E 'until (the )?Phase 10' -- core runner tools` prints nothing (0 lines) | check (b) (0 differences from the Wave 0 base); `repo.stale-freeze-text`; the qualifier's `abi-cheap` stage before the long stages | implemented |
+| L14 Phase 10 carry-ins triaged, none blocking | PIN-IMPACT "Carry-in triage" (13 rows) | see the carry-in check below | implemented |
+| L15 LibFuturo paper read before the candidate, no adapter shaping the API | PIN-IMPACT "API-07 input: LibFuturo paper read" (11-01, before any production edit) | record only (local pin, not published) | implemented |
+| L16 Plans capped at 4 tasks and about 45 minutes; no decimal plans; defect fixes as new numbered plans; per-wave review; parallelization false; `create_tag` false | 29 plans, none with more than 4 tasks (scripted count), no decimal plan file; defect fixes 11-26 to 11-29; reviews 11-15, 11-21 and this one; `.planning/config.json` `parallelization` false, `git.create_tag` false | check (h) (no tag) | implemented; the G5 plan-count and file-count notes are recorded exceptions (ROADMAP Phase 11) |
+| A AMBIG-A internal invariants reclassified as defects | `core/t64_cp0.c` corrupt phase and `admit_rom` stored digest mismatch answer `t64_internal_defect` | `defect_cp0_phase`, `defect_profile_digest` (`unit.core.api.defect-sites`) | implemented |
+| A AMBIG-B BAD_STORAGE kept refused; new defect status for the internal inconsistency sites; export no longer clears on refusal | `T64_STATUS_BAD_STORAGE` 4 refused, `T64_STATUS_INTERNAL_DEFECT` 38 defect; digest and state sites to `t64_internal_defect` | `unit.core.api.defect-sites`; state export refusal rows | implemented |
+| A AMBIG-D bus-write carve-out | header statement and api.md section 10.1 | `unit.core.api.bus-carve-out`, `installed.consumer.ops-bus` | implemented |
+| A AMBIG-C/E RESOURCE_LIMIT wording and the handler whitelist | class row `RESOURCE_LIMIT` guest-stop resumable; scheduler whitelist (DR-12 record) | `unit.core.api.defect-sites`; sweep 0 differences (check (b)) | implemented |
+| A Dead values reserved | `UNSUPPORTED_ROM_ORDER` 6 and `STOP_REASON_HALT` 4 class `reserved` | `repo.abi-status-classes` | implemented |
+| A NULL machine answers INVALID_ARGUMENT, outputs untouched | `T64_ENTRY_GUARD` | `unit.core.api.null-machine` | implemented |
+| A Gate budget: CTest names with COST in the existing gate; sanitizer, TSan and fresh-archive local; a G4 exception | PIN-IMPACT "Gate-growth ledger" and the exception text; check (e), (j) | measured cold gate-macos 731 s at 324 names (F-133); the final cold run is the orchestrator's after this plan's push | implemented; ledger FREEZE row is Task 4 |
+| A Public init macros first, then a mechanical codemod, compiling commits only | 12 macros; codemod commits of 11-05 to 11-10; DEV-11-01 window (DR-22) | `repo.api-init-guard` (`files=183 findings=0` at the SHAPE review), check (i) | implemented with the recorded DEV-11-01 deviation |
+| A Symbol rename by a generated header plus the SoftFloat guard deletions with provenance | `core/t64_prefix.h`, `scripts/gen-prefix-header.py`, `provenance/copies.json` | `repo.abi-prefix` (macOS and hosted Linux) | implemented |
+| A Installed headers: only `t64_machine.h`; `t64_facade.h` in-tree, relabeled, outside the record | `docs/abi/header.sha256` (one line), the record's "What is not bound" | `install.setup` (six files), `api04.headers` (1 file) | implemented |
+| A Stack protector pair plus the ELF-only `_GLOBAL_OFFSET_TABLE_`, ADR-0006 amendment | `tools/lint/allowlist-installed.txt` (3 rows with platform and reason), `docs/adr/0006-determinism-lint-mechanism.md` | `api04.members` (both OS) | implemented (DR-31 amendment) |
+| A Stop reasons: RESOURCE_LIMIT resumable, QUIESCENT guest-stop, CPU_UNSUPPORTED terminal guest-stop | class rows (scripted read: BOUND, INSTRUCTION_COUNT, FRAME_EVENT_COUNT, QUIESCENT, RESOURCE_LIMIT resumable; CPU_UNSUPPORTED, GUEST_COMPLETION terminal; HALT reserved) | `repo.abi-status-classes` | implemented |
+| A ABI status names appended after 33 | 34 ABI_MISMATCH, 35 STRUCT_TOO_SMALL, 36 REENTRANT (refused), 37 POISONED, 38 INTERNAL_DEFECT (defect) | `repo.abi-status-classes`, `unit.core.api.handshake` | implemented |
+| A Poison scope: one flag outside digest and state, in-call flag makes reentrancy a refusal | `poisoned` and `in_call` members, `T64_ENTRY_GUARD` | `unit.core.api.poison`, `.reentrant`; sweep 0 differences | implemented |
+| A Output status call | `t64_machine_output_status` | `unit.core.api.output-status`, `installed.consumer.ops-rings` | implemented |
+| A Thread statement and a local two-thread TSan run | header text before `t64_machine_is_poisoned`, api.md section 11; `tests/installed-consumer/threads.c`, `check-install.sh tsan` | local lane (Task 2 `tsan` stage) | implemented |
+| A Descriptor: `struct_size`, not getters | `t64_profile_descriptor` leading `struct_size` (DR-30), excluded from the hash and serialization | `unit.core.api.struct-size` descriptor case, `installed.consumer.ops-profile` | implemented |
+| A Package smoke: plain `cc` line; `.pc` optional | `ctl_plain_cc`; `.pc` dropped (DR-29) | `installed.controls.plain-cc` | implemented |
+| A Hosted footprint: cheap-first and install-from-build-tree on both hosted OS, no `ci.yml` change; fresh archive manual or local | CTest names in `tools/abi/CMakeLists.txt`; `check-install.sh fresh-archive` (no CTest name) | check (e); hosted runs 45775107983 and earlier | implemented |
+| A Evidence tier: authored-scope, build-identity-bound, software-interface only | `scripts/qualify-phase11.py` (`TIER`, `CLAIMS` all false, build ids bound); the record and api.md wording | `harness.phase11-qualification` (`tier-and-claims-pinned`, `claims-pinned`) | implemented; the claim and evidence documents are Task 3 |
+| A Review cadence: per wave in scratch clones plus one final audit | 11-15 (SHAPE), 11-21 (INSTALL), this section (FINAL, which also covers the FREEZE wave) | this record | implemented |
+| D Names (statuses, `T64_API`, `t64i_`) | DR-01, DR-03, DR-17 | `repo.abi-header`, `repo.abi-prefix` | decided as recorded |
+| D Plan decomposition | 25 planned plans plus the numbered defect-fix plans 11-26 to 11-29 | ROADMAP G5 note (recorded exception) | decided as recorded |
+| D Poison trigger and generator grammar | `t64i_test_force_defect` (in-tree hook) and `sequence.c` op table (15 advance variants, refusal bursts) | `unit.core.api.poison`, `installed.consumer.sequence` | decided as recorded |
+
+Carry-in table check (PIN-IMPACT "Carry-in triage"): 13 rows, one disposition each, 8 done (W2-01 `2425c47` and
+`445a990`, W2-02 `e9e0cbe`, W1-03 and D-10-17-01 and T8 `8388042`, T3 `3deee7d` in Phase 10, T4 `3f9a8bd`, T7
+`e9e0cbe`), 5 deferred (DEF-W1-01 to v1.3, T1 beyond v1.2, T2, T5 and T6 to Phase 12), none dropped. Every cited
+commit exists and is an ancestor of the reviewed head; the W2-01 name `unit.core.state.v26-z-product-bound` and the T8
+name `repo.installed-case-map` pass in the scratch gate. The G3 count of carried items is five, at the limit.
+
+Earlier review items, re-judged: I-06 (the gate samples the machine digest over every second refusal burst) stays
+accepted: stride 1 costs about 0.9 s native and 3 s hosted, the local shipped lane and the qualifier's
+`sanitize-shipped` stage verify every burst, and the cold margin is measured after this plan's push. The 11-24
+observation on the qualifier's derivation constants (installed 11.02 s against 8.8, sanitize-shipped 73.59 s against
+59, sanitize-instrumented 328.46 s against 299 in the rehearsal) is not refreshed, by orchestrator ruling: every limit
+holds at least 3.6 times the observed seconds, the constants are derivation text and not limits, and an edit would be
+a bound-input change that is not a defect fix (recorded in PIN-IMPACT "Freeze steps").
+
+#### Findings
+
+Severity scale as for SHAPE and INSTALL: blocking (stops the plan before the qualification), warning (a real gap that
+does not block), info (a recorded observation or accepted limit). The reviewer fixes nothing.
+
+| id | severity | file:line | finding | disposition |
+|----|----------|-----------|---------|-------------|
+| FN-01 | info | `core/t64_machine.c` `t64_machine_reset` (the `t64_internal_defect` after `reset_guest_state`); `core/t64_state.c` `state_layout` (three `RESOURCE_EXHAUSTED` returns) | Two rows of the api.md table name a status that no test produces: reset's `INTERNAL_DEFECT` (the same image and profile already passed `reset_guest_state` at admission, so no caller input reaches the failure) and state export's `RESOURCE_EXHAUSTED` (section count, build-id length and container length ceilings that the shipped profiles do not approach). Both are defensive branches of the S-08 kind; the class of each status is tested elsewhere | accepted (defensive branches, documented in the table) |
+| FN-02 | info | `docs/spec/api.md` section 12, row `t64_machine_advance` | The row names "handler status outside the whitelist" as the `INTERNAL_DEFECT` source; the CP0 corrupt-phase site of DR-11 (AMBIG-A) also answers `INTERNAL_DEFECT` and poisons through advance (`defect_cp0_phase`). Status, class and outcome are the same, so no host behavior differs; the row is incomplete, not contradicted | accepted; a Phase 12 text item (api.md is not one of the four goldens) |
+| FN-03 | info | `core/include/tendies64/t64_machine.h` (about twelve comments such as lines 174, 677 and 721: "provisional until the Phase 11 freeze candidate (final ABI bind at the end of Phase 12)"; line 711: "the string is not public API work (the API is Phase 11)") | Dated wording now that the candidate exists. It promises nothing (the first comment says "it is not a frozen ABI yet" and every site names the Phase 12 final bind), and `repo.stale-freeze-text` guards only the "until Phase 10" form. Any edit moves the bound header hash, so it is an amendment | accepted for the candidate; a text item for the Phase 12 final bind |
+| FN-04 | info | `docs/abi/FREEZE-CANDIDATE.md` "Evidence for the candidate" | Dated at 11-23: it says the only production-directory change after `4b13a90` is a test registration in `core/CMakeLists.txt` and that the hosted pair of the 11-23 commits comes with the next push. At the reviewed head `tools/abi/CMakeLists.txt` (11-23) and `runner/CMakeLists.txt` (11-24) also gained test registrations; no production source or header moved (header SHA-256 unchanged, sweep 0 differences), but `core/CMakeLists.txt` is a `T64_BUILD_INPUTS` entry, so the build id of the archive differs from that of `4b13a90` while its code does not | accepted; the evidence document of Task 3 states the qualified build id and the hosted pair of this plan's push |
+
+Result: zero blocking findings, no warning, four info rows. The whole phase is independently audited at
+`2c53513c0ddf2b1e31e0bbc261f7629ce2268658`: full gate 329 of 329 in the clone, 0 digest differences against the Wave
+0 base, the freeze record recomputed from a fresh install with 0 findings, the oracle authority still blocked with an
+identity-only rebind, no tag, no PII in the tree or the history, no CI-file edit and no published head inside the
+DEV-11-01 window. Qualification may proceed (Task 2).
