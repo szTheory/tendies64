@@ -125,7 +125,7 @@ TOOL_PATHS = (
     "docs/abi/FREEZE-CANDIDATE.md", "docs/abi/header.sha256", "docs/abi/public-symbols.txt",
     "docs/abi/layout.c", "docs/abi/status-classes.txt",
     "scripts/preflight-phase11.sh", "scripts/preflight-phase11-regexes.txt",
-    "scripts/qualify-phase11.py", "scripts/tests/test_phase11_qualification.py",
+    "scripts/qualify-phase11.py",
 )
 
 # The four goldens of the freeze record: block key, golden file (PLAN 11-23).
