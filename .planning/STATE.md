@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 11
 current_phase_name: Installed Consumer and Freeze Candidate
 status: executing
-stopped_at: Completed 11-12-PLAN.md
-last_updated: "2026-11-26T00:24:46.423Z"
+stopped_at: Completed 11-13-PLAN.md
+last_updated: "2026-11-26T00:57:32.837Z"
 last_activity: 2026-11-25
 last_activity_desc: Phase 11 execution started
-state_head: 4916489aad25f496575735ae07a10fbdd12442dc
+state_head: 63c8e3cf3c14ab7d3bccd18b9a16c22671b5c88d
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 46
-  completed_plans: 33
+  completed_plans: 34
   percent: 33
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 ## Current Position
 
 Phase: 11 (Installed Consumer and Freeze Candidate) — EXECUTING
-Plan: 13 of 25
+Plan: 14 of 25
 Status: Ready to execute
 Last activity: 2026-11-25 — Phase 11 execution started
 
@@ -93,6 +93,7 @@ Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 | Phase 11 P10 | 22 min | 2 tasks | 13 files |
 | Phase 11 P11 | 32 min | 4 tasks | 36 files |
 | Phase 11 P12 | 40 min | 3 tasks | 79 files |
+| Phase 11 P13 | 31 min | 3 tasks | 16 files |
 
 ## Accumulated Context
 
@@ -224,6 +225,8 @@ Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 - [Phase 11]: Plan 11-12: option A for the identity-block conflict in the plan's own clone-gate wording; harness.rdp-oracle-authority and harness.phase10-qualification fail by design in a clone holding the bound patch until the 11-14 rebind; 11-13 and 11-14 gate wording amended
 - [Phase 11]: Plan 11-12: the flip commit 0338380171fc198c175b78e70e499c1cee554fac opens the DEV-11-01 window (the nine bound test executables do not compile in the shared tree until the orchestrator bound commit of 11-14; every verify builds only the PIN-IMPACT non-bound target list and runs ctest -E the recorded bound regex; nothing is pushed); the scratch-proven bound patch is build/11-12-bound/bound-callsites.patch (SHA-256 in PIN-IMPACT)
 - [Phase 11]: Plan 11-12: t64_machine_create refuses host storage overlapping the create-info (BAD_STORAGE); entries that build results in a local write the caller's struct_size back unchanged
+- [Phase 11]: Plan 11-13: every in/out entry refuses a struct_size below its v1 size with STRUCT_TOO_SMALL after the struct span check and before the admission and state checks (the span is judged first so a wrapping or machine-aliasing pointer is still INVALID_ARGUMENT and is never read); copy-out entries build a zeroed local record and copy the bytes after struct_size through the static inline t64_internal_copy_out, so the callee never writes struct_size (t64_video_info and t64_audio_info used to clear or set it); t64_machine_state_import refuses a short report before the blob is read and never writes it, a NULL report is still accepted
+- [Phase 11]: Plan 11-13: the prologues were proven in the marked scratch clone with the unchanged 11-12 bound patch and the pending no-HLE digest refresh before the commit (273 of 273 outside the two identity-block names, authority checker exit 2, sweep 0 differences); the two sealed observers t64_video_info and t64_audio_info were re-pinned in the isolated commit 96d3323; the DEV-11-01 window stays open and nothing is pushed
 
 ### Pending Todos
 
@@ -249,8 +252,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-26T00:24:46.290Z
-Stopped at: Completed 11-12-PLAN.md
+Last session: 2026-11-26T00:57:32.698Z
+Stopped at: Completed 11-13-PLAN.md
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
