@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 12
 current_phase_name: Minimal Host, Playable Homebrew and Final Bind
 status: executing
-stopped_at: Completed 12-07-PLAN.md (host pump tracer, guards and the api.md tick-rate sentence; gate 343/343)
-last_updated: "2026-11-26T20:44:04.856Z"
+stopped_at: Completed 12-08-PLAN.md (host input mapping, strict scripted source, frame helpers, two-speed equality on the title, mutant driver; gate 348/348)
+last_updated: "2026-11-26T21:15:33.724Z"
 last_activity: 2026-11-26
-last_activity_desc: "Plan 12-07 complete (standalone host project, pure-C pump with fake-clock cases drain-order, clock and stall, host include and SDL isolation guards, api.md tick-rate sentence, DR-35, HOST ledger stub)"
-state_head: 4bf40d67ac97cba1065b6450b9948e10c2c2b8ef
+last_activity_desc: "Plan 12-08 complete (input mapping table, strict t64.input reader and scripted source, frame helpers, two-speed equality on the title at 240 Hz and 3 Hz, mutant driver, DR-36)"
+state_head: 16cd072ce9f0c334803cb9c86b80afff9bb73bd6
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 68
-  completed_plans: 57
+  completed_plans: 58
   percent: 67
 ---
 
@@ -30,10 +30,10 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 ## Current Position
 
 Phase: 12 (Minimal Host, Playable Homebrew and Final Bind) — EXECUTING
-Plan: 8 of 18
+Plan: 9 of 18
 Status: Ready to execute
-Last activity: 2026-11-26 — Plan 12-07 complete (HOST tracer: standalone host project, pure-C pump, fake-clock cases, include and isolation guards, tick-rate sentence)
-Note: plan 12-07 is complete: `host/` is a standalone CMake project `t64h` (never referenced by the root build) whose pure-C pump in `host/pump` includes only `<tendies64/t64_machine.h>` and C99 headers: an injected clock gives an origin-relative guest-tick bound of `ns / 16` capped by `max_ticks`, a backward clock is refused and counted, the drain runs video then audio then text at every step end and every backpressure stop, a refused packet is held and offered first again (DR-35), `RESOURCE_LIMIT` with movement is a budget stop and without movement drains and retries once before `T64H_STALL` ("stall without progress"), and a terminal stop latches `T64H_TERMINAL`. Seven new names in the gate: `host.pump.build` (configure and build against the moved prefix, no source-tree path), `host.pump.drain-order` (the title's short script, one pass holds video, audio and text in order, first packet equals the oracle frame), `host.pump.clock`, `host.pump.stall` (refuse-everything, refuse-once, terminal, small buffer), `repo.host-include-guard` and its 23-seed selftest, `repo.host-isolation` (no SDL token in core, runner, tools, tests or the root CMake, no SDL symbol in the archives); `check-api-init.py` gains the root `host`; `docs/spec/api.md` section 8.3 gains the 62,500,000 ticks per second sentence. Full local gate 343/343 in 190 s (ctest 106 s); the seven names cost 5.10 s native (HOST ledger stub in PIN-IMPACT: projected cold margin 104 to 112 s, under the 120 s warning level, for 12-12 to measure). API-05 stays pending (input mapping and scripted source in 12-08, SDL shell in 12-09); API ergonomics observations O-1 to O-3 for the 12-10 triage are in the 12-07 SUMMARY (no defect, no amendment). Next: plan 12-08 (input mapping, strict scripted source, frame helpers, two-speed equality). Earlier: plan 12-06 reviewed the TITLE wave in a scratch clone (zero blocking findings), pushed `884153a` (hosted pair green: gate-macos 582 s, gate-linux 263 s) and recorded the Host base `0836e40f583f8b47486ee93b0de36889e5626f0b`.
+Last activity: 2026-11-26 — Plan 12-08 complete (HOST: input mapping table, strict t64.input reader and scripted source, frame helpers, two-speed equality on the title, mutant driver)
+Note: plan 12-08 is complete: the title's short and long input scripts run through the pump's scripted source with a fake clock at 240 Hz and 3 Hz of fake time and give byte-identical frames, audio packets and stream, transcript, exported save and final digest at both speeds, equal to `title.expected.json` and to the headless pins (runner for short: completion tick 3,693,938, final digest `57b683df...`; consumer for long: tick 13,078,313, `151bf840...`); `scripts/check-host-title.py` is the comparator (seeded selftest first, scratch pin overrides by `T64_TITLE_PINS` and `T64_TITLE_EXPECTED`). New in `host/pump`: `t64h_script` (strict t64.input v1 reader, one rule name per refusal, and the scripted source: lazy queueing, QUEUE_FULL deferral by lowering the bound, nothing queued after a terminal stop), `t64h_input` (the DR-12 mapping table, vertical axis by complement), `t64h_frames` (stride-honoring RGBA8 copy with checks before the first write, S16BE swap); the pump input hook now takes `uint64_t *bound` (DR-36). Five new names in the gate: `host.pump.title-two-speeds` (COST 3.00, the heaviest host name), `host.pump.script`, `host.pump.input-map`, `host.pump.frames` and `repo.p12-mutant-anchors` (`scripts/p12-mutants.py`: 8 pump and 4 title mutants and 2 controls; `--run` is 12-12's and was not executed here, a scratch emulation on a copy of HEAD gave every expected class). Full local gate 348/348 in 149 s (ctest 89 s); the 12 host names cost 8.49 s of COST (HOST ledger row in PIN-IMPACT: projected cold margin about 89 to 101 s, under the 120 s warning level, for 12-12 to measure). API-05 and API-06 stay pending (SDL shell and lane in 12-09, API-07 and the final audit later); observations O-4 and O-5 for the 12-10 triage are in the 12-08 SUMMARY (no defect). Next: plan 12-09 (SDL shell, host policy guard, SDL lane). Earlier: plan 12-07 built the standalone host project and the pure-C pump (DR-35); plan 12-06 reviewed the TITLE wave, pushed `884153a` (hosted pair green) and recorded the Host base `0836e40f583f8b47486ee93b0de36889e5626f0b`.
 
 Progress: [███████░░░] 67% (0 of 3 v1.2 phases complete)
 
@@ -118,6 +118,7 @@ Progress: [███████░░░] 67% (0 of 3 v1.2 phases complete)
 | Phase 12 P05 | 27min | 3 tasks | 14 files |
 | Phase 12 P06 | 31min | 3 tasks | 3 files |
 | Phase 12 P07 | 33 min | 3 tasks | 15 files |
+| Phase 12 P08 | 33 min | 4 tasks | 17 files |
 
 ## Accumulated Context
 
@@ -284,6 +285,7 @@ Progress: [███████░░░] 67% (0 of 3 v1.2 phases complete)
 - [Phase 12]: 12-06: TITLE review in a scratch clone found zero blocking findings and zero warnings (nine info rows T-01 to T-09); pushed 884153a (fast-forward from dc247fa, no tag), hosted run 45887012740 green (gate-macos 582 s, gate-linux 263 s); projected cold gate-macos 772 s, margin 128 s (reversal rule not triggered, 12-12 likely to cross the 120 s warning); Host base 0836e40f583f8b47486ee93b0de36889e5626f0b
 - [Phase 12]: 12-07: a sink refusal keeps the packet in the pump and movement while a packet is held is not progress, so a refusing sink ends in T64H_STALL after one retry and loses nothing (DR-35)
 - [Phase 12]: 12-07: the pump bound is origin-relative ns/16 capped by max_ticks and never behind the guest tick; the drain runs at every step end and every backpressure stop; the caller owns the buffers (DR-35)
+- [Phase 12]: DR-36: the pump input hook takes uint64_t *bound and may lower it to the tick of an event refused with QUEUE_FULL (a deferred event the guest already reached is an input error); the vertical axis is inverted by complement so +32767 reaches -128; the 4,096-event cap of the t64.input reader is pinned through raised byte limits (unreachable at 65,536 bytes)
 
 ### Pending Todos
 
@@ -309,8 +311,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-26T20:44:04.358Z
-Stopped at: Completed 12-07-PLAN.md
+Last session: 2026-11-26T21:15:33.238Z
+Stopped at: Completed 12-08-PLAN.md (host input mapping, strict scripted source, frame helpers, two-speed equality on the title, mutant driver; gate 348/348)
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
