@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 11
 current_phase_name: Installed Consumer and Freeze Candidate
 status: executing
-stopped_at: Completed 11-17-PLAN.md
-last_updated: "2026-11-26T03:07:00.628Z"
+stopped_at: Completed 11-18-PLAN.md
+last_updated: "2026-11-26T03:41:18.297Z"
 last_activity: 2026-11-25
 last_activity_desc: Phase 11 execution started
-state_head: a2418e708d168521eaf861c49bf2ca5dd0af1f2f
+state_head: 56e21f960ff753d49035e259862ef6d36d252b08
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 47
-  completed_plans: 39
+  completed_plans: 40
   percent: 33
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 ## Current Position
 
 Phase: 11 (Installed Consumer and Freeze Candidate) — EXECUTING
-Plan: 18 of 25
+Plan: 19 of 25
 Status: Ready to execute
 Last activity: 2026-11-25 — Phase 11 execution started
 Note: plan 11-17 (cheap-first ABI checks and API-04 on the installed archive) is complete locally and unpushed (origin/main stays e5a2e3c; the local commits after it go out with the next push a plan names); nine new CTest names, full gate 289 of 289 (ctest 96 s). The Linux rows of docs/abi/installed-undefined.txt are act-image measurements until the hosted gate-linux run of 11-21 confirms them. Gate-growth warning stands: warm gate-macos 496 s at the INSTALL tracer, two of three cold projections under the 120 s margin (none above 900 s), and the nine new names add roughly 45 to 70 s of hosted test time (mostly api04.members and api04.seeded); a measured cold run should precede the 11-21 ledger row.
@@ -100,6 +100,7 @@ Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 | Phase 11 P26 | 17min | 3 tasks | 7 files |
 | Phase 11 P16 | 28min | 4 tasks | 15 files |
 | Phase 11 P17 | 25min | 4 tasks | 14 files |
+| Phase 11 P18 | 35min | 3 tasks | 18 files |
 
 ## Accumulated Context
 
@@ -239,6 +240,7 @@ Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 - [Phase 11]: 11-26: an output-observer inconsistency that state import already rejects (drain cursor or capture length, ring head or count out of range) is a defect site at the call that finds it: poison, INTERNAL_DEFECT, outputs untouched; T64_API header text promises no visibility attribute, the t64i_ prefix and the archive symbol check are the enforced property — SHAPE review S-01 and S-02, AMBIG-A/B; text and two defect branches only, sweep 0 differences, no sealed body moved
 - [Phase 11]: The sha256 rename of the folded core copy uses four private compile definitions (not the generator), so core/t64_prefix.h stays at 220 renames and the archive carries 35 public and 224 t64i_ names; package version is the literal 0.1.0 SameMinorVersion (project(VERSION) stays 0.0.0) — The installed.consumer preflight row counts the t64_install fixture closure (install.setup joins the two installed.consumer names), and the Linux undefined set of the act image is the input of plan 11-17; the warm gate-macos sample is 496 s with two of three cold projections under the 120 s margin warning
 - [Phase 11]: 11-17: layout pins use one macro with a C++ static_assert, a C11 _Static_assert and a C99 negative-array typedef (_Static_assert is a diagnosed extension under -std=c99 -pedantic -Werror), compiled against the source and the installed header and regenerated and diffed; docs/abi/installed-undefined.txt records the whole archive-level undefined set per OS (allowlisted names included, compared in both directions), the Linux rows are act-image measurements still unconfirmed by a hosted run; Q6 spaced-prefix ar x works (in place, 86 members, GNU and BSD ar)
+- [Phase 11]: 11-18: runner-recorded pins are a committed, sourced, labeled fixture and never called independent; the consumer's class table t64c_classes.h was written here (pulled forward from 11-20) so every refusal asserts its class
 
 ### Pending Todos
 
@@ -264,8 +266,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-26T03:07:00.479Z
-Stopped at: Completed 11-17-PLAN.md
+Last session: 2026-11-26T03:41:18.108Z
+Stopped at: Completed 11-18-PLAN.md
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
