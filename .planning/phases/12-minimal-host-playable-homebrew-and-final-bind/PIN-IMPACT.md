@@ -194,3 +194,162 @@ to that checkout and its working tree (which carries uncommitted edits) was not 
 Plan 12-10 re-verifies this pin at its start (a different HEAD is recorded as the new pin, never
 silently). The expected conclusion stays "no adapter now", with no adapter code, no core API
 change and no claim that LibFuturo support exists.
+
+## Decision record
+
+Written by plan 12-01 Task 3 before any production edit. Every row binds each later Phase 12
+plan: a later plan that needs a different name, value or shape records the change in this table
+first. Columns: the row, the decision, its source (CTX locked, CTX autonomous, CTX settled,
+research fact or discretion, with the CONTEXT decision or research finding it implements) and a
+reversibility rating. Reversibility is costly for DR-01, DR-02, DR-04, DR-10 to DR-13 and DR-33
+(later plans pin them), one-way for DR-25 (the bind; already locked by CONTEXT and confirmed by
+the owner on 2026-11-26, so no checkpoint is raised) and reversible for the others
+(REVERSIBILITY_GATES is false: the one-way decisions are already settled by CONTEXT, so no
+`checkpoint:decision` task exists). Evidence tier: unit-tested, authored scope; a
+software-interface claim only, with no compatibility, accuracy, hardware, real-time, latency or
+throughput claim.
+
+| ID | Decision | Source | Reversibility |
+|----|----------|--------|---------------|
+| DR-01 | Title identity: profile `ntsc-cart-4m-openipl3-rdram-b-t1-si-v2-s32k`; ROM stems `phase12-title-s32k` and `phase12-title-refused-s32k` (built with `--defsym T64_TITLE_REFUSED=1`); builder `scripts/build-title-fixture.sh` copied from `scripts/build-composite-fixture.sh` (research contradiction 2: the composite builder is the newer descendant of the pad builder and adds the manifest identity check), schema string `t64.phase12-title-fixture-build.v1`, CMake target `t64-phase12-title-fixture`, completion symbol `t64_title_completion`, entry `0x80000400`, clock `0xf`, crc2 0; manifest rows authored-here / cleared / build-only, toolchain GNU Binutils 2.45; the sources and the rows are two commits. | CTX locked (route A; one named composite profile shared with the RUN-07 fixture; copy-paste builder) refined by research contradiction 2 | costly |
+| DR-02 | Screen: 128x96 RGBA8888, framebuffer at RDRAM 0x00100000, stride 512, packet 49,152 bytes; VI values of research Pattern 2 (WIDTH 128, X and Y scale 0x400, H_START 128, V_START 192, H_SYNC 3093, V_SYNC 525, STATUS 0x303, VI_INTR 2); standard NTSC field of 1,042,709 ticks. Reason: the runner raw-capture file limit of 69,632 bytes, under which a 320x240 packet of 307,200 bytes cannot be captured and one 128x96 packet can. | research fact (Pattern 2, Pitfall 1) and CTX autonomous (screen small enough for the raw capture) | costly |
+| DR-03 | Frame lock: poll MI_INTERRUPT bit 0x08 (VI pending) with Status.IE cleared, as `fixtures/composite/composite.S` lines 148-152 do, and clear it by a VI_CURRENT write; no exception handler and no instruction-count delay loop. The ROADMAP wording "frame-locked on the VI interrupt" is met as the polled VI interrupt pending bit (research contradiction 3: no authored fixture takes a CPU interrupt, and a handler would be an unqualified idiom). | CTX locked (frame-locked, no delay loops) refined by research contradiction 3 | reversible (guest source; after the 12-03 source commit the authoring-once rule applies) |
+| DR-04 | Title behavior: background 0x203060ff, square 0xf0c020ff, start position (56, 40), 2 pixels per field per direction, clamped to x 0..112 and y 0..80; the D-pad or the stick (an absolute axis value of at least 16, stick y positive is up) moves it; A on its press edge starts one fixed tone burst (two 2,048-byte descriptors of one square-wave table, DACRATE 1103, BITRATE 15) and adds 1 to the press count; B resets the position; Start writes the 16-byte SRAM slot at offset 0 (magic 0x54363454, x, y, press count), prints a short ISViewer transcript (at most 4096 bytes) and executes `break` at `t64_title_completion`; boot loads the slot when the magic matches. No Z, textures, RSP microcode, TLB or libultra; at most about 600 lines of assembly; one screen, one 16x16 filled square, one fixed AI tone burst on A, one SRAM save slot. The exact byte formats are fixed by `fixtures/title/title-spec.md` (plan 12-02), the single behavior authority that both the oracle and the guest implement. | CTX locked (scope cap) and discretion (colors, tone, byte formats) | costly |
+| DR-05 | Scenarios: short (runner, at most 3 packets: poll 1 neutral, poll 2 Right+A, poll 3 B, poll 4 Start; completion below 4,000,000 ticks) `title.short.input.json`; long (consumer and pump, at least 10 fields: D-pad and stick moves, two A presses, B, Start last) `title.long.input.json`; short-wrong (the short events with Left in place of Right, the runner wrong-input control; it still completes) `title.short-wrong.input.json`; shifted (the long events one field later, the consumer and pump wrong-input check) `title.shifted.input.json`; persistence (the save exported after the long run, imported into a fresh instance that runs with no input events and must show the restored position). Stamps sit at field midpoints (about 521,000 ticks from each boundary); the oracle exits 2 for any stamp within 200,000 ticks of a field boundary (the margin 12-02 enforces, fixed here before 12-02 relies on it) and for a short script longer than 3 fields. | research fact (Pitfalls 2 and 6) and discretion | reversible |
+| DR-06 | Expected values: `fixtures/title/title_oracle.py` (standard library only, never reads a ROM, the core, the runner or a build output) writes `title.expected.json` (checkpoint frame digests per scenario, the audio stream digest, the save bytes digest, the transcript bytes and the blank-frame digest of 49,152 zero bytes) with `--write` and `--check`; CTest `harness.title-oracle`; checkpoint digests, not long raw captures. | CTX autonomous (checkpoint digests; spec-derived oracle) | reversible |
+| DR-07 | Recorded pins: `fixtures/title/title.runner-pins.json` with a section `runner` labeled "runner-recorded pin, not independent" (short scenario: completion tick, stop reason, final state digest, video packet count) and a section `consumer` labeled "consumer-recorded pin, not independent" (long scenario: the same four values); never called independent. | CTX locked (independent literals) following Phase 11 DR-32 | reversible |
+| DR-08 | Runner: rows in `runner/t64_real_fixture.c` (a production runner edit; the tick cap is the long cap), `runner/tests/test_title_two_run.c` copied from `test_composite_two_run.c` with cases `two-run`, `wrong-input` and `refused-frame`; CTest names `runner.title-two-run`, `controls.real.title-wrong-input` and `controls.real.title-refused-frame`; the refused-frame run must end non-pass and its frames must equal the blank digest, reported as "blank". | CTX autonomous (wrong-input and refused-packet controls) | reversible |
+| DR-09 | Consumer: binary cases `title` and `title-persist`, literals header `tests/installed-consumer/t64c_title.h`, `scripts/check-consumer-literals.py` extended, a per-case ROM variable `T64_CONSUMER_ROM_<case>` (default `T64_CONSUMER_ROM`) set to `build/fixtures/phase12-title-s32k.z64` for the two title cases, a COST per case. | research fact (Pattern 3, item 5) | reversible |
+| DR-10 | Host layout: `host/CMakeLists.txt` is a standalone project `t64h` (C99, warnings as errors, `find_package(tendies64 0.1 CONFIG REQUIRED)` until the bind, option `T64H_SDL` default OFF); `host/pump` (`t64h_pump`, `t64h_input`, `t64h_script`, `t64h_frames`); `host/tests` (`t64h_tests.c` with `--case NAME`, `t64h_sha256` copied from `tests/installed-consumer/t64c_sha256`); `host/sdl` only when `T64H_SDL=ON`; the root `CMakeLists.txt` never references `host/`; CTest registrations in `tools/hostcheck/CMakeLists.txt` calling `scripts/check-host.sh` (`build`, `run CASE`, `sdl`); build tree `build/gate/host-check`; paths quoted because the moved prefix holds a space. | CTX autonomous (host layout under `host/`, not `tools/`) | costly |
+| DR-11 | Pump API (discretion): `T64H_TICK_NS` 16 (62,500,000 ticks per second); `t64h_ticks_from_ns(elapsed_ns)` is `elapsed_ns / 16`; a clock callback returning monotonic ns; `t64h_sinks` (video, audio and text callbacks with a context); `t64h_pump_init`; `t64h_pump_step(pump, max_ticks, result)`, which reads the clock once, refuses a backward clock (`T64H_CLOCK_BACKWARD`, counted, no advance), queues due input lazily before the advance that contains it, runs the advance loop (`RESOURCE_LIMIT` with tick movement continues; without movement it drains video, audio, then text and retries once; a second no-move returns `T64H_STALL`, "stall without progress"), stops queueing at a terminal stop (`T64H_TERMINAL`) and returns `T64H_API_ERROR` carrying any other `t64_status`; counters for drains, backward clocks, stall retries and deferred events. | discretion (function names) and research fact (Pattern 4) | costly |
+| DR-12 | Input mapping: `t64h_raw_pad` (two int16 axes, button bits of `t64h` names, no SDL type) is mapped by one pure table function to the logical pad (uint16 buttons, int8 x and y): the axis value divided by 256 and clamped to -128..127, a deadzone where an absolute value below 8 maps to 0, the vertical axis inverted (host down positive, controller up positive); A is bit 15, B 14, Z 13 (left trigger past half travel), Start 12, D-pad up 11, down 10, left 9, right 8; every other control is unmapped; port 0 only; hotplug unsupported (a removed pad gives neutral input); keyboard off. | CTX autonomous (input mapping; keyboard fallback settled off) | costly |
+| DR-13 | Scripted source: `host/pump/t64h_script.c`, a strict copy of the `t64.input` v1 subset (keys `buttons`, `port`, `tick`, `x`, `y`; schema `t64.input`, `schema_version` 1; closed keys; `tick` a decimal string; port 0; axes -128..127; buttons 0..65535; file at most 65,536 bytes and 4,096 events), refusing on the first violation with a named reason (the runner parser is outside the include guard, research contradiction 5). | research fact (contradiction 5, Security V5) | costly |
+| DR-14 | Frames and audio: `t64h_frame_copy` honors `stride_bytes` and refuses a packet larger than 320x240 RGBA or a short destination; buffer sizes come from `t64_machine_output_status` `video_next_bytes`; audio packets pass through as S16BE with a byte-swap helper; underrun policy (shell): silence, counted. | research fact (Pattern 4) and CTX locked (underrun is silence and counted) | reversible |
+| DR-15 | Tick-rate text: one sentence in `docs/spec/api.md` section 8.3 (plan 12-07) stating that 62,500,000 ticks per second is one tick per 16 ns; api.md is not a golden, so no header change (research candidate C-1). | research fact (Pattern 4, C-1) | reversible |
+| DR-16 | Guards: `scripts/check-host-includes.sh` (copy of `scripts/check-consumer-includes.sh` scanning `host/pump`, `host/tests` and `host/sdl`; SDL3 headers allowed in `host/sdl` only) with `--selftest`; the default roots of `scripts/check-api-init.py` gain `host`; `scripts/check-host-isolation.sh` (no `find_package(SDL3`, `SDL3::` target, `#include <SDL3/` or `SDL_` identifier in `core`, `runner`, `tools`, `tests` or the root `CMakeLists.txt`; the root `CMakeLists.txt` holds no `host/` path; no `SDL_` name in the installed archive's symbol table or in `docs/abi/installed-undefined.txt`; the bare token SDL is a MIPS store instruction in the CPU tests and is not a finding); `scripts/check-host-policy.sh` with `--selftest` (in `host/`: no `FetchContent`, `ExternalProject`, `third_party`, vendored SDL source, `install(` rule, `MACOSX_BUNDLE` or icon file; no C string literal holding the product name, case-insensitively; the window title literal is exactly "t64 minimal host (development)"). | research fact (contradiction 4) and CTX locked (D4, D7) | reversible |
+| DR-17 | SDL lane: `sh scripts/check-host.sh sdl`, local and manual only, never a CTest name or a workflow step; `find_package(SDL3 3.2.0 CONFIG REQUIRED)` in `build/host-sdl`; `SDL_VIDEO_DRIVER=dummy` and `SDL_AUDIO_DRIVER=dummy` exported before init; a virtual gamepad drives the mapping; skip line "[host-sdl] SKIP: SDL3 >= 3.2.0 not found (link-only system package; this lane installs nothing)" when SDL3 is absent; recorded hosted reason "ubuntu-24.04 has no libsdl3-dev candidate"; sanitized output only. | CTX autonomous (SDL lane) and research fact (Pitfalls 3 and 4) | reversible |
+| DR-18 | SDL presentation: window surface plus `SDL_BlitSurfaceScaled` nearest at an integer scale (default 4), no renderer, no GPU, no vsync dependence; `SDL_AudioStream` from S16BE stereo at the packet rate rounded to whole Hz (conversion only, no fidelity claim); clock `SDL_GetTicksNS`; at most 65,536 ticks per pump step between SDL event pumps; controller only. | CTX locked (window-surface blit, nearest or integer scale) | reversible |
+| DR-19 | Host-side save file, fit test (CTX autonomous): the test is whether one CLI-provided path with an atomic write (a temporary file plus rename, refusal on a partial write, V12 path handling) fits one task of plan 12-09. Result: it does not fit, because the three tasks of 12-09 are full (audit and policy scan; shell, smoke and lane; measurement, lane record and gate) and the write would need its own task with its own tests; so the host-side save file is omitted (the headless runs prove the save bytes). Plan 12-09 re-confirms the result in "Host steps". | CTX autonomous (host-side save persistence omitted unless it fits one task) | reversible |
+| DR-20 | Throwaway measurement: one fields-per-second figure of the pump with the real clock, recorded in the 12-09 SUMMARY only, information only, no claim made from it. | CTX autonomous (throwaway measurement) | reversible |
+| DR-21 | Evidence tiers: the claim is scripted equality through the pump at two fake-clock speeds (byte-identical video, audio and save results to the headless run); the SDL smoke is self-checking host glue only and not rendering correctness; `docs/evidence/phase12-host-manual.md` is a human-needed, non-blocking, owner-attested checklist and never a must-have. | CTX locked (evidence tiers) | reversible |
+| DR-22 | LibFuturo: the pin of section "API-07 pin: LibFuturo", the written evaluation `docs/evidence/phase12-libfuturo-fit.md` (plan 12-10), CTest `repo.api07-evaluation`, conclusion "no adapter now", no adapter code, no core API change and no claim that LibFuturo support exists. | CTX locked (API-07) | reversible |
+| DR-23 | Amendment slot: plan 12-11 is reserved. Its trigger is at least one row of "Host-found API defects" with disposition "amend" (a postcondition defect of the bound API found by plans 12-02 to 12-10 with a failing test or recorded evidence; the ergonomics observations C-1 to C-6 of the research are not defects). With no such row 12-11 closes with a one-line SUMMARY and no code. A second amendment is a further numbered plan inserted before 12-12. | CTX locked (amendment rule; no decimal plans) | reversible |
+| DR-24 | S-05 and I-05: keep the eight implicit padding holes (they are bound and pinned for 64-bit pointers), the bus-read `value_out` span stays an accepted limit, and an explicit-reserved amendment happens only if plan 12-11 is triggered anyway. Reversible only before the bind of plan 12-14; afterwards the holes are bound. | CTX settled (S-05 default) | reversible (until 12-14) |
+| DR-25 | Final bind (OWNER CONFIRMED 2026-11-26, answer "Bind ABI 1.0 / package 1.0.0"): ABI 1.0 (`T64_ABI_VERSION_MAJOR` 1, `T64_ABI_VERSION_MINOR` 0), package 1.0.0 with `COMPATIBILITY SameMajorVersion`, `project(VERSION)` untouched at 0.0.0; the record keeps its path `docs/abi/FREEZE-CANDIDATE.md` and gains block keys `bound_minor: 0` and `candidate_amendments: N` (N amendment rows made before the bind); `scripts/check-abi.py` checks minor == `bound_minor` + (rows - `candidate_amendments`) when `bound_minor` is present and the candidate rule otherwise; the 15 header text sites are settled (FN-03), FN-02 and FN-04 text are fixed; the record states that 1.0 is an ABI identity and the package's ABI number, not a release version, with no tag, channel or release naming, as an owner-review item. Executed as four plans: 12-13 (checker generalization with no ABI byte change), 12-14 (the one coupled bind commit of 11 files, proven in a scratch clone first), 12-15 (text settle and the stale-text guard) and 12-16 (the major-rule unit case, the major-version control and the post-bind proofs). Recorded alternative only, not the plan: keep 0.x with a recorded reason if an amendment is still open at the start of 12-14. | CTX locked (one-way bind) and OWNER CONFIRMED 2026-11-26 | one-way |
+| DR-26 | G4 position: new checks are CTest names with a COST inside the existing gate, no `ci.yml`, `check-ci-yml.sh` or `gate.sh` edit; sanitizer, TSan, fresh-archive, SDL and full-mutant runs stay local; a Phase 12 G4 exception for owner review with its reversal rule is recorded in "Gate-growth ledger" below. | CTX settled (Phase 12 G4 gate growth) | reversible |
+| DR-27 | CTest names by plan (the `PHASE12_TESTS` block of `scripts/check-test-inventory.sh` is the exact list and the registering plan is authoritative for spelling): 12-02 `harness.title-oracle`; 12-04 `runner.title-two-run`, `controls.real.title-wrong-input`, `controls.real.title-refused-frame`; 12-05 `installed.consumer.title`, `installed.consumer.title-persist`; 12-07 `host.pump.build`, `host.pump.clock`, `host.pump.drain-order`, `host.pump.stall`, `repo.host-include-guard`, `repo.host-include-guard-selftest`, `repo.host-isolation`; 12-08 `host.pump.input-map`, `host.pump.script`, `host.pump.frames`, `host.pump.title-two-speeds`, `repo.p12-mutant-anchors`; 12-09 `repo.host-policy`, `repo.host-policy-selftest`; 12-10 `repo.api07-evaluation`; 12-16 `unit.core.api.abi-major-rule` and `installed.controls.version-mismatch-major` (existing families); 12-17 `harness.phase12-qualification`. Each carries LABELS `<kind>;phase12`, a COST equal to its measured native seconds rounded up to two decimals and a literal TIMEOUT of at least 3.5 times its native seconds and at least 2 times its COST (F-108). | discretion (names) and CTX locked (gate budget) | reversible |
+| DR-28 | Order: oracle before guest, guest frozen before pins, title before pump equality, amendments before the bind; the 12-14 bind commit is the last ABI-moving change (12-13 before it and 12-15, 12-16 after it move no bound hash); the qualifier and the final audit bind the post-bind tree; the cold gate-macos run after the final push is orchestrator-only. "The final bind is the last plan" therefore means the last ABI-moving plan. | CTX settled (qualification versus bind ordering) | reversible |
+| DR-29 | Carry-ins: every open carry-in of Phase 11 is triaged in section "Carry-in triage" below (done, deferred, accepted or no action, with a reason). | CTX locked (carry-ins triaged) | reversible |
+| DR-30 | Decomposition: 18 linear plans (W0; four TITLE plans and their review; four HOST plans plus the conditional slot and their review; four BIND plans; the qualifier; the final audit and evidence). The per-wave reviews are mandated by AUTONOMY v1.2, the bind and the qualification are separated by the settled ordering, and the bind is split so that each plan has a safe resume point. 18 exceeds the G5 guide of about 10-15 plans; recorded in the ROADMAP G5 note. | discretion (plan decomposition) | reversible |
+| DR-31 | SDL CI job (discretion): none; a documented manual command and the local script only (a workflow file would need a `scripts/check-ci-yml.sh` edit with its seeded case and a first hosted run, about one plan). | discretion (whether the SDL shell gets its own CI job) and research fact (Pattern 5) | reversible |
+| DR-32 | Mutants: `scripts/p12-mutants.py` (a copy of the `scripts/p10-mutants.py` frame) with 8 pump mutants (divisor 15, queue after advance, skip the text drain, drop the first packet on a stall, ignore the stride, deadzone off by one, axis sign, completion treated as resumable) and 4 title mutants (D-pad bit swap, step 3, wrong tone sample, wrong save offset), each killed by a named host test; `--check-anchors` is CTest `repo.p12-mutant-anchors`; `--run` is local (the 12-12 review and the qualifier). | discretion (mutant set) | reversible |
+| DR-33 | Route B (libdragon) is a documented non-goal for v1.2: no libdragon source, toolchain, build, fixture or manifest row; the title is route A only. Rated costly: a toolchain and rights choice that later fixtures build on; reversing it needs a per-file rights review and an owner D4 decision, which is why it is recorded rather than merely omitted. | CTX locked (API-06 route A; route B a non-goal) | costly |
+
+## Carry-in triage
+
+Written by plan 12-01 Task 3 (DR-29). Every open carry-in of Phase 11 (the Phase 11 "Carry-in
+triage" and `11-REVIEW.md` rows FN-01 to FN-04 and S-05, and the 11-29 observation OIPL3) ends
+in done, deferred, accepted or no action with one disposition per row and a reason, so the final
+bind inherits nothing silently. Rows DEF-W1-01 and T1 are carried unchanged from the Phase 11
+table. Evidence tier: code observations at the Wave 0 base; nothing here is a compatibility or
+hardware claim.
+
+| Item | Origin | Disposition and owning plan | Reason |
+|------|--------|-----------------------------|--------|
+| T2 | Phase 9 triage, deferred to Phase 12 by Phase 11 | deferred to v1.3 (no owning plan) | The replay-driver duplication in `runner/t64_replay.c` has no state or digest effect, and the pump of Phase 12 does not use `runner/t64_replay.c` (it carries its own strict `t64.input` reader, DR-13), so unifying the drivers now would be redone; no API effect. |
+| T5 | Phase 9 triage, deferred to Phase 12 by Phase 11 | deferred to v1.3 (no owning plan) | Closed detail names for the recorder failures need a runner result-protocol vocabulary change and a checker change in the runner, which is not installed and not in the freeze record; no API effect. |
+| T6 | Phase 9 triage, deferred to Phase 12 by Phase 11 | deferred to v1.3 (no owning plan) | `T64_REAL_KEEP_WORKSET` (`runner/t64_supervisor.c`) is a runner-internal production supervisor name (gating it broke two Phase 8 tests, FX-18); the runner is not installed and not in the freeze record, so the final bind does not own it. |
+| DEF-W1-01 | Phase 10 Wave 1 review (carried by Phase 11) | deferred to v1.3 (no owning plan), unchanged | Three sibling copies of the perspective and major-edge floor in sealed RDP bodies are unpinned behaviorally; the fix is tests and mutants only, with no API effect. |
+| T1 | Phase 9 triage (carried by Phase 11) | deferred beyond v1.2 (no owning plan), unchanged | Splitting `unit.core.state.import` changes a case list that `docs/spec/phase09-cases.json` inventories, and that file's digest is a closed pin of `harness.phase09-qualification`; the hosted cost fits and the Gate-growth ledger reversal rule, not a split, is the trigger. |
+| FN-01 | `11-REVIEW.md` (info) | accepted limit (api.md rows stand) | The reset `INTERNAL_DEFECT` and the state-export `RESOURCE_EXHAUSTED` rows of `docs/spec/api.md` name defensive branches that no test produces (S-08 kind); the class of each status is tested elsewhere, so the rows stay as documented behavior. |
+| FN-02 | `11-REVIEW.md` (info) | done in 12-15 | The `t64_machine_advance` row of `docs/spec/api.md` section 12 gains the CP0 corrupt-phase `INTERNAL_DEFECT` source (B-28); api.md is not one of the four goldens, so no amendment. |
+| FN-03 | `11-REVIEW.md` (info) | done in 12-14 (header) and 12-15 (other live text) | The 15 header text sites (B-03 to B-17) are settled in the bind commit because they move the bound header hash by design; the 4 `core` comments and 13 `docs/spec` lines holding "until the Phase 11" (B-31, B-32) are relabeled by 12-15, and `repo.stale-freeze-text` gains the deny phrase (B-30). |
+| FN-04 | `11-REVIEW.md` (info) | done in 12-15 | The "Evidence for the candidate" text of `docs/abi/FREEZE-CANDIDATE.md` is rewritten as "Evidence for the bind" with every block line and golden unchanged (prose only; `repo.abi-freeze-record` passes without `--write`). |
+| S-05 | `11-REVIEW.md` (info) | per DR-24: accepted, the eight implicit padding holes stay | They are bound and pinned per target in `docs/abi/layout.c` for 64-bit pointers; an explicit-reserved amendment happens only if plan 12-11 is triggered anyway. |
+| OIPL3 | 11-29 observation (documented in `docs/spec/machine-contract.md`, review I-02) | no action | The open IPL3 profile narrows raw ROM admission to the exact pinned asset or an authored big-endian z64 cartridge; the title ROM is an authored big-endian z64 cartridge, so it is admitted, and nothing in Phase 12 depends on byte-swapped or word-reversed dump orders. |
+
+G3 (at most 5 carried warning-level gaps) after triage: the carried items are DEF-W1-01, T1, T2,
+T5 and T6, that is 5, at the limit. FN-01 and OIPL3 are accepted observations and S-05 is a
+bound, accepted layout fact; none is a warning-level gap carried into Phase 13, and FN-02 to
+FN-04 close in this phase. No row is open: 11 rows, 3 done (FN-02, FN-03, FN-04), 5 deferred
+(T2, T5, T6, DEF-W1-01, T1), 2 accepted (FN-01, S-05) and 1 no action (OIPL3), none dropped.
+
+## Host-found API defects
+
+Rows are added by plans 12-02 to 12-10 when a failing test or recorded evidence shows a
+postcondition defect of the bound API (DR-23); a row with disposition "amend" triggers plan
+12-11. Columns: ID, found by plan, postcondition (the `docs/spec/api.md` row), evidence,
+disposition (amend, accept or defer).
+
+| ID | Found by plan | Postcondition | Evidence | Disposition |
+|----|---------------|---------------|----------|-------------|
+
+none at Wave 0
+
+## Owner questions
+
+none
+
+Owner-review items (recorded, non-blocking, no question open): (1) the ABI 1.0 and package 1.0.0
+numbers are an ABI identity and not a release version, confirmed by the owner on 2026-11-26
+(DR-25; D6: `project(VERSION)`, tags, release channel and release naming stay unselected); (2)
+the Phase 12 G4 exception of the Gate-growth ledger below.
+
+## Gate-growth ledger
+
+Written by plan 12-01 Task 3 (DR-26). ROADMAP guardrail G4 says the required gate may not grow
+without removing equal time, the Phase 10 and Phase 11 exceptions cover their own phases only,
+and no equal-time offset exists in Phase 12, so this ledger starts from the measured Phase 11
+cold run and measures growth instead of projecting it: one row per wave is appended by the review
+plans (12-06 for TITLE, 12-12 for HOST) and by the final audit (12-18). Columns follow the Phase
+11 ledger: the wave, the new CTest names, the measured added native seconds (from
+`build/gate/Testing/Temporary/CTestCostData.txt`), the hosted macOS ctest delta against the
+baseline, the offset or G4-exception reason, and the remaining margin to the 900 s gate-macos
+limit.
+
+| Wave | New CTest names | Measured added native seconds | Hosted macOS ctest delta | Offset or G4-exception reason | Margin to 900 s |
+|------|-----------------|-------------------------------|--------------------------|-------------------------------|-----------------|
+| Baseline (Phase 11 close; cold run 45795103375 at head `dc247fa`, F-136; warm pair run 45792136442) | none: 329 CTest names (75 `phase11`) | not applicable (the 75 `phase11` names carry 65.83 s of COST) | ctest 279 s warm on 329 names | not applicable: the Phase 11 exception covers Phase 11 only | measured cold gate-macos 729 s of the 900 s limit, margin 171 s (19.0 percent); warm gate-macos 487 to 592 s over the Phase 11 samples (spread 105 s), margin 308 to 413 s (F-136, F-134, F-135) |
+| Projection of the Phase 12 names (RESEARCH "CI Budget"; not a measurement) | about 23 names (DR-27 lists 24, two of them, `unit.core.api.abi-major-rule` and `installed.controls.version-mismatch-major`, in existing families), first 12-02 | about 16 s native summed (`host.pump.build` 2.5, `installed.consumer.title*` 2.9 and 0.9, `host.pump.title-two-speeds` 1.8, `runner.title-two-run` 1.6, two controls 1.6, `repo.host-include-guard-selftest` 1.0, `host.pump.drain-order` 0.8, others under 0.7) | about +15 to +25 s of gate-macos wall including +5 to +6 s of inventory selftest (hosted multiplier 2.8 to 4.3, about 50 to 60 s summed over 4 jobs) | see the exception below | projected cold margin 171 s minus 15 to 25 s, about 146 to 156 s, above the 120 s warning level; the measured numbers replace this row at 12-06, 12-12 and 12-18 |
+
+Phase 12 G4 position (DR-26) and exception for owner review. No offset is claimed and no
+equal-time offset exists. The new CTest names are the required evidence of Phase 12 success
+criteria SC1 to SC4 (the title through the runner and the installed consumer, the pump equality
+at two fake-clock speeds, the host guards and the LibFuturo evaluation guard, and the bound
+final record), so their cost is required Phase 12 gate evidence and not removable without
+removing the evidence. Everything heavy stays outside the hosted gate: the SDL lane, sanitizer,
+TSan, fresh-archive and full mutant runs are local or qualifier stages. No `ci.yml`,
+`check-ci-yml.sh` or `gate.sh` edit is planned, and every new name carries a COST and a TIMEOUT
+by the standing rule. This is a recorded exception for owner review, not an owner approval, and
+it grants no oracle, rights or publication authority.
+
+Reversal rule of the Phase 12 G4 exception: if a review-plan or qualification-plan hosted
+measurement (12-06, 12-12 or 12-18) projects a cold gate-macos run above 900 s, or a hosted run
+is cancelled at the limit, or the projected margin falls under 120 s (a warning, reported in the
+ledger row), a new numbered plan moves non-essential Phase 12 names (`installed.consumer.title-persist`,
+the selftests and the third pump speed if any) to a non-gating local lane before anything else,
+and the measurement is repeated. The final cold gate-macos measurement after the last push is
+orchestrator-only.
+
+## Plan file-count exceptions
+
+Written by plan 12-01 Task 3. The warning band is 10 files per plan (`files_modified` of the
+plan frontmatter, measured on 2026-11-26 for all 18 plans). Seven plans are above it and one
+(12-09) sits on it; each carries its reason. Three bookkeeping files appear in most plans and are
+listed here once instead of per plan: `scripts/check-test-inventory.sh`,
+`scripts/preflight-phase12-regexes.txt` and `PIN-IMPACT.md`. Plan size is capped by tasks (at
+most 4) and minutes, not by files; no plan has more than 4 tasks.
+
+| Plan | Files | Reason |
+|------|-------|--------|
+| 12-08 | 15 | three pump modules with headers plus their one test binary and registrations |
+| 12-11 | 15 | the frontmatter lists every file an amendment may touch, none when untriggered |
+| 12-07 | 14 | a new standalone project scaffold |
+| 12-15 | 13 | one-phrase relabels in the files the pin-site map measured (B-28 to B-32) |
+| 12-02 | 11 | new fixture or test files plus registrations (oracle, scenario scripts, expected values) |
+| 12-05 | 11 | new fixture or test files plus registrations (consumer cases, literals, per-case ROM variable) |
+| 12-14 | 11 | the coupled bind set, all hash-bound or version-coupled, committed once after proof in a scratch clone |
+| 12-09 | 10 | on the band: the policy scan, the SDL shell and its smoke, the lane script and registrations |
+
+Shared bookkeeping files counted in most plans once: `scripts/check-test-inventory.sh`,
+`scripts/preflight-phase12-regexes.txt`, `.planning/phases/12-minimal-host-playable-homebrew-and-final-bind/PIN-IMPACT.md`.
