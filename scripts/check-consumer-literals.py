@@ -18,23 +18,46 @@ is generated here from three committed files and from nothing else:
                                                    Phase 10 record of the supervised
                                                    runs (DR-32)
 
+Phase 12 (plan 12-05) adds a second header, tests/installed-consumer/t64c_title.h, for
+the title fixture, generated the same way from
+  INDEPENDENT section
+      fixtures/title/title.expected.json           frames, audio, transcript and save of
+                                                   the short, long, shifted and persist
+                                                   scenarios, the blank digests and the
+                                                   refused-frame expectations (the output
+                                                   of fixtures/title/title_oracle.py,
+                                                   proved by harness.title-oracle)
+      fixtures/title/title.{short,long,shifted}.input.json
+                                                   the event tables (their SHA-256 is
+                                                   checked against the expectation file)
+  RECORDED PINS section (never called independent)
+      fixtures/title/title.runner-pins.json        the runner pins of the short scenario
+                                                   (label "runner-recorded pin, not
+                                                   independent") and the section consumer
+                                                   (long scenario, label "consumer-recorded
+                                                   pin, not independent")
+
 Modes:
-  --write      regenerate the header from the three files
-  --check      regenerate in memory and diff with the committed header; refuse a pins
-               file whose label is not exactly "runner-recorded pin, not independent";
-               confirm that the cited Phase 10 record contains the completion tick
-               ("599,357" form) and the digest literal; confirm the label is in the
-               header; consistency of the three files
+  --write      regenerate both headers from their committed files
+  --check      regenerate in memory and diff with the committed headers; refuse a pins
+               file whose labels are not exactly "runner-recorded pin, not independent"
+               and "consumer-recorded pin, not independent"; confirm that the cited
+               records contain the completion ticks ("599,357" form) and the digest
+               literals; confirm the labels are in the headers; consistency of the files
+               (recomputed hashes of the blank frame, the blank save, the transcripts,
+               the save images and the input scripts)
   --selftest   seeded failures in temporary copies (wrong label, tick and digest not
                in the cited record, a flipped header byte, a wrong schema, a stale
-               header, a clean control); each must be reported exactly as seeded;
-               it may be combined with --check
-Options: --root DIR (default: the repository of this script), --header FILE.
+               header, a clean control, and the title seeds); each must be reported
+               exactly as seeded; it may be combined with --check
+Options: --root DIR (default: the repository of this script), --header FILE (the
+composite header), --title-header FILE.
 
 The consumer derives no expected value from the core or the runner at run time;
 this script never runs either. Exit 0 pass, 1 findings, 2 usage or missing file.
 """
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -48,6 +71,23 @@ PINS_REL = "fixtures/composite/composite.runner-pins.json"
 HEADER_REL = "tests/installed-consumer/t64c_composite.h"
 RECORD_REL = ".planning/phases/10-carry-in-closure-before-the-freeze/PIN-IMPACT.md"
 GENERATED_BY = "scripts/check-consumer-literals.py --write"
+
+# The title fixture (Phase 12, plan 12-05).
+CONSUMER_PIN_LABEL = "consumer-recorded pin, not independent"
+CONSUMER_PIN_SOURCE = "plan 12-05 installed.consumer.title"
+TITLE_EXPECTED_REL = "fixtures/title/title.expected.json"
+TITLE_INPUT_RELS = (
+    ("short", "fixtures/title/title.short.input.json"),
+    ("short-wrong", "fixtures/title/title.short-wrong.input.json"),
+    ("long", "fixtures/title/title.long.input.json"),
+    ("shifted", "fixtures/title/title.shifted.input.json"),
+)
+TITLE_PINS_REL = "fixtures/title/title.runner-pins.json"
+TITLE_HEADER_REL = "tests/installed-consumer/t64c_title.h"
+TITLE_RECORD_REL = ".planning/phases/12-minimal-host-playable-homebrew-and-final-bind/PIN-IMPACT.md"
+TITLE_SCENARIOS = ("short", "long", "shifted", "persist")
+TITLE_FILES = (TITLE_EXPECTED_REL, TITLE_PINS_REL, TITLE_HEADER_REL, TITLE_RECORD_REL) + tuple(
+    rel for _, rel in TITLE_INPUT_RELS)
 
 
 class Usage(Exception):
@@ -220,6 +260,327 @@ def generate(root):
     return "".join(out), pins
 
 
+# ---- the title fixture (Phase 12, plan 12-05) ------------------------------------
+
+
+def sha256_hex(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def is_hex64(value):
+    return isinstance(value, str) and len(value) == 64 and all(c in "0123456789abcdef" for c in value)
+
+
+def read_bytes(root, rel):
+    path = os.path.join(root, rel)
+    if not os.path.isfile(path):
+        raise Usage("missing file: %s" % rel)
+    with open(path, "rb") as handle:
+        return handle.read()
+
+
+def c_str_list(items):
+    """A brace initializer of C strings; an empty list gets one placeholder (never read:
+    its count macro is 0), because C has no empty initializer."""
+    rows = [c_string(item) for item in items] or [c_string("")]
+    return "{ \\\n    " + ", \\\n    ".join(rows) + " }"
+
+
+def c_events(events):
+    rows = ["{ UINT64_C(%d), %du, %du, INT32_C(%d), INT32_C(%d) }" % event for event in events]
+    return "{ \\\n    " + ", \\\n    ".join(rows) + " }"
+
+
+def c_pairs(pairs):
+    rows = ["{ %du, 0x%02xu }" % pair for pair in pairs]
+    return "{ \\\n    " + ", \\\n    ".join(rows) + " }"
+
+
+def title_event_table(name, rel, script, expected):
+    """The (tick, port, buttons, x, y) rows of one committed input script (validated)."""
+    if script.get("schema") != "t64.input" or script.get("schema_version") != 1:
+        raise Usage("%s: schema is not t64.input version 1" % rel)
+    rows = []
+    for event in script.get("events", []):
+        if set(event) != {"buttons", "port", "tick", "x", "y"}:
+            raise Usage("%s: an event does not carry exactly buttons, port, tick, x and y" % rel)
+        tick = event["tick"]
+        if not isinstance(tick, str) or not tick.isdigit():
+            raise Usage("%s: an event tick is not a decimal string" % rel)
+        if event["port"] != 0 or not 0 <= event["buttons"] <= 65535 \
+                or not -128 <= event["x"] <= 127 or not -128 <= event["y"] <= 127:
+            raise Usage("%s: an event is outside port 0, buttons 0..65535 and axes -128..127" % rel)
+        rows.append((int(tick), event["port"], event["buttons"], event["x"], event["y"]))
+    if [row[0] for row in rows] != sorted(row[0] for row in rows):
+        raise Usage("%s: the event ticks are not in order" % rel)
+    meta = expected["inputs"][name]
+    if meta["events"] != len(rows):
+        raise Usage("%s: the event count differs from %s inputs.%s.events" % (rel, TITLE_EXPECTED_REL, name))
+    return rows
+
+
+def title_pins_section(section, label, scenario, rel):
+    """Validate one pins record (the top level of the file is the runner record; the
+    key consumer is the consumer record) and return (tick, stop_reason, digest, count)."""
+    if section.get("label") != label:
+        raise Usage("%s: the %s label is not exactly %r" % (rel, scenario, label))
+    for key in ("source", "stop_reason", "final_state_digest", "scenario"):
+        if not isinstance(section.get(key), str) or not section[key]:
+            raise Usage("%s: the %s record has no %s" % (rel, scenario, key))
+    if section["scenario"] != scenario:
+        raise Usage("%s: the record labeled %r is not the %s scenario" % (rel, label, scenario))
+    tick = section.get("completion_tick")
+    if isinstance(tick, str) and tick.isdigit():
+        tick = int(tick)
+    if not isinstance(tick, int) or isinstance(tick, bool) or tick <= 0:
+        raise Usage("%s: the %s completion_tick is not a positive decimal" % (rel, scenario))
+    count = section.get("video_packet_count")
+    if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
+        raise Usage("%s: the %s video_packet_count is not a positive integer" % (rel, scenario))
+    if not is_hex64(section["final_state_digest"]):
+        raise Usage("%s: the %s final_state_digest is not 64 lowercase hex digits" % (rel, scenario))
+    stop = section["stop_reason"]
+    if not stop.replace("_", "").isalpha() or not stop.isupper():
+        raise Usage("%s: the %s stop_reason is not an upper-case name" % (rel, scenario))
+    return tick, stop, section["final_state_digest"], count
+
+
+def title_load(root):
+    expected = load_json(root, TITLE_EXPECTED_REL)
+    pins = load_json(root, TITLE_PINS_REL)
+    scripts = {}
+    for name, rel in TITLE_INPUT_RELS:
+        raw = read_bytes(root, rel)
+        if sha256_hex(raw) != expected["inputs"][name]["sha256"]:
+            raise Usage("%s: the SHA-256 of the script differs from %s inputs.%s.sha256"
+                        % (rel, TITLE_EXPECTED_REL, name))
+        scripts[name] = title_event_table(name, rel, json.loads(raw.decode("utf-8")), expected)
+    return expected, scripts, pins
+
+
+def title_expected_checks(expected):
+    """Recompute every hash the expectation file states about itself."""
+    if expected.get("schema") != "t64.title-oracle" or expected.get("schema_version") != 1:
+        raise Usage("%s: schema is not t64.title-oracle version 1" % TITLE_EXPECTED_REL)
+    const = expected["constants"]
+    frame_bytes = const["frame_bytes"]
+    save_bytes = const["save_bytes"]
+    if const["width"] * const["height"] * 4 != frame_bytes or expected["blank_bytes"] != frame_bytes:
+        raise Usage("%s: the frame is not width x height x 4 RGBA8 bytes" % TITLE_EXPECTED_REL)
+    if sha256_hex(bytes(frame_bytes)) != expected["blank_sha256"]:
+        raise Usage("%s: blank_sha256 is not the SHA-256 of %d zero bytes" % (TITLE_EXPECTED_REL, frame_bytes))
+    if sha256_hex(bytes(save_bytes)) != expected["blank_save_sha256"]:
+        raise Usage("%s: blank_save_sha256 is not the SHA-256 of %d zero bytes" % (TITLE_EXPECTED_REL, save_bytes))
+    refused = expected["refused"]
+    if refused["frames_each_sha256"] != expected["blank_sha256"]:
+        raise Usage("%s: the refused-frame expectation is not the blank digest" % TITLE_EXPECTED_REL)
+    if refused["save_sha256"] != expected["blank_save_sha256"]:
+        raise Usage("%s: the refused-frame save expectation is not the blank save digest" % TITLE_EXPECTED_REL)
+    if refused["audio_packets"] != 0 or refused["completes"] is not False or refused["transcript"] != "":
+        raise Usage("%s: the refused section does not expect no audio, no completion and no transcript"
+                    % TITLE_EXPECTED_REL)
+    images = {}
+    for name in TITLE_SCENARIOS:
+        scenario = expected["scenarios"][name]
+        frames = scenario["frames"]
+        if len(frames) != scenario["video_packets"] or not all(is_hex64(f) for f in frames):
+            raise Usage("%s: scenario %s frames are not %d hex digests" % (TITLE_EXPECTED_REL, name, scenario["video_packets"]))
+        if expected["blank_sha256"] in frames:
+            raise Usage("%s: scenario %s has a frame equal to the blank digest" % (TITLE_EXPECTED_REL, name))
+        audio = scenario["audio"]
+        if len(audio["packet_sha256"]) != audio["packet_count"] or not is_hex64(audio["stream_sha256"]) \
+                or not all(is_hex64(p) for p in audio["packet_sha256"]):
+            raise Usage("%s: scenario %s audio digests are inconsistent" % (TITLE_EXPECTED_REL, name))
+        if audio["packet_count"] and audio["packet_bytes"] != expected["tone"]["descriptor_bytes"]:
+            raise Usage("%s: scenario %s audio packet size is not the tone descriptor size" % (TITLE_EXPECTED_REL, name))
+        text = scenario["transcript"]
+        if not text.isascii() or len(text) != scenario["transcript_bytes"] \
+                or sha256_hex(text.encode("ascii")) != scenario["transcript_sha256"]:
+            raise Usage("%s: scenario %s transcript, length and SHA-256 disagree" % (TITLE_EXPECTED_REL, name))
+        save = scenario["save"]
+        if save["bytes"] != save_bytes:
+            raise Usage("%s: scenario %s save is not %d bytes" % (TITLE_EXPECTED_REL, name, save_bytes))
+        image = bytearray(save_bytes)
+        pairs = []
+        for entry in save["nonzero"]:
+            data = bytes.fromhex(entry["hex"])
+            if not data or entry["offset"] < 0 or entry["offset"] + len(data) > save_bytes:
+                raise Usage("%s: scenario %s has a save range outside the image" % (TITLE_EXPECTED_REL, name))
+            for index, value in enumerate(data):
+                if image[entry["offset"] + index] != 0:
+                    raise Usage("%s: scenario %s has overlapping save ranges" % (TITLE_EXPECTED_REL, name))
+                image[entry["offset"] + index] = value
+                pairs.append((entry["offset"] + index, value))
+        if sha256_hex(bytes(image)) != save["sha256"]:
+            raise Usage("%s: scenario %s save ranges do not hash to save.sha256" % (TITLE_EXPECTED_REL, name))
+        images[name] = pairs
+    long_frames = expected["scenarios"]["long"]["frames"]
+    shifted_frames = expected["scenarios"]["shifted"]["frames"]
+    first = next((i for i in range(min(len(long_frames), len(shifted_frames)))
+                  if long_frames[i] != shifted_frames[i]), None)
+    if first is None or first != expected["distinguishable"]["long_vs_shifted_first_difference"]:
+        raise Usage("%s: the long and shifted frame lists do not first differ at the stated checkpoint"
+                    % TITLE_EXPECTED_REL)
+    if not is_hex64(expected["fresh_boot_frame_sha256"]) \
+            or expected["scenarios"]["persist"]["frames"][0] == expected["fresh_boot_frame_sha256"]:
+        raise Usage("%s: the persist frame is not distinguishable from a fresh boot" % TITLE_EXPECTED_REL)
+    return images, first
+
+
+def generate_title(root):
+    expected, scripts, pins = title_load(root)
+    images, first_difference = title_expected_checks(expected)
+    if pins.get("schema") != "t64.title-runner-pins" or pins.get("schema_version") != 1:
+        raise Usage("%s: schema is not t64.title-runner-pins version 1" % TITLE_PINS_REL)
+    runner = title_pins_section(pins, PIN_LABEL, "short", TITLE_PINS_REL)
+    if not isinstance(pins.get("profile_id"), str) or not pins["profile_id"]:
+        raise Usage("%s: profile_id is missing" % TITLE_PINS_REL)
+    if runner[3] != expected["scenarios"]["short"]["video_packets"]:
+        raise Usage("%s: the runner packet count is not the short scenario's packet count" % TITLE_PINS_REL)
+    consumer = None
+    if "consumer" in pins:
+        if not isinstance(pins["consumer"], dict):
+            raise Usage("%s: consumer is not a record" % TITLE_PINS_REL)
+        consumer = title_pins_section(pins["consumer"], CONSUMER_PIN_LABEL, "long", TITLE_PINS_REL)
+        if pins["consumer"]["source"] != CONSUMER_PIN_SOURCE:
+            raise Usage("%s: the consumer record does not cite %r" % (TITLE_PINS_REL, CONSUMER_PIN_SOURCE))
+        if consumer[3] != expected["scenarios"]["long"]["video_packets"]:
+            raise Usage("%s: the consumer packet count is not the long scenario's packet count" % TITLE_PINS_REL)
+    boundaries = expected["boundaries"]
+    margin = expected["constants"]["boundary_margin_ticks"]
+
+    out = []
+    w = out.append
+    w("/*\n")
+    w(" * GENERATED by %s from\n" % GENERATED_BY)
+    w(" *   %s\n" % TITLE_EXPECTED_REL)
+    for name, rel in TITLE_INPUT_RELS[:1] + TITLE_INPUT_RELS[2:]:
+        w(" *   %s\n" % rel)
+    w(" *   %s\n" % TITLE_PINS_REL)
+    w(" * Do not edit by hand: installed.consumer.literals regenerates this file and\n")
+    w(" * fails on any difference. Every value is a constant: the consumer derives no\n")
+    w(" * expected value from the core or the runner at run time. Macros only, so no\n")
+    w(" * translation unit that includes the header can warn about an unused object.\n")
+    w(" */\n")
+    w("#ifndef T64C_TITLE_H\n#define T64C_TITLE_H\n\n")
+    w("/* ======================================================================\n")
+    w(" * INDEPENDENT LITERALS: source %s and the input scripts\n" % TITLE_EXPECTED_REL)
+    w(" * (the output of fixtures/title/title_oracle.py, proved byte for byte by\n")
+    w(" * harness.title-oracle; the scripts are the committed scripts whose SHA-256 the\n")
+    w(" * expectation file states). The refused-frame expectations are in this section.\n")
+    w(" * ====================================================================== */\n\n")
+    const = expected["constants"]
+    w("#define T64C_TLIT_WIDTH %du\n" % const["width"])
+    w("#define T64C_TLIT_HEIGHT %du\n" % const["height"])
+    w("#define T64C_TLIT_FRAME_BYTES %du\n" % const["frame_bytes"])
+    w("#define T64C_TLIT_AUDIO_PACKET_BYTES %du\n" % expected["tone"]["descriptor_bytes"])
+    w("#define T64C_TLIT_SAVE_BYTES %du\n" % const["save_bytes"])
+    w("#define T64C_TLIT_BLANK_SHA256_HEX %s\n" % c_string(expected["blank_sha256"]))
+    w("#define T64C_TLIT_BLANK_SAVE_SHA256_HEX %s\n" % c_string(expected["blank_save_sha256"]))
+    w("#define T64C_TLIT_FRESH_BOOT_FRAME_SHA256_HEX %s\n" % c_string(expected["fresh_boot_frame_sha256"]))
+    w("/* the first checkpoint at which the shifted frames leave the long frames */\n")
+    w("#define T64C_TLIT_LONG_SHIFTED_FIRST_DIFFERENCE %du\n" % first_difference)
+    for name in TITLE_SCENARIOS:
+        scenario = expected["scenarios"][name]
+        upper = name.upper()
+        packets = scenario["video_packets"]
+        if packets >= len(boundaries):
+            raise Usage("%s: no field boundary after scenario %s" % (TITLE_EXPECTED_REL, name))
+        w("\n/* scenario %s */\n" % name)
+        if name in scripts:
+            w("#define T64C_TLIT_%s_EVENT_COUNT %du\n" % (upper, len(scripts[name])))
+            w("#define T64C_TLIT_%s_EVENTS_INIT %s\n" % (upper, c_events(scripts[name])))
+        else:
+            w("#define T64C_TLIT_%s_EVENT_COUNT 0u\n" % upper)
+        w("/* the run bound: the field boundary after the last frame plus the oracle's margin */\n")
+        w("#define T64C_TLIT_%s_BOUND_TICKS UINT64_C(%d)\n" % (upper, boundaries[packets] + margin))
+        w("#define T64C_TLIT_%s_COMPLETES %du\n" % (upper, 1 if scenario["completes"] else 0))
+        w("#define T64C_TLIT_%s_FRAME_COUNT %du\n" % (upper, packets))
+        w("#define T64C_TLIT_%s_FRAMES_INIT %s\n" % (upper, c_str_list(scenario["frames"])))
+        audio = scenario["audio"]
+        w("#define T64C_TLIT_%s_AUDIO_COUNT %du\n" % (upper, audio["packet_count"]))
+        w("#define T64C_TLIT_%s_AUDIO_SHA256_INIT %s\n" % (upper, c_str_list(audio["packet_sha256"])))
+        w("#define T64C_TLIT_%s_AUDIO_STREAM_SHA256_HEX %s\n" % (upper, c_string(audio["stream_sha256"])))
+        w("#define T64C_TLIT_%s_TRANSCRIPT_BYTES %du\n" % (upper, scenario["transcript_bytes"]))
+        w("#define T64C_TLIT_%s_TRANSCRIPT_TEXT %s\n" % (upper, c_string(scenario["transcript"])))
+        w("#define T64C_TLIT_%s_TRANSCRIPT_SHA256_HEX %s\n" % (upper, c_string(scenario["transcript_sha256"])))
+        w("#define T64C_TLIT_%s_SAVE_SHA256_HEX %s\n" % (upper, c_string(scenario["save"]["sha256"])))
+        w("/* every byte of the save image is zero except these (offset, value) pairs */\n")
+        w("#define T64C_TLIT_%s_SAVE_NONZERO_COUNT %du\n" % (upper, len(images[name])))
+        w("#define T64C_TLIT_%s_SAVE_NONZERO_INIT %s\n" % (upper, c_pairs(images[name])))
+    w("\n/* the shifted run is stopped after a prefix of fields: the first moved checkpoint and one more */\n")
+    prefix = first_difference + 2
+    w("#define T64C_TLIT_SHIFTED_PREFIX_FRAMES %du\n" % prefix)
+    w("#define T64C_TLIT_SHIFTED_PREFIX_BOUND_TICKS UINT64_C(%d)\n" % (boundaries[prefix] + margin))
+    w("/* the control run of the persistence case stops after one field */\n")
+    w("#define T64C_TLIT_PERSIST_CONTROL_BOUND_TICKS UINT64_C(%d)\n" % (boundaries[1] + margin))
+    refused = expected["refused"]
+    w("\n/* refused-frame ROM (decision DR-34): every packet is blank, nothing else is produced */\n")
+    w("#define T64C_TLIT_REFUSED_FRAME_SHA256_HEX %s\n" % c_string(refused["frames_each_sha256"]))
+    w("#define T64C_TLIT_REFUSED_AUDIO_COUNT %du\n" % refused["audio_packets"])
+    w("#define T64C_TLIT_REFUSED_TRANSCRIPT_BYTES %du\n" % len(refused["transcript"]))
+    w("#define T64C_TLIT_REFUSED_COMPLETES 0u\n")
+    w("#define T64C_TLIT_REFUSED_SAVE_SHA256_HEX %s\n" % c_string(refused["save_sha256"]))
+    w("\n/* ======================================================================\n")
+    w(" * RECORDED PINS: source %s\n" % TITLE_PINS_REL)
+    w(" * (%s) the four values of the short scenario of the supervised\n" % PIN_LABEL)
+    w(" * runner, cited: %s\n" % pins["source"])
+    if consumer is not None:
+        w(" * (%s) the four values of the long scenario of this consumer,\n" % CONSUMER_PIN_LABEL)
+        w(" * cited: %s\n" % pins["consumer"]["source"])
+    w(" * The consumer checks that the installed package agrees with them; they are never an\n")
+    w(" * independent expectation and are never called one.\n")
+    w(" * ====================================================================== */\n\n")
+    w("#define T64C_TPIN_PROFILE_ID %s\n" % c_string(pins["profile_id"]))
+    w("#define T64C_TPIN_RUNNER_LABEL %s\n" % c_string(PIN_LABEL))
+    w("#define T64C_TPIN_RUNNER_SOURCE %s\n" % c_string(pins["source"]))
+    w("#define T64C_TPIN_RUNNER_COMPLETION_TICK UINT64_C(%d)\n" % runner[0])
+    w("#define T64C_TPIN_RUNNER_STOP_REASON_NAME %s\n" % c_string(runner[1]))
+    w("#define T64C_TPIN_RUNNER_STOP_REASON T64_STOP_REASON_%s\n" % runner[1])
+    w("#define T64C_TPIN_RUNNER_FINAL_DIGEST_HEX %s\n" % c_string(runner[2]))
+    w("#define T64C_TPIN_RUNNER_VIDEO_PACKET_COUNT %du\n" % runner[3])
+    if consumer is not None:
+        w("\n#define T64C_TPIN_CONSUMER_LABEL %s\n" % c_string(CONSUMER_PIN_LABEL))
+        w("#define T64C_TPIN_CONSUMER_SOURCE %s\n" % c_string(pins["consumer"]["source"]))
+        w("#define T64C_TPIN_CONSUMER_COMPLETION_TICK UINT64_C(%d)\n" % consumer[0])
+        w("#define T64C_TPIN_CONSUMER_STOP_REASON_NAME %s\n" % c_string(consumer[1]))
+        w("#define T64C_TPIN_CONSUMER_STOP_REASON T64_STOP_REASON_%s\n" % consumer[1])
+        w("#define T64C_TPIN_CONSUMER_FINAL_DIGEST_HEX %s\n" % c_string(consumer[2]))
+        w("#define T64C_TPIN_CONSUMER_VIDEO_PACKET_COUNT %du\n" % consumer[3])
+    w("\n#endif /* T64C_TITLE_H */\n")
+    return "".join(out), runner, consumer
+
+
+def check_title(root, header_path):
+    """Findings of the title header; Usage for a missing or inconsistent file."""
+    findings = []
+    text, runner, consumer = generate_title(root)
+    if not os.path.isfile(header_path):
+        raise Usage("missing file: %s" % header_path)
+    with open(header_path, "r", encoding="utf-8") as handle:
+        committed = handle.read()
+    if committed != text:
+        findings.append("%s differs from the regenerated header (run with --write after "
+                        "changing a fixture; a hand edit of a literal is a finding)" % TITLE_HEADER_REL)
+    for label in (PIN_LABEL,) + ((CONSUMER_PIN_LABEL,) if consumer is not None else ()):
+        if committed.count(label) < 1:
+            findings.append("%s does not carry the label %r" % (TITLE_HEADER_REL, label))
+    record_path = os.path.join(root, TITLE_RECORD_REL)
+    if not os.path.isfile(record_path):
+        raise Usage("missing file: %s (the cited Phase 12 record)" % TITLE_RECORD_REL)
+    with open(record_path, "r", encoding="utf-8") as handle:
+        record = handle.read()
+    for who, pin in (("runner", runner), ("consumer", consumer)):
+        if pin is None:
+            continue
+        if "{:,}".format(pin[0]) not in record:
+            findings.append("the cited record does not contain the %s completion tick %s"
+                            % (who, "{:,}".format(pin[0])))
+        if pin[2] not in record:
+            findings.append("the cited record does not contain the %s final state digest" % who)
+    return findings
+
+
 def check(root, header_path):
     """Return the list of findings; Usage for a missing file."""
     findings = []
@@ -246,27 +607,33 @@ def check(root, header_path):
     return findings
 
 
-def run_check(root, header_path):
-    try:
-        findings = check(root, header_path)
-    except Usage as error:
-        print("check-consumer-literals: %s" % error, file=sys.stderr)
-        return 2
-    for finding in findings:
-        print("FINDING: %s" % finding)
-    print("check-consumer-literals: findings=%d" % len(findings))
-    return 1 if findings else 0
+def run_check(root, header_path, title_header_path):
+    total = 0
+    for name, function, path in (("composite", check, header_path),
+                                 ("title", check_title, title_header_path)):
+        try:
+            findings = function(root, path)
+        except Usage as error:
+            print("check-consumer-literals: %s" % error, file=sys.stderr)
+            return 2
+        for finding in findings:
+            print("FINDING: %s" % finding)
+        print("check-consumer-literals: %s findings=%d" % (name, len(findings)))
+        total += len(findings)
+    print("check-consumer-literals: findings=%d" % total)
+    return 1 if total else 0
 
 
-def run_write(root, header_path):
-    try:
-        text, _ = generate(root)
-    except Usage as error:
-        print("check-consumer-literals: %s" % error, file=sys.stderr)
-        return 2
-    with open(header_path, "w", encoding="utf-8", newline="\n") as handle:
-        handle.write(text)
-    print("check-consumer-literals: wrote %s" % os.path.relpath(header_path, root))
+def run_write(root, header_path, title_header_path):
+    for generator, path in ((generate, header_path), (generate_title, title_header_path)):
+        try:
+            text = generator(root)[0]
+        except Usage as error:
+            print("check-consumer-literals: %s" % error, file=sys.stderr)
+            return 2
+        with open(path, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(text)
+        print("check-consumer-literals: wrote %s" % os.path.relpath(path, root))
     return 0
 
 
@@ -348,9 +715,11 @@ def main():
     parser.add_argument("--selftest", action="store_true")
     parser.add_argument("--root", default=None)
     parser.add_argument("--header", default=None)
+    parser.add_argument("--title-header", default=None)
     args = parser.parse_args()
     root = args.root or os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     header_path = args.header or os.path.join(root, HEADER_REL)
+    title_header_path = args.title_header or os.path.join(root, TITLE_HEADER_REL)
     if args.write and (args.check or args.selftest):
         parser.error("--write cannot be combined with --check or --selftest")
     if not (args.write or args.check or args.selftest):
@@ -358,9 +727,9 @@ def main():
         return 2
     status = 0
     if args.write:
-        status = run_write(root, header_path)
+        status = run_write(root, header_path, title_header_path)
     if args.check:
-        status = max(status, run_check(root, header_path))
+        status = max(status, run_check(root, header_path, title_header_path))
     if args.selftest:
         try:
             status = max(status, selftest(root))

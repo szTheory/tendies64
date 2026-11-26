@@ -17,7 +17,7 @@ set(CMAKE_C_EXTENSIONS OFF)
 set(T64C_REQUIRED_VERSION 0.1 CACHE STRING "tendies64 version the consumer requests")
 find_package(tendies64 ${T64C_REQUIRED_VERSION} REQUIRED CONFIG)
 
-set(T64C_SOURCES main.c smoke.c composite.c hostloop.c sequence.c threads.c ops.c t64c_sha256.c)
+set(T64C_SOURCES main.c smoke.c composite.c title.c hostloop.c sequence.c threads.c ops.c t64c_sha256.c)
 add_executable(t64c ${T64C_SOURCES})
 target_link_libraries(t64c PRIVATE tendies64::core)
 # The smoke case alone, built only on request (the negative controls of controls.tsv

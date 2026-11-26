@@ -392,8 +392,12 @@ set_tests_properties(api04.seeded PROPERTIES
 # consumer cases independent of which test executables happen to depend on the ROM.
 add_custom_target(t64-installed-consumer-fixtures ALL)
 add_dependencies(t64-installed-consumer-fixtures t64-phase10-composite-fixture
-  t64-supervisor t64-runner-real)
+  t64-phase12-title-fixture t64-supervisor t64-runner-real)
 set(T64_CONSUMER_ROM "${CMAKE_SOURCE_DIR}/build/fixtures/phase10-composite-s32k.z64")
+# Per-case ROM (plan 12-05, decision DR-34): the consumer binary reads exactly one --rom, so a
+# case that runs another authored ROM names it in T64_CONSUMER_ROM_<case>; every other case
+# gets T64_CONSUMER_ROM (the composite ROM, which the three-way, controls and lanes keep).
+set(T64_CONSUMER_ROM_title "${CMAKE_SOURCE_DIR}/build/fixtures/phase12-title-s32k.z64")
 
 # installed.consumer.literals: the constants of the consumer's t64c_composite.h
 # equal the committed fixture files (the independent literals of
@@ -442,6 +446,7 @@ set(T64_CONSUMER_COST_hostloop-cadence 0.46)
 set(T64_CONSUMER_COST_hostloop-delay 0.66)
 set(T64_CONSUMER_COST_two-instance 0.30)
 set(T64_CONSUMER_COST_sequence 1.20)
+set(T64_CONSUMER_COST_title 0.52)
 foreach(T64_CONSUMER_CASE IN LISTS T64_CONSUMER_CASES)
   if(T64_CONSUMER_CASE STREQUAL "smoke")
     continue()
@@ -451,13 +456,23 @@ foreach(T64_CONSUMER_CASE IN LISTS T64_CONSUMER_CASES)
       "tests/installed-consumer/cases.txt lists '${T64_CONSUMER_CASE}' with no "
       "measured COST (set T64_CONSUMER_COST_${T64_CONSUMER_CASE} in tools/abi/CMakeLists.txt)")
   endif()
+  if(DEFINED T64_CONSUMER_ROM_${T64_CONSUMER_CASE})
+    set(T64_CONSUMER_CASE_ROM "${T64_CONSUMER_ROM_${T64_CONSUMER_CASE}}")
+  else()
+    set(T64_CONSUMER_CASE_ROM "${T64_CONSUMER_ROM}")
+  endif()
+  if(T64_CONSUMER_CASE MATCHES "^title")
+    set(T64_CONSUMER_CASE_LABELS "installed;phase12")
+  else()
+    set(T64_CONSUMER_CASE_LABELS "installed;phase11")
+  endif()
   add_test(NAME installed.consumer.${T64_CONSUMER_CASE}
     COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/check-install.sh
             --build ${CMAKE_BINARY_DIR} run ${T64_CONSUMER_CASE}
-            --rom "${T64_CONSUMER_ROM}"
+            --rom "${T64_CONSUMER_CASE_ROM}"
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
   set_tests_properties(installed.consumer.${T64_CONSUMER_CASE} PROPERTIES
-    LABELS "installed;phase11"
+    LABELS "${T64_CONSUMER_CASE_LABELS}"
     TIMEOUT 60
     COST ${T64_CONSUMER_COST_${T64_CONSUMER_CASE}}
     FIXTURES_REQUIRED t64_consumer)

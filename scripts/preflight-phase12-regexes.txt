@@ -20,7 +20,7 @@
 # t64_install fixture) and the installed names count install.setup and, for consumer names,
 # installed.consumer.build (fixture closure included, Phase 11 lesson).
 8	^repo\.abi
-28	^installed\.consumer\.
+29	^installed\.consumer\.
 11	^installed\.controls\.
 2	^repo\.stale-freeze-text
 2	^repo\.api-init-guard
@@ -39,7 +39,7 @@
 # plan 12-05: installed.consumer.title, installed.consumer.title-persist and installed.consumer.title-refused
 # (the last added by decision DR-34: the blank-frame assertion of the refused ROM) require the
 # t64_consumer fixture, so installed.consumer.build and install.setup join them (3 names plus 2 = 5).
-0	^installed\.consumer\.title
+3	^installed\.consumer\.title
 # plan 12-07 to 12-08: host.pump.* requires the t64_host fixture (host.pump.build is the setup
 # test), so install.setup joins the host.pump names (12-07 adds build, clock, drain-order and stall;
 # 12-08 adds input-map, script, frames and title-two-speeds; 8 names plus install.setup = 9 at the

@@ -7,9 +7,11 @@
 # exist unregistered. installed.consumer.build, installed.consumer.literals and
 # installed.consumer.three-way are script names, not binary cases, and are not
 # listed here. Every case takes --rom PATH (the authored composite ROM of the
-# build tree); no case reads any other file.
+# build tree; the title cases take the authored title ROMs, which
+# tools/abi/CMakeLists.txt names per case); no case reads any other file.
 smoke
 composite
+title
 ops-lifetime
 ops-handshake
 ops-struct-size

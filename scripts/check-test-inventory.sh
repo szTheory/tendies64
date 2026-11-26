@@ -359,7 +359,8 @@ harness.phase11-qualification'
 PHASE12_TESTS='harness.title-oracle
 runner.title-two-run
 controls.real.title-wrong-input
-controls.real.title-refused-frame'
+controls.real.title-refused-frame
+installed.consumer.title'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

@@ -101,6 +101,9 @@ int t64c_case_smoke(void);
 /* The composite case (composite.c). */
 int t64c_case_composite(const t64c_args *args);
 
+/* The title cases (title.c, plan 12-05): they take the title ROM as --rom. */
+int t64c_case_title(const t64c_args *args);
+
 /* Cases of ops.c: the names are the case names of cases.txt. */
 bool t64c_ops_known(const char *name);
 void t64c_ops_list(void);
