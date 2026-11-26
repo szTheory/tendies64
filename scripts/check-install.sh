@@ -43,6 +43,18 @@
 #                  --seed-race builds the case with both threads on ONE instance (the
 #                  use the one-instance rule forbids) and passes only when
 #                  ThreadSanitizer reports it: the lane is shown able to fail
+#   fresh-archive [--rom PATH]
+#                  LOCAL or manual lane, never in the gate or the hosted workflow (plan 11-24,
+#                  VER-05, T-11-53): `git archive HEAD` into a mktemp directory outside the
+#                  repository, configure that tree as the gate preset does (Ninja, Release,
+#                  T64_WERROR=ON, developer warnings as errors), build only t64_core,
+#                  cmake --install the Development component into BUILD/fresh-archive/
+#                  "prefix with space", assert the six-file package and that no byte of it names
+#                  the exported tree, its build tree, the repository or a per-user path, then
+#                  build the independent consumer against that prefix and run the smoke and
+#                  composite cases. Prints the installed archive's build id; the scratch
+#                  source and build tree are removed at exit. The qualifier of plan 11-24
+#                  runs it and reads the archive's identity from the kept prefix
 #   three-way [--rom PATH] [--supervisor PATH]
 #                  run the in-tree runner (the two supervised runs of the authored
 #                  composite ROM that composite.expected.json was proved against:
@@ -68,7 +80,7 @@ BUILD=$ROOT/build/gate
 WORK=
 
 usage() {
-  echo "usage: sh scripts/check-install.sh [--build DIR] [--work DIR] setup|build|run CASE [ARGS]|control ID [--rom PATH]|sanitize shipped|instrumented [--steps N] [--digest-stride N] [--rom PATH]|tsan [--seed-race] [--rom PATH]|three-way [--rom PATH] [--supervisor PATH]" >&2
+  echo "usage: sh scripts/check-install.sh [--build DIR] [--work DIR] setup|build|run CASE [ARGS]|control ID [--rom PATH]|sanitize shipped|instrumented [--steps N] [--digest-stride N] [--rom PATH]|tsan [--seed-race] [--rom PATH]|fresh-archive [--rom PATH]|three-way [--rom PATH] [--supervisor PATH]" >&2
   exit 2
 }
 
@@ -892,6 +904,103 @@ cmd_tsan() {
   echo "check-install: tsan ok: two threads, one instance each, no ThreadSanitizer report; both digests $_pin; library $((_t_lib - _t_start)) s, consumer $((_t_consumer - _t_lib)) s, run $((_t_run - _t_consumer)) s"
 }
 
+# ---- fresh-archive lane (plan 11-24): LOCAL or manual, never run by CTest or the hosted gate ----
+
+# fa_say TEXT: one line of the lane's own output.
+fa_say() {
+  echo "check-install: fresh-archive: $*"
+}
+
+cmd_fresh_archive() {
+  FA_ROM=$SAN_ROM
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      --rom) [ "$#" -ge 2 ] || usage; FA_ROM=$2; shift 2 ;;
+      *) usage ;;
+    esac
+  done
+  [ -f "$FA_ROM" ] || die "the composite ROM is not built: $FA_ROM"
+  command -v git >/dev/null 2>&1 || die "git not found"
+  command -v tar >/dev/null 2>&1 || die "tar not found"
+  CC_PATH=$(cache_value CMAKE_C_COMPILER)
+  [ -n "$CC_PATH" ] || die "the build tree records no C compiler"
+  NINJA=$(cache_value CMAKE_MAKE_PROGRAM)
+  _base="$BUILD/fresh-archive"
+  rm -rf "$_base"
+  mkdir -p "$_base"
+  # The exported source and its build tree live outside the repository, so nothing the
+  # working tree holds beyond the commit (ignored build trees, untracked files, a .git
+  # directory) can reach the build; only the installed prefix and the consumer are kept
+  # below BUILD for the qualifier to read.
+  _tmp=$(mktemp -d "${TMPDIR:-/tmp}/t64-fresh-archive.XXXXXX") || die "mktemp -d failed"
+  trap 'rm -rf "$_tmp"' EXIT
+  _fa_prefix="$_base/prefix with space"
+  _t_start=$(date +%s)
+  _head=$(git -C "$ROOT" rev-parse HEAD)
+  mkdir "$_tmp/src"
+  git -C "$ROOT" archive --format=tar HEAD | tar -x -C "$_tmp/src"
+  _files=$(cd "$_tmp/src" && find . -type f | wc -l | tr -d ' ')
+  [ -f "$_tmp/src/CMakeLists.txt" ] || fail "fresh-archive: the exported tree has no CMakeLists.txt"
+  [ ! -e "$_tmp/src/.git" ] || fail "fresh-archive: the exported tree holds a .git entry"
+  if [ -n "$(git -C "$ROOT" status --porcelain --untracked-files=no)" ]; then
+    fa_say "note: the working tree has uncommitted changes; the archive is HEAD only"
+  fi
+  # The gate preset configuration spelled out (CMakePresets.json): Ninja, Release,
+  # T64_WERROR=ON and the developer warnings as errors.
+  set -- -S "$_tmp/src" -B "$_tmp/build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DT64_WERROR=ON \
+    -Wdev -Werror=dev --warn-uninitialized "-DCMAKE_C_COMPILER=$CC_PATH"
+  if [ -n "$NINJA" ] && [ -x "$NINJA" ]; then
+    set -- "$@" "-DCMAKE_MAKE_PROGRAM=$NINJA"
+  fi
+  env -u CMAKE_PREFIX_PATH "$CMAKE" "$@" >"$_base/configure.log" 2>&1 \
+    || { tail -n 30 "$_base/configure.log" >&2; fail "fresh-archive: configuring the exported tree failed"; }
+  "$CMAKE" --build "$_tmp/build" --target t64_core >"$_base/build.log" 2>&1 \
+    || { tail -n 30 "$_base/build.log" >&2; fail "fresh-archive: building t64_core of the exported tree failed"; }
+  _t_built=$(date +%s)
+  "$CMAKE" --install "$_tmp/build" --component Development --prefix "$_fa_prefix" \
+    >"$_base/install.log" 2>&1 || { cat "$_base/install.log" >&2; fail "fresh-archive: cmake --install of the Development component failed"; }
+  (cd "$_fa_prefix" && find . -type f | sed 's|^\./||' | sort) >"$_base/installed.list"
+  {
+    echo include/tendies64/t64_machine.h
+    echo lib/cmake/tendies64/tendies64Config.cmake
+    echo lib/cmake/tendies64/tendies64ConfigVersion.cmake
+    echo lib/cmake/tendies64/tendies64Targets-release.cmake
+    echo lib/cmake/tendies64/tendies64Targets.cmake
+    echo lib/libt64_core.a
+  } | sort >"$_base/expected.list"
+  if ! cmp -s "$_base/expected.list" "$_base/installed.list"; then
+    echo "check-install: fresh-archive: installed files differ from the six-file package (expected, installed):" >&2
+    diff "$_base/expected.list" "$_base/installed.list" >&2 || true
+    fail "fresh-archive: install tree is not the reviewed package"
+  fi
+  # No byte of the installed tree names the exported source, its build tree, the
+  # repository or a per-user location (finding names the root by position).
+  python3 -B "$ROOT/scripts/check-abi.py" abspaths --prefix "$_fa_prefix" \
+    --forbid "$_tmp/src" "$_tmp/build" "$ROOT" /Users/ /home/ /private/ /var/folders \
+    >"$_base/abspaths.log" 2>&1 || { cat "$_base/abspaths.log" >&2; fail "fresh-archive: the installed tree names a build or source path"; }
+  _id=$(sed -n 's/^set(tendies64_BUILD_ID "\(.*\)")$/\1/p' "$_fa_prefix/lib/cmake/tendies64/tendies64Config.cmake")
+  [ -n "$_id" ] || fail "fresh-archive: the installed package config names no build id"
+  if ! consumer_configure "$_base/consumer" "$_fa_prefix" "$_base/consumer-configure.log"; then
+    cat "$_base/consumer-configure.log" >&2
+    fail "fresh-archive: consumer configure failed (find_package(tendies64 0.1 REQUIRED CONFIG))"
+  fi
+  "$CMAKE" --build "$_base/consumer" >"$_base/consumer-build.log" 2>&1 \
+    || { cat "$_base/consumer-build.log" >&2; fail "fresh-archive: consumer build failed"; }
+  [ -x "$_base/consumer/t64c" ] || fail "fresh-archive: the consumer executable was not produced"
+  _t_consumer=$(date +%s)
+  for _case in smoke composite; do
+    if ! "$_base/consumer/t64c" --case "$_case" --rom "$FA_ROM" >"$_base/$_case.log" 2>&1; then
+      tail -n 20 "$_base/$_case.log" >&2
+      fail "fresh-archive: consumer case $_case failed"
+    fi
+    fa_say "case $_case ok ($(grep -h 'checks=' "$_base/$_case.log" | tail -n 1))"
+  done
+  _t_end=$(date +%s)
+  fa_say "archive of ${_head} ($_files files), library build $((_t_built - _t_start)) s, consumer $((_t_consumer - _t_built)) s"
+  fa_say "installed archive build id $_id"
+  echo "check-install: fresh-archive ok: exported tree built outside the repository, six files installed into a prefix with a space, consumer smoke and composite agree, no source or build path in the prefix, $((_t_end - _t_start)) s in all"
+}
+
 case $SUB in
   setup) [ "$#" -eq 0 ] || usage; cmd_setup ;;
   build) [ "$#" -eq 0 ] || usage; cmd_build ;;
@@ -899,6 +1008,7 @@ case $SUB in
   control) cmd_control "$@" ;;
   sanitize) cmd_sanitize "$@" ;;
   tsan) cmd_tsan "$@" ;;
+  fresh-archive) cmd_fresh_archive "$@" ;;
   three-way) cmd_three_way "$@" ;;
   *) echo "check-install: unknown subcommand: $SUB" >&2; usage ;;
 esac
