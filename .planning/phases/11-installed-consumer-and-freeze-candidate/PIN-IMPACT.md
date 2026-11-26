@@ -1587,3 +1587,34 @@ verified. Both are private and rehearsals: the record is not final evidence and 
 | Observation for 11-25 (derivation constants) | three stages ran above the table's measured constant: installed 11.02 s (8.8), sanitize-shipped 73.59 s (59) and sanitize-instrumented 328.46 s (299), because the table took the earlier figures of 11-20 (load 5 to 19) and 11-24 Task 2; every limit still holds at least 3.6 times the observed seconds, so no stage is near its kill deadline and nothing was widened. The constants and derivation text may be refreshed only by a commit before the Qualification base is recorded (a later edit of `qualify-phase11.py` is a bound-input change) |
 | Observation for 11-25 (inputs it must not touch) | the freeze record, its four goldens, `check-install.sh`, `check-abi.py` and the qualifier with its test are bound tools; the two evidence documents are the only files a plan may write after the record; the `Qualification base` line is a strict `- Qualification base: <40-hex>` line in a commit that changes only this file; the final run needs the ASan tree `build/asan` and the fresh-archive tree `build/gate/fresh-archive`, which the stages themselves create |
 | Not changed | no production core source, public header, bound golden, oracle-bound file, `ci.yml` or `gate.sh`; no hosted timeout; no tag; nothing pushed (11-25 pushes) |
+
+### 11-25 Final audit, Qualification base and the final native qualification
+
+Evidence tier: unit-tested, authored scope; a software-interface claim only (ABI 0.1, package 0.1.0 candidate; no
+final ABI, no release, no hardware or oracle claim).
+
+- Final record: build/gate/11-qualification-private/20261126T091014977323Z-aa393c22/record.json
+
+| Item | Result |
+|------|--------|
+| Commits | `9b17d81` (Task 1: the FINAL section of 11-REVIEW.md), `aa393c2` (the Qualification base line, this file only), then this record |
+| Final audit | scratch clone `build/11-review/final/src` at `2c53513c0ddf2b1e31e0bbc261f7629ce2268658`: `sh scripts/gate.sh` PASS 329 of 329 (total 145 s, ctest 85 s), sweep against the Wave 0 base 1599 shared lines and 0 differences, `check-abi.py freeze` against a fresh install 0 findings, authority blocked (exit 0 and 2), `check-claims.sh` errors=0, `pii-scan.sh --range` 168 commits, `--tree` 1435 files and `--history` 1337 commits with 0 findings, no tag on a Phase 11 commit, no CI-file edit since the Wave 0 base, no hosted run head inside the DEV-11-01 window; zero blocking findings, no warning, four info rows (FN-01 to FN-04) |
+| Qualification base | `9b17d8106ce6d1479fd29587931c06136bae66c4` (the head after the audit commit); `git diff --name-only BASE HEAD -- . ':!.planning'` is empty at the record |
+| Final record | id `20261126T091014977323Z-aa393c22`, `commit_sha` `aa393c2287aaebf817170dfc54394beeabec8ca5`, `rehearsal: false`, `status: complete`, `qualification_drift_paths` empty, tier `unit-tested, authored scope`, all four claims `false`; record SHA-256 `8e2c8c7a7970d12cc60ecd65f93bcee71906dd28391ab271e504f5ffb451f10b`; 188 bound inputs (manifest SHA-256 `36d26b37307e6790c857326038b45128682b91e6468f89903eb9c0d919906dc3`), 75 inventory names (SHA-256 `9a7007747aabf0fe4e0b53c8a367d7a43e5a80d3c23c5a735d932063b19bc2ec`); the four golden hashes equal the block; core, installed archive and installed consumer build id `t64-build-v1-35e6e1f1d4a1b5fd50b579c0cfb9dd36ac658099d0a207db610006433c1a22d5` |
+| Attempts | one: passed on the first attempt (689.49 s on the qualifier clock, 09:10:14Z to 09:21:44Z), `--verify RECORD` exit 0 (`record verified against the current tree`). Before it the run waited for the 1-minute load to fall below 8 (unrelated system processes had raised it to 15.8); load 7.11 at the start and 18.37 at the end (the sanitizer and sweep stages and unrelated indexing processes). No limit was widened and no source changed |
+| Constants (orchestrator ruling) | the table's derivation constants of `installed` (8.8), `sanitize-shipped` (59) and `sanitize-instrumented` (299) are not refreshed: they are derivation text, every limit still holds at least 3.4 times the seconds of this run (installed 10.7 of 180, sanitize-shipped 85.3 of 300, sanitize-instrumented 353.39 of 1200, gate 174.75 of 600), and an edit of `scripts/qualify-phase11.py` would be a bound-input change that is not a defect fix |
+
+| Stage | Seconds | Limit | What it ran |
+|-------|---------|-------|-------------|
+| ci-scanner | 1.83 | 90 | scanner and its 138-case selftest |
+| inventory | 0.56 | 60 | exact inventory, 329 names |
+| oracle | 0.17 | 60 | blocked (exit 0), approval refused (exit 2) |
+| abi-cheap | 6.58 | 720 | incremental gate build, then the cheap ABI names |
+| installed | 10.70 | 180 | `ctest -L phase11` with JUnit: 75 testcases, 0 failures, 0 skipped (JUnit SHA-256 `060df4b51d1ac64bec8896b64c2766bffe4dbc3c0cc1aee6cd5d51f812792047`, 42.5 s summed) |
+| gate | 174.75 | 600 | `scripts/gate.sh` PASS, 329 of 329, ctest wall 98.43 s |
+| sanitize-shipped | 85.30 | 300 | 24 cases, sequence 20,000 steps at digest stride 1 (21,186 calls, 1275 refusal bursts, 0 refusals without a digest check, `checks=98461 failures=0`), 0 AddressSanitizer references in the archive, no report |
+| sanitize-instrumented | 353.39 | 1200 | 24 cases, 733 references in the archive, sequence 20,000 steps at stride 8 (`checks=97335 failures=0`), no report |
+| tsan | 5.56 | 120 | two threads, one instance each, both digests `97f27027...1267c`, 564 and 21 references, no report |
+| fresh-archive | 3.28 | 120 | archive of `aa393c22` (1435 files), build id equal to the gate's |
+| sweep | 46.19 | 300 | `sweep: 1599 shared lines, 0 differences, 0 head-only lines` |
+| freeze | 0.47 | 60 | `abi=0.1 package=0.1.0 symbols=35 layout=14/165/190 holes=8 statuses=39 stop_reasons=8`, 0 findings |
