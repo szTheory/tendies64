@@ -1,17 +1,33 @@
 #!/bin/sh
-# Stale freeze-text guard (Phase 11, plan 11-11, DR-18).
+# Stale freeze-text guard (Phase 11, plan 11-11, DR-18; extended in Phase 12,
+# plan 12-15).
 #
-# The API freeze moved from Phase 10 to the Phase 11 candidate (final ABI bind
-# at the end of Phase 12), so no production comment, header banner or accepted
-# decision record may still say that a freeze is, or comes, at Phase 10. This
-# guard scans core/, runner/, tools/ and docs/adr/0002-language-build-and-abi.md
-# for the deny phrases below (case-insensitive, extended regular expressions):
+# The API freeze moved from Phase 10 to the Phase 11 candidate and was bound at
+# ABI 1.0 by the final bind of Phase 12, so no production comment, header
+# banner, specification line or accepted decision record may still say that a
+# freeze is, or comes, at Phase 10 or at Phase 11. This guard scans core/,
+# runner/, tools/, docs/spec/, docs/abi/ and
+# docs/adr/0002-language-build-and-abi.md for the deny phrases below
+# (case-insensitive, extended regular expressions):
 #   until (the )?Phase 10      freeze is Phase 10      before Phase 10
 #   Phase 10 interface review  provisional until Phase 10
+#   until (the )?Phase 11      the API is Phase 11
+# Two more rules are scoped to the headers under core/include/tendies64, where a
+# phrase wrapped across comment lines would hide from a line scan:
+#   any "provisional" word is a finding ("path:line: provisional in the
+#   installed header"); the one exemption is t64_facade.h, the in-tree runner
+#   header that is not installed and not in the freeze record, whose
+#   "PROVISIONAL, in-tree only" is accurate (the deny phrases still scan it);
+#   each file joined into one line (newlines to spaces, then " * " comment
+#   continuations squeezed and space runs collapsed, so a break inside a
+#   comment joins) must not hold "until the Phase 11", "the API is Phase 11" or
+#   "not a frozen ABI yet" ("path:joined: phrase split across comment lines in
+#   the installed header").
 # History and component names stay legal: "Phase 10 composite family (plan
-# 10-09)", test-history headers and fixture comments do not match any phrase.
-# Closed Phase 9 and Phase 10 records under docs/claims, docs/evidence and
-# fixtures/ are outside the scan on purpose (they are never relabeled).
+# 10-09)", "Phase 11 freeze candidate (plan 11-23)", test-history headers and
+# fixture comments do not match any phrase. Closed Phase 9 to Phase 11 records
+# under docs/claims, docs/evidence and fixtures/ are outside the scan on
+# purpose (they are never relabeled).
 #
 # Usage:
 #   check-stale-freeze-text.sh              scan the repository containing this script
@@ -24,8 +40,13 @@ set -eu
 LC_ALL=C
 export LC_ALL
 
-DENY='until (the )?Phase 10|freeze is Phase 10|before Phase 10|Phase 10 interface review|provisional until Phase 10'
-SCAN_PATHS='core runner tools docs/adr/0002-language-build-and-abi.md'
+DENY='until (the )?Phase 10|freeze is Phase 10|before Phase 10|Phase 10 interface review|provisional until Phase 10|until (the )?Phase 11|the API is Phase 11'
+SCAN_PATHS='core runner tools docs/spec docs/abi docs/adr/0002-language-build-and-abi.md'
+HEADER_DIR='core/include/tendies64'
+HEADER_JOINED='until the Phase 11|the API is Phase 11|not a frozen ABI yet'
+# Not installed and outside the freeze record (docs/abi/FREEZE-CANDIDATE.md): the
+# "provisional" word rule skips this one file by exact name.
+HEADER_RULE_EXEMPT='t64_facade.h'
 
 SELF=$0
 HERE=$(cd "$(dirname "$0")" && pwd -P)
@@ -34,6 +55,23 @@ ROOT=$(cd "$HERE/.." && pwd -P)
 usage() {
   echo "usage: check-stale-freeze-text.sh [--root DIR | --selftest]" >&2
   exit 2
+}
+
+# header_rules DIR: print the header-scoped findings (without the STALE-FREEZE
+# prefix) for the files under DIR/core/include/tendies64.
+header_rules() {
+  _hd=$1
+  [ -d "$_hd/$HEADER_DIR" ] || return 0
+  (cd "$_hd" && find "$HEADER_DIR" -type f | sort) | while IFS= read -r _hf; do
+    if [ "${_hf##*/}" != "$HEADER_RULE_EXEMPT" ]; then
+      grep -n -I -i -e provisional "$_hd/$_hf" | cut -d: -f1 | while IFS= read -r _ln; do
+        echo "$_hf:$_ln: provisional in the installed header"
+      done
+    fi
+    if tr '\n' ' ' < "$_hd/$_hf" | sed 's/ \* / /g; s/  */ /g' | grep -q -I -i -E -e "$HEADER_JOINED"; then
+      echo "$_hf:joined: phrase split across comment lines in the installed header"
+    fi
+  done
 }
 
 # scan DIR: print findings, then the summary line; return 0 clean, 1 findings,
@@ -63,6 +101,7 @@ scan() {
     echo "stale-freeze-text: grep failed (status $_grc)" >&2
     return 2
   fi
+  header_rules "$_dir" >> "$_tmp"
   _n=$(wc -l < "$_tmp" | tr -d ' ')
   sed 's/^/STALE-FREEZE /' "$_tmp"
   rm -f "$_tmp"
@@ -79,7 +118,7 @@ seed() {
   _path=$3
   _text=$4
   _tree="$SELF_TMP/$_name"
-  mkdir -p "$_tree/core/include/tendies64" "$_tree/runner" "$_tree/tools" "$_tree/docs/adr"
+  mkdir -p "$_tree/core/include/tendies64" "$_tree/runner" "$_tree/tools" "$_tree/docs/adr" "$_tree/docs/spec" "$_tree/docs/abi"
   printf '/* clean file */\n' > "$_tree/core/clean.c"
   case "$_path" in
     docs/adr/*) printf '%s\n' "$_text" > "$_tree/$_path" ;;
@@ -119,7 +158,23 @@ selftest() {
   seed seeded-case fail core/t64_case.c '/* Provisional Until Phase 10 */' 'core/t64_case.c:2:'
   seed seeded-adr fail docs/adr/0002-language-build-and-abi.md 'the API freeze is Phase 10.' 'docs/adr/0002-language-build-and-abi.md:1:'
   seed clean-history clean core/t64_history.c '/* Phase 10 composite family (plan 10-09) */'
-  seed clean-relabel clean core/t64_relabel.c '/* provisional until the Phase 11 freeze candidate (final ABI bind at the end of Phase 12) */'
+  seed clean-relabel clean core/t64_relabel.c '/* bound by ABI 1.0, docs/abi/FREEZE-CANDIDATE.md */'
+  # Phase 12 (plan 12-15): the Phase 11 promise phrases, the header-scoped
+  # provisional rule and the header joined-text rule.
+  seed seeded-until-11 fail core/t64_seed11.c '/* provisional until Phase 11 */' 'core/t64_seed11.c:2:'
+  seed seeded-until-the-11 fail core/t64_seed11the.c '/* revisable until the Phase 11 freeze candidate (final ABI bind at the end of Phase 12) */' 'core/t64_seed11the.c:2:'
+  seed seeded-api-is-11 fail core/t64_seedapi.c '/* the string is not public API work (the API is Phase 11) */' 'core/t64_seedapi.c:2:'
+  seed seeded-spec fail docs/spec/seed.md 'numbers are revisable until the Phase 11 freeze candidate.' 'docs/spec/seed.md:2:'
+  seed seeded-abi-dir fail docs/abi/seed.md 'the API is Phase 11.' 'docs/abi/seed.md:2:'
+  seed seeded-header-provisional fail core/include/tendies64/t64_machine.h ' * a note that stays provisional.' 'core/include/tendies64/t64_machine.h:2: provisional in the installed header'
+  seed seeded-header-other-name fail core/include/tendies64/t64_other.h ' * PROVISIONAL, in-tree only.' 'core/include/tendies64/t64_other.h:2: provisional in the installed header'
+  seed seeded-header-wrapped fail core/include/tendies64/t64_machine.h "$(printf '/* a note that is provisional\n * until the\n * Phase 11 freeze candidate */')" 'core/include/tendies64/t64_machine.h:2: provisional in the installed header'
+  seed seeded-header-joined fail core/include/tendies64/t64_seed_joined.h "$(printf '/*\n * it is not a frozen\n * ABI yet.\n */')" 'core/include/tendies64/t64_seed_joined.h:joined:'
+  seed seeded-header-joined-until fail core/include/tendies64/t64_seed_joined.h "$(printf '/* kept until the\n * Phase 11 freeze candidate */')" 'core/include/tendies64/t64_seed_joined.h:joined:'
+  seed clean-facade-provisional clean core/include/tendies64/t64_facade.h ' * Tendies64 synthetic-guest runner header (PROVISIONAL, in-tree only).'
+  seed clean-history-11 clean core/t64_history11.c '/* Phase 11 freeze candidate (plan 11-23) */'
+  seed clean-history-record clean docs/abi/FREEZE-CANDIDATE.md 'Plan 11-23 of Phase 11 bound this record as the freeze candidate ABI 0.1.'
+  seed clean-header-bound clean core/include/tendies64/t64_machine.h ' * the ABI bound at 1.0 by docs/abi/FREEZE-CANDIDATE.md'
   # A scan that covers no file is an error, never a pass.
   _empty="$SELF_TMP/empty"
   mkdir -p "$_empty/core"

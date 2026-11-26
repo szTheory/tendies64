@@ -58,16 +58,53 @@ copy of the header passes, because the hash is taken over the LF form.
 - `project(VERSION)`, the build identity and any release versioning (section
   "Owner-review item (D6)" below).
 
-## Evidence for the candidate
+## Evidence for the bind
 
-The installed-consumer suite (`installed.consumer.*`, `installed.controls.*`, the
-`install.*` and `api04.*` names) passed on both hosted operating systems in run
-45775107983 (gate-linux and gate-macos, 324 of 324 names, pushed head `4b13a90`).
-The installed header and archive of that tree are the ones bound here: the header
-is byte-identical, and the only production-directory change since is a test
-registration in `core/CMakeLists.txt`. The hosted pair for the commits of plan
-11-23 comes with the next push. The candidate evidence stays a software-interface
-claim; it says nothing about a console or another emulator.
+The bind is the commit `03ccb01c28179522d357d866c1e21aebfade7b0a` ("final ABI
+bind at 1.0", parent `3cfcbec94d83f8e32e76e8bf76789fe7f59eafa3`), one coupled
+commit of ten files made by plan 12-14. Its staged patch (SHA-256
+`70ef069078c3decc7f7b55beb79fa1cfba6c4da20af4f9d34c0f3f100aa4eed2`) was proven in a
+scratch clone of the parent before the commit, and the commit's own binary diff
+hashes to the same value. What the evidence shows, in order:
+
+- Clone gate: `sh scripts/gate.sh` in the scratch clone with the patch applied
+  passed, 351 of 351 CTest names with none excluded and no limit widened (the
+  names include the installed-consumer suite, the `install.*` and `api04.*`
+  names and `repo.abi-freeze-record` against the clone's own installed tree).
+- Behavior: the digest sweep against the Wave 0 base of Phase 12 printed 1599
+  shared lines and 0 differences, and the no-HLE check printed the same output as
+  before the patch, so the bind moved no behavior and no sealed digest.
+- Installed consumer against the bound tree: after the commit the shared tree
+  re-ran the `install.*`, `installed.*`, `api04.*`, `repo.abi*` and
+  `unit.core.api.*` names (69 of 69). The two version controls request 1.1 and
+  1.0.5 and each fail with the CMake version headline for their own request, and
+  `doctored-header-abi` still answers `ABI_MISMATCH` (status 34) with a NULL
+  machine.
+- The title and the host, through the public API only: the TITLE wave (plans
+  12-02 to 12-05) runs the authored title ROM through the runner
+  (`runner.title-two-run`) and through the installed consumer
+  (`installed.consumer.title`, `installed.consumer.title-persist`,
+  `installed.consumer.title-refused`), and the HOST wave (plans 12-07 to 12-10)
+  drives it through the host pump (`host.pump.*`, including
+  `host.pump.title-two-speeds`) and the local SDL lane. The two hosted runs of
+  those waves, 45887012740 (TITLE, pushed head `884153a`, gate-linux and
+  gate-macos green, 336 of 336 names) and 45904452436 (HOST, pushed head
+  `de21fcf`, both green, 351 of 351 names), ran against the candidate header 0.1;
+  the host work found no defect of a bound postcondition.
+- Amendment slot: the ledger of host-found API defects holds 15 rows, 13 accepted
+  and 2 documentation rows (C-1 and H-03, both text of `docs/spec/api.md`, which
+  is not a golden) and none with the disposition "amend", so plan 12-11 did not
+  trigger and `candidate_amendments` is 0.
+
+The installed header of the bind differs from the candidate's in the two ABI
+constants and in settled comment text; the header hash moved by design, and the
+freeze check holds the counts of the candidate (35 functions, 39 statuses, 8 stop
+reasons, 14 structs, 165 members, 190 constants, 8 padding holes). Text-only commits
+after the bind (the relabeled production comments and specification lines of plan
+12-15) change the build identity string, because the production sources are build
+inputs, and move no bound golden. The hosted pair for the bound head comes with
+the next push. The evidence stays a software-interface claim; it says nothing about
+a console or another emulator.
 
 ## Layout targets and padding holes (review item S-05)
 
