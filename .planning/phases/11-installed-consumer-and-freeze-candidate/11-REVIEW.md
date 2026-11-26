@@ -109,3 +109,32 @@ note (four plans over 15 files) and the Phase 11 G4 exception of PIN-IMPACT "Gat
 
 Result: zero blocking findings; three warnings (S-01 to S-03) and nine info rows. The SHAPE wave's bound-file
 edits are independently confirmed call-site-only (check (c)), and the wave moved no digest (check (a)).
+
+### Task 3: push, hosted pair and the Install base
+
+Before the push, in the shared tree with a clean committed tree at `43b31e2c0511155622dd8428dcd2f2368fe40501`
+(the reviewed head plus the two 11-REVIEW.md commits; `git diff --quiet 1d451b9 HEAD -- core runner tools tests
+scripts fixtures docs` exits 0): `sh scripts/preflight-phase11.sh` (full, no flag) reports `[preflight] PASS` in
+102 s (oracle-authority 1, ctest-counts 0, abi-cheap 1, guards 2, host-load 0 with a WARN at load 14.6, head-ci 1
+with `origin/main` `167a084` completed success, timeout-audit 0 with 128 TIMEOUTs and lowest ratio 2.9, pii 2,
+linux-compile 64 with 232 units and the act image cc 13.3.0, post-gate-replay 31 with 11 `ci.yml` steps).
+`sh scripts/pii-scan.sh --tree` (1377 files) and `--range origin/main..HEAD` (79 commits, the whole unpublished
+range including the commits of the earlier unpublished PII repair) report 0 findings, and
+`sh scripts/rights-scan.sh --tree --range origin/main..HEAD` reports `tree=1377 history=423 findings=0` (exit 0).
+
+Push: `git push origin 43b31e2c0511155622dd8428dcd2f2368fe40501:refs/heads/main`, a fast-forward from `167a084`
+(no force, no tag, no other branch). Hosted run 45736981784 (`ci.yml`, event push, head `43b31e2`): both jobs
+success; gate-macos 445 s (Gate 367 s, ctest 219 s, `100% tests passed out of 275`), gate-linux 251 s (Gate 204 s,
+ctest 132 s, 275 of 275); Binutils cache hit on both, so the sample is warm. `docs/ci-reviews/LOG.md` has its Runs row
+and finding F-127; PIN-IMPACT "Gate-growth ledger" has the SHAPE row.
+
+- Review candidate (h): `repo.abi-prefix` passes on gate-linux (0.08 s) and gate-macos (0.11 s); the gate-linux run is
+  the first ELF check of the prefix golden and of the generator's `nm` parsing. An empty or wrong parse cannot pass:
+  `--check` fails on a header entry absent from the archive (`stale`, the 11-11 control).
+- Review candidate (i): the cold gate-macos time was not measured (warm cache; deleting the cache entry and
+  dispatching a cold run is an orchestrator step that this plan does not name). Projections from this warm sample:
+  757 s (attributable growth), 791 s (cold delta of F-123 to F-124) and 810 s (whole warm delta), margins 143 s,
+  109 s and 90 s. Two are under the 120 s warning margin; none is above 900 s, so the G4 reversal rule is not
+  triggered. The 21 SHAPE names sum 19.62 s on hosted macOS and 14.77 s on hosted Linux.
+
+The Install base is recorded in PIN-IMPACT "Wave bases" by its own commit after this record.
