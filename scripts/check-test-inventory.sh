@@ -356,7 +356,8 @@ harness.phase11-qualification'
 # extra CTest label phase12, which sh scripts/preflight-phase12.sh compares with this
 # block. One name per line, closing quote on the last name; each later plan appends
 # the names it registers.
-PHASE12_TESTS='harness.title-oracle'
+PHASE12_TESTS='harness.title-oracle
+runner.title-two-run'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

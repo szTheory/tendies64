@@ -163,6 +163,21 @@ static const t64_real_fixture fixtures[] = {
      "9dfb90d8055b822a1767be1c5594d1b2d904f042ef6fe82f2e7a3243e5756578",
      UINT32_C(0x800007a8), true, T64_REAL_GUEST_TICKS_LONG_CAP, 188u,
      "da07d916f0314db05e8d609326242d7f944098e96ce19a96339ef1cd6a7aad39"},
+    /* Phase 12 authored title (plan 12-04). The transcript pin is the short
+     * scenario's ISViewer text of fixtures/title/title.expected.json (20 bytes,
+     * "S 38 28 00000001 04\n"); the refused-frame variant never completes, so
+     * it is never pass-eligible and carries no transcript pin. */
+    {"phase12-title-s32k",
+     "dfe77f5856aa2069d7f44671770c336e0958d03e7ec2bca31b0ad89383a7d684",
+     7568u, "ntsc-cart-4m-openipl3-rdram-b-t1-si-v2-s32k",
+     "9dfb90d8055b822a1767be1c5594d1b2d904f042ef6fe82f2e7a3243e5756578",
+     UINT32_C(0x80000820), true, T64_REAL_GUEST_TICKS_LONG_CAP, 20u,
+     "e2af326a06abfd43ea5c68336d89b64cbac44107de684f35c0b0b468b228671d"},
+    {"phase12-title-refused-s32k",
+     "7989af8ac44028bdb56a43202ad80ae50ccb768619438e5cab113984953a0271",
+     7568u, "ntsc-cart-4m-openipl3-rdram-b-t1-si-v2-s32k",
+     "9dfb90d8055b822a1767be1c5594d1b2d904f042ef6fe82f2e7a3243e5756578",
+     UINT32_C(0x80000820), false, T64_REAL_GUEST_TICKS_LONG_CAP, 0u, NULL},
 };
 
 const t64_real_fixture *t64_real_fixture_find_bytes(

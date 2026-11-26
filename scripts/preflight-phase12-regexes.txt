@@ -32,7 +32,7 @@
 1	^harness\.title-oracle$
 # plan 12-04: runner.title-two-run (one name, no CTest fixture closure; the runner names follow
 # runner.composite-two-run).
-0	^runner\.title-two-run$
+1	^runner\.title-two-run$
 # plan 12-04: controls.real.title-wrong-input and controls.real.title-refused-frame (two names,
 # no CTest fixture closure; the controls.real names follow controls.real.composite-wrong-rom).
 0	^controls\.real\.title-

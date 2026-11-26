@@ -782,6 +782,37 @@ add_test(NAME harness.title-oracle
 set_tests_properties(harness.title-oracle PROPERTIES
   LABELS "harness;phase12" TIMEOUT 60 COST 0.09 ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
 
+# Phase 12 title guest (plan 12-04, API-06): the authored title ROM through the
+# real supervised runner, compared with the independent expectation
+# fixtures/title/title.expected.json (T64_TITLE_EXPECTED), which harness.title-oracle
+# proves equal to the oracle's output. One binary, one CTest name per case; the
+# evidence directory is scoped per process, so the names are safe under ctest -j.
+# The title fixture target also builds the refused-frame ROM of the controls.
+add_executable(test_title_two_run tests/test_title_two_run.c)
+target_compile_definitions(test_title_two_run PRIVATE ${T64_HOST_DEFS})
+target_include_directories(test_title_two_run PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/core/include)
+target_link_libraries(test_title_two_run PRIVATE t64_common t64_core)
+t64_target_warnings(test_title_two_run)
+add_dependencies(test_title_two_run t64-supervisor t64-supervisor-test
+  t64-result-check t64-runner-real t64-boot-fixtures
+  t64-phase12-title-fixture)
+function(t64_phase12_title_case TEST_NAME CASE_NAME CASE_COST CASE_LABELS)
+  add_test(NAME ${TEST_NAME}
+    COMMAND test_title_two_run --case ${CASE_NAME}
+      $<TARGET_FILE:t64-supervisor> $<TARGET_FILE:t64-supervisor-test>
+      $<TARGET_FILE:t64-result-check> ${CMAKE_SOURCE_DIR}
+      $<TARGET_FILE:t64-runner-real>)
+  set_tests_properties(${TEST_NAME} PROPERTIES
+    LABELS "${CASE_LABELS}" TIMEOUT 120 COST ${CASE_COST}
+    ENVIRONMENT "T64_PHASE12_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/12-04-evidence;T64_TITLE_EXPECTED=${CMAKE_SOURCE_DIR}/fixtures/title/title.expected.json")
+endfunction()
+t64_phase12_title_case(runner.title-two-run two-run 0.62 "runner;phase12")
+# COST is the measured native seconds rounded up to two decimals (0.61 and 0.62 s, one raw-capture
+# run of three 49,152-byte frames plus two audio packets). TIMEOUT by the F-108 rule: the helper's
+# literal 120 s is more than 190 times the native figure (the composite case uses the same value,
+# its lowest margin being 6.9 times the sanitizer figure).
+
 # Phase 10 container format strings in the runner contract (plan 10-15,
 # CORE-06): the closed set {v1, v2} at the supervisor and the runner parser, the
 # profile pairing (v1 with state 25, v2 with state 26) at the runner prelaunch,
