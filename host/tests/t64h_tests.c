@@ -1852,7 +1852,7 @@ static bool dest_untouched(size_t length) {
 }
 
 static void frames_copy_cases(tally *t) {
-  t64_video_packet_info info;
+  t64_video_packet_info info = T64_VIDEO_PACKET_INFO_INIT;
   size_t packet_length;
   size_t y;
   bool rows_equal;
@@ -1918,7 +1918,7 @@ static void frames_copy_cases(tally *t) {
 static void frames_refusal_cases(tally *t) {
   t64_video_packet_info info = synth_info(128u, 96u, 512u);
   const size_t packet_length = synth_fill(128u, 96u, 512u);
-  t64_video_packet_info other;
+  t64_video_packet_info other = T64_VIDEO_PACKET_INFO_INIT;
 
   /* The padding after the last row is not needed: a stride 520 packet without it is whole. */
   other = synth_info(128u, 96u, 520u);
