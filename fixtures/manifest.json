@@ -1200,6 +1200,63 @@
         "source": "Same-run accepted baseline, then the baseline pin rejects this variant (the oracle fixtures/composite/composite_oracle.py states the accepted bytes). Policy self-consistency only.",
         "revision": "source-content-sha256:311a8dbc86f6624948b14320d25bc24ecabf3e3735f5a27f829b94589a5e4c6f"
       }
+    },
+    {
+      "id": "phase12-title-s32k",
+      "source": {
+        "repo": "https://github.com/szTheory/tendies64",
+        "revision": "7b962961fcb8e1c1600dc84dae8a67f0c88dce26",
+        "path": "fixtures/title/title.S"
+      },
+      "build": {
+        "recipe": "Assemble fixtures/title/title.S and fixtures/title/title.ld with the qualified GNU Binutils 2.45 tools with no defsym, then run sh scripts/build-title-fixture.sh --build. Fixture source-content SHA-256 0946b6391a5cdd56b2ffd8d594e5c4bb3d14f14d88266befb116813f5bd56c2a; exact generated ROM SHA-256 dfe77f5856aa2069d7f44671770c336e0958d03e7ec2bca31b0ad89383a7d684 (7568 bytes), payload SHA-256 ab2f79b01e4e5776e62659916c81d9170a890af2cada15c5dd88c6603da22703 (3472 bytes). Includes only the separately rights-cleared Unlicense IPL3 payload. Generated binaries remain local/build-only.",
+        "toolchain": ["GNU Binutils 2.45"]
+      },
+      "sha256": "dfe77f5856aa2069d7f44671770c336e0958d03e7ec2bca31b0ad89383a7d684",
+      "size": 7568,
+      "profile": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v2-s32k",
+      "source_rights": "authored-here",
+      "binary_rights": "cleared",
+      "distribution": ["build-only"],
+      "rights_evidence": "The assembly, linker script, behavior specification, input scripts and oracle are authored here under Apache-2.0 (LICENSE). The generated cartridge embeds only the separately recorded 4096-byte Unlicense IPL3 asset and its exact payload. It draws one authored filled square on a flat background, plays one authored square-wave tone table and writes a 16-byte SRAM slot derived from host input scripts; the input scripts are short authored tables of controller states and no protected ROM, save, audio or diagnostic asset is included. Generated ROM and payload are local build outputs and are not committed or uploaded.",
+      "notices": [
+        "Authored assembly and linker script are licensed under Apache-2.0; see LICENSE.",
+        "Embedded IPL3 is covered by the separately recorded pinned Unlicense source asset.",
+        "Generated title ROM and payload are build-only."
+      ],
+      "expected": {
+        "kind": "spec-derived",
+        "source": "Checkpoint frame, audio, save and transcript digests from fixtures/title/title_oracle.py, written from fixtures/title/title-spec.md before the guest and committed as fixtures/title/title.expected.json. Policy self-consistency only.",
+        "revision": "sha256:26ec0fb8702b2fa9cad0b3671361274e52a18beb7ef43a671d4f8b76ab347de8"
+      }
+    },
+    {
+      "id": "phase12-title-refused-s32k",
+      "source": {
+        "repo": "https://github.com/szTheory/tendies64",
+        "revision": "7b962961fcb8e1c1600dc84dae8a67f0c88dce26",
+        "path": "fixtures/title/title.S"
+      },
+      "build": {
+        "recipe": "Build the same authored source, linker script and toolchain as phase12-title-s32k with --defsym T64_TITLE_REFUSED=1. Only step 3 of the render list changes, to the one-cycle SetOtherModes word 0x2f000000, so the RDP refuses the fill, every video packet stays blank and the run never completes. Fixture source-content SHA-256 0946b6391a5cdd56b2ffd8d594e5c4bb3d14f14d88266befb116813f5bd56c2a; exact generated ROM SHA-256 7989af8ac44028bdb56a43202ad80ae50ccb768619438e5cab113984953a0271 (7568 bytes), payload SHA-256 03f57652e0091a003fef53d46559a6637e800156415bc2e2b65747de30d791bc (3472 bytes). Generated binaries remain local/build-only.",
+        "toolchain": ["GNU Binutils 2.45"]
+      },
+      "sha256": "7989af8ac44028bdb56a43202ad80ae50ccb768619438e5cab113984953a0271",
+      "size": 7568,
+      "profile": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v2-s32k",
+      "source_rights": "authored-here",
+      "binary_rights": "cleared",
+      "distribution": ["build-only"],
+      "rights_evidence": "This variant is generated from the same Apache-2.0 authored source with a single explicit assembler defsym. It embeds only the separately recorded Unlicense IPL3 asset and its exact payload. No protected ROM, save or diagnostic asset is included. The generated ROM is a local build output and is not committed or uploaded.",
+      "notices": [
+        "Refused-frame ROM exists only to prove that a refused RDP packet gives blank frames and is never a pass.",
+        "Generated negative-control ROM and payload are build-only."
+      ],
+      "expected": {
+        "kind": "spec-derived",
+        "source": "refused-packet control; blank frames, never a pass (fixtures/title/title-spec.md TS-13; blank digest in fixtures/title/title.expected.json from fixtures/title/title_oracle.py).",
+        "revision": "sha256:26ec0fb8702b2fa9cad0b3671361274e52a18beb7ef43a671d4f8b76ab347de8"
+      }
     }
   ]
 }
