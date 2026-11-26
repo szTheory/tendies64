@@ -123,6 +123,7 @@ int main(int argc, char **argv) {
       (void)puts(t64c_cases[k].name);
     }
     t64c_ops_list();
+    t64c_hostloop_list();
     return 0;
   }
   if (argc >= 3 && strcmp(argv[1], "--case") == 0) {
@@ -151,6 +152,9 @@ int main(int argc, char **argv) {
     }
     if (t64c_ops_known(name)) {
       return t64c_ops_run(name, &args);
+    }
+    if (t64c_hostloop_known(name)) {
+      return t64c_hostloop_run(name, &args);
     }
     (void)fprintf(stderr, "t64c: unknown case: %s\n", name);
     return 2;

@@ -320,6 +320,10 @@ installed.consumer.ops-queries
 installed.consumer.ops-trace
 installed.consumer.ops-bus
 installed.consumer.ops-poison-query
+installed.consumer.hostloop
+installed.consumer.hostloop-cadence
+installed.consumer.hostloop-delay
+installed.consumer.two-instance
 repo.consumer-include-guard
 repo.consumer-include-guard-selftest
 repo.abi-layout

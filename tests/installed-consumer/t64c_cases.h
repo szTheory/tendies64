@@ -99,4 +99,9 @@ bool t64c_ops_known(const char *name);
 void t64c_ops_list(void);
 int t64c_ops_run(const char *name, const t64c_args *args);
 
+/* Cases of hostloop.c (plan 11-19): the host-shaped loop and the two-instance case. */
+bool t64c_hostloop_known(const char *name);
+void t64c_hostloop_list(void);
+int t64c_hostloop_run(const char *name, const t64c_args *args);
+
 #endif /* T64C_CASES_H */

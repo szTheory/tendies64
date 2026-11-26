@@ -27,3 +27,7 @@ ops-queries
 ops-trace
 ops-bus
 ops-poison-query
+hostloop
+hostloop-cadence
+hostloop-delay
+two-instance
