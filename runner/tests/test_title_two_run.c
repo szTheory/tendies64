@@ -709,14 +709,14 @@ static bool load_bundle(const char *raw_dir, raw_out *out) {
 /* One raw-capture run of the title on the short scenario: the video frames and
  * the audio packets of the bundle and the transcript of --capture-out. The
  * save image is the save-out run's output and is not produced here. */
-static bool run_raw(raw_out *out, run_out *run) {
+static bool run_raw(const script_ident *script, raw_out *out, run_out *run) {
   run_spec spec = {0};
   char path[PATH_MAX];
   struct stat info;
   const int failures_before = g_failures;
   memset(out, 0, sizeof *out);
   spec.stem = TITLE_ROM;
-  spec.script = &g_short;
+  spec.script = script;
   spec.raw = true;
   spec.capture = true;
   CHECK(run_supervised(&spec, run));
@@ -814,24 +814,139 @@ static void compare_outputs(const raw_out *raw, const expectation *exp) {
   }
 }
 
+/* ---- the runner-recorded pins -------------------------------------------- */
+
+#define PINS_REL "fixtures/title/title.runner-pins.json"
+#define PINS_LABEL "runner-recorded pin, not independent"
+#define PINS_SCHEMA "t64.title-runner-pins"
+
+/* The four values recorded from the supervised short run (plan 12-04). They
+ * are runner-recorded pins, never independent: no frame, audio, save or
+ * transcript value is read from a runner run. */
+typedef struct {
+  uint64_t completion_tick;
+  char stop_reason[32];
+  char final_state_digest[65];
+  size_t video_packet_count;
+} runner_pins;
+
+static bool load_pins(runner_pins *pins) {
+  static uint8_t bytes[4096];
+  char path[PATH_MAX];
+  size_t length = 0u;
+  t64_json_doc doc = {0};
+  char label[64];
+  char schema[32];
+  bool ok;
+  memset(pins, 0, sizeof *pins);
+  if (!join_path(path, sizeof path, g_root, PINS_REL) ||
+      !read_file(path, bytes, sizeof bytes, &length) || length == 0u ||
+      length >= sizeof bytes ||
+      t64_json_parse(bytes, length, NULL, &doc, NULL) != 0) {
+    return false;
+  }
+  copy_string(label, sizeof label, t64_json_get(doc.root, "label"));
+  copy_string(schema, sizeof schema, t64_json_get(doc.root, "schema"));
+  copy_string(pins->stop_reason, sizeof pins->stop_reason,
+              t64_json_get(doc.root, "stop_reason"));
+  ok = strcmp(label, PINS_LABEL) == 0 && strcmp(schema, PINS_SCHEMA) == 0 &&
+       t64_json_u64_string(t64_json_get(doc.root, "completion_tick"),
+                           &pins->completion_tick) &&
+       copy_hex64(t64_json_get(doc.root, "final_state_digest"),
+                  pins->final_state_digest) &&
+       json_int(t64_json_get(doc.root, "video_packet_count"),
+                &pins->video_packet_count);
+  t64_json_free(&doc);
+  return ok;
+}
+
+/* The run against its four pins. A mismatch is a case failure with the pin and
+ * the observed value printed. */
+static void compare_pins(const runner_pins *pins, const raw_out *raw,
+                         const run_out *run) {
+  CHECK(raw->guest_tick == pins->completion_tick);
+  CHECK(strcmp(run->stop_kind, "authored-completion") == 0 &&
+        strcmp(pins->stop_reason, "GUEST_COMPLETION") == 0);
+  CHECK(strcmp(raw->digest_raw, pins->final_state_digest) == 0);
+  CHECK(raw->video_count == pins->video_packet_count);
+  (void)printf("compare pins (%s): completion tick %llu, stop %s, final state "
+               "digest %s, %zu video packets equal the pins file\n",
+               PINS_LABEL, (unsigned long long)raw->guest_tick, pins->stop_reason,
+               raw->digest_raw, raw->video_count);
+}
+
 static raw_out g_raw_first;
 static expectation g_expected;
 
 static int case_two_run(void) {
   run_out raw_run;
+  runner_pins pins;
   CHECK(load_expectation(&g_expected));
+  CHECK(load_pins(&pins));
   /* The committed scripts are the oracle's own scripts. */
   CHECK(strcmp(g_short.sha, g_expected.short_input_sha256) == 0);
   CHECK(strcmp(g_wrong.sha, g_expected.wrong_input_sha256) == 0);
-  if (run_raw(&g_raw_first, &raw_run)) {
+  if (run_raw(&g_short, &g_raw_first, &raw_run)) {
     (void)printf("state_digest raw-run=%s guest_tick=%llu\n",
                  g_raw_first.digest_raw,
                  (unsigned long long)g_raw_first.guest_tick);
     CHECK(is_hex64(g_raw_first.digest_raw));
     compare_outputs(&g_raw_first, &g_expected);
+    compare_pins(&pins, &g_raw_first, &raw_run);
   } else {
     CHECK(false);
   }
+  return g_failures == 0 ? 0 : 1;
+}
+
+/* ---- case wrong-input ------------------------------------------------------ */
+
+/* The same ROM under the short-wrong script (Left in place of Right) is run
+ * and judged against the SHORT expectation. The run must complete and pass
+ * like the accepted run (any other cause is a case failure), and the frame
+ * comparator must fail at checkpoint 2 with its own mismatch text, with the
+ * frame a real, non-blank frame. A positive control then judges the same
+ * captured frames against the short-wrong expectation of the oracle: they are
+ * equal, so the difference is the input and not a broken run. */
+static int case_wrong_input(void) {
+  static raw_out wrong;
+  run_out run;
+  frame_verdict verdict;
+  frame_verdict positive;
+  size_t at;
+  CHECK(load_expectation(&g_expected));
+  CHECK(strcmp(g_wrong.sha, g_expected.wrong_input_sha256) == 0);
+  if (!run_raw(&g_wrong, &wrong, &run)) {
+    CHECK(false);
+    return 1;
+  }
+  CHECK(wrong.video_count == g_expected.short_run.frame_count);
+  compare_frames((const char(*)[65])g_expected.short_run.frames,
+                 g_expected.short_run.frame_count,
+                 (const char(*)[65])wrong.video_sha256, wrong.video_count,
+                 g_expected.blank_sha256, &verdict);
+  CHECK(verdict.checkpoint == 2u);
+  CHECK(strncmp(verdict.text, "checkpoint 2 mismatch", 21u) == 0);
+  CHECK(!verdict.actual_blank);
+  (void)printf("control wrong-input: %s under the short expectation (%s)\n",
+               verdict.text, SCRIPT_WRONG_REL);
+  compare_frames((const char(*)[65])g_expected.wrong_run.frames,
+                 g_expected.wrong_run.frame_count,
+                 (const char(*)[65])wrong.video_sha256, wrong.video_count,
+                 g_expected.blank_sha256, &positive);
+  CHECK(positive.checkpoint == 0u);
+  (void)printf("compare wrong-input: %zu frames equal the short-wrong "
+               "expectation\n",
+               wrong.video_count);
+  at = compare_audio((const char(*)[65])g_expected.wrong_run.audio,
+                     g_expected.wrong_run.audio_count,
+                     (const char(*)[65])wrong.audio_sha256, wrong.audio_count);
+  CHECK(at == SIZE_MAX);
+  CHECK(first_diff(g_expected.wrong_run.transcript,
+                   g_expected.wrong_run.transcript_len, wrong.transcript,
+                   wrong.transcript_length) == SIZE_MAX);
+  (void)printf("compare wrong-input: audio and transcript equal the short-wrong "
+               "expectation\n");
   return g_failures == 0 ? 0 : 1;
 }
 
@@ -844,6 +959,7 @@ typedef struct {
 
 static const case_entry cases[] = {
     {"two-run", case_two_run},
+    {"wrong-input", case_wrong_input},
 };
 
 int main(int argc, char **argv) {

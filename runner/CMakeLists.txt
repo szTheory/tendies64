@@ -808,6 +808,7 @@ function(t64_phase12_title_case TEST_NAME CASE_NAME CASE_COST CASE_LABELS)
     ENVIRONMENT "T64_PHASE12_EVIDENCE_DIR=${CMAKE_BINARY_DIR}/12-04-evidence;T64_TITLE_EXPECTED=${CMAKE_SOURCE_DIR}/fixtures/title/title.expected.json")
 endfunction()
 t64_phase12_title_case(runner.title-two-run two-run 0.62 "runner;phase12")
+t64_phase12_title_case(controls.real.title-wrong-input wrong-input 0.62 "controls;phase12")
 # COST is the measured native seconds rounded up to two decimals (0.61 and 0.62 s, one raw-capture
 # run of three 49,152-byte frames plus two audio packets). TIMEOUT by the F-108 rule: the helper's
 # literal 120 s is more than 190 times the native figure (the composite case uses the same value,

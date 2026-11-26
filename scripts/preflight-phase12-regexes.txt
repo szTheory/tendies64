@@ -35,7 +35,7 @@
 1	^runner\.title-two-run$
 # plan 12-04: controls.real.title-wrong-input and controls.real.title-refused-frame (two names,
 # no CTest fixture closure; the controls.real names follow controls.real.composite-wrong-rom).
-0	^controls\.real\.title-
+1	^controls\.real\.title-
 # plan 12-05: installed.consumer.title and installed.consumer.title-persist require the
 # t64_consumer fixture, so installed.consumer.build and install.setup join them (2 names plus 2 = 4).
 0	^installed\.consumer\.title

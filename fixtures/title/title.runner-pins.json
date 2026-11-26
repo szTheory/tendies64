@@ -1,0 +1,12 @@
+{
+  "completion_tick": "3693938",
+  "final_state_digest": "57b683dff8b9d387d1ec813dff58aef223e561975755eec3006242a106991ae7",
+  "label": "runner-recorded pin, not independent",
+  "profile_id": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v2-s32k",
+  "scenario": "short",
+  "schema": "t64.title-runner-pins",
+  "schema_version": 1,
+  "source": "plan 12-04 runner.title-two-run, supervised run",
+  "stop_reason": "GUEST_COMPLETION",
+  "video_packet_count": 3
+}

@@ -357,7 +357,8 @@ harness.phase11-qualification'
 # block. One name per line, closing quote on the last name; each later plan appends
 # the names it registers.
 PHASE12_TESTS='harness.title-oracle
-runner.title-two-run'
+runner.title-two-run
+controls.real.title-wrong-input'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU
