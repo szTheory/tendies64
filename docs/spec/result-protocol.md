@@ -585,7 +585,7 @@ further restrict those pairs:
   `positive-match`, nonzero retired instructions, its own completion PC on the
   fourth milestone and a transcript equal to the row's pin. The pin is the row's own
   pinned length and SHA-256 when it carries one:
-  17 rows carry their own pinned length and SHA-256, with transcripts of
+  18 rows carry their own pinned length and SHA-256, with transcripts of
   20, 68, 72, 101, 144, 188, 191 and 192 bytes. Every other row keeps the legacy 30-byte
   hello transcript
   (`86594505bea53c9843f9eaf07e4cf0121cbe0055670324674fd8385c88ffd18e`). The runner
