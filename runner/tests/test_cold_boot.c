@@ -121,16 +121,21 @@ static bool write_text(const char *path, const char *text) {
   return ok;
 }
 
+/* The evidence directory of one run. D-10-17-01: the name carries the process
+ * id and a counter, so a long-lived build tree has no fixed number of runs (the
+ * former loop stopped after 99 attempt directories per test). The counter only
+ * moves past a directory that a former process with the same id left behind. */
 static bool make_evidence_dir(const char *root, bool compare, char *directory,
                               size_t capacity) {
-  unsigned attempt;
+  unsigned counter;
   int count;
   if (mkdir("build", 0700) != 0 && errno != EEXIST) return false;
   if (mkdir("build/gate", 0700) != 0 && errno != EEXIST) return false;
-  for (attempt = 1u; attempt <= 99u; attempt++) {
+  for (counter = 1u; counter != 0u; counter++) {
     count = snprintf(directory, capacity,
-                     "%s/build/gate/06-05-cold-%s-attempt-%02u",
-                     root, compare ? "hello" : "startup", attempt);
+                     "%s/build/gate/06-05-cold-%s-pid%ld-run-%u",
+                     root, compare ? "hello" : "startup", (long)getpid(),
+                     counter);
     if (count <= 0 || (size_t)count >= capacity) return false;
     if (mkdir(directory, 0700) == 0) return true;
     if (errno != EEXIST) return false;

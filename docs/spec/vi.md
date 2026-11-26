@@ -114,6 +114,18 @@ Same-tick events use the scheduler's existing tick/sequence FIFO; a zero-delay
 VI event is allowed when accumulated phase has crossed multiple short
 boundaries, and the machine's event budget and output queue bound the work.
 
+Rounding rule: a boundary falls on the first whole guest tick at or after its
+exact phase, so every delay to it is rounded up (`ceil`), never down and never
+to the nearest tick: a boundary N source-clock cycles after the phase origin is
+`ceil(N * 62,500,000 / 48,681,812)` guest ticks away, which the scheduler
+evaluates on the doubled phase units as `ceil(((boundary units - phase units)
+* 62,500,000 - carried remainder) / (2 * 48,681,812))`, and the fraction of a
+tick that the rounding consumed is carried to the next boundary. For example
+the 812,175 source cycles of a field with H_SYNC 3093 and V_SYNC 525 are
+1,042,708.4657 ticks, so the first field boundary is tick 1,042,709, and the
+3,094 cycles before the first line sample are 3,972.2227 ticks, so that sample
+is at tick 3,973.
+
 The primary source says CURRENT is sampled once per full line and advances in
 half-line units; this profile samples at even half-line boundaries. INTR
 compares against that sampled half-line. Serrate alternates field parity,

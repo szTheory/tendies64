@@ -436,6 +436,25 @@ set_tests_properties(installed.consumer.three-way PROPERTIES
   COST 0.6
   FIXTURES_REQUIRED t64_consumer)
 
+# repo.installed-case-map (plan 11-22, carry-in T8, W-5): the cases the built consumer
+# lists (`t64c --list-cases`), the closed list tests/installed-consumer/cases.txt and the
+# registered installed.consumer.* CTest names agree: every case has exactly one name
+# installed.consumer.<case>, every other name is one of the three script names that the
+# checker hard-codes (build, literals, three-way), and a stray or doubly registered name
+# fails with its own text. It reads the consumer built by installed.consumer.build, so it
+# requires the t64_consumer fixture; --selftest first runs the seeded defects. COST is the
+# measured native seconds (W-11); TIMEOUT follows F-108.
+add_test(NAME repo.installed-case-map
+  COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/check-installed-case-map.py
+          --build ${CMAKE_BINARY_DIR} --selftest
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(repo.installed-case-map PROPERTIES
+  LABELS "repo;phase11"
+  TIMEOUT 60
+  COST 0.12
+  FIXTURES_REQUIRED t64_consumer
+  ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
 # Negative controls of the installed package (plan 11-19, VER-05, T-11-38 to T-11-40):
 # one CTest name per row of tests/installed-consumer/controls.tsv, performed by
 # `check-install.sh control ID`. Each row fails loudly with a specific expected text or
