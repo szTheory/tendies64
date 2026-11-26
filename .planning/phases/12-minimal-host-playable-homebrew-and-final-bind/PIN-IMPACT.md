@@ -353,3 +353,41 @@ most 4) and minutes, not by files; no plan has more than 4 tasks.
 
 Shared bookkeeping files counted in most plans once: `scripts/check-test-inventory.sh`,
 `scripts/preflight-phase12-regexes.txt`, `.planning/phases/12-minimal-host-playable-homebrew-and-final-bind/PIN-IMPACT.md`.
+
+## Title expectations
+
+Written by plan 12-02 Task 3 (DR-06). The oracle, the spec and the expectations exist before any
+guest source, so no expected value comes from the producer under test (G6). Evidence tier:
+authored, software-profile policy only; no compatibility, accuracy, hardware or real-time claim.
+
+| Item | Value |
+|------|-------|
+| Behavior authority | `fixtures/title/title-spec.md`, 251 lines, SHA-256 `11c8bb00569fb7da567e88546a960bcf7829cbfb23eac4a0ce285dff4611753f` (TS-1 to TS-16) |
+| Oracle | `fixtures/title/title_oracle.py`, 1,055 lines, SHA-256 `e0f262685b063e8ca329c398507426ad847a3ab1d7e2d73eecee4e3616245d16`; modes `--selftest`, `--print`, `--write`, `--check`, `--emit-inputs`, `--input`, `--max-fields`; 114 selftest cases with hand-written literals |
+| Committed expectation | `fixtures/title/title.expected.json`, 14,266 bytes, SHA-256 `26ec0fb8702b2fa9cad0b3671361274e52a18beb7ef43a671d4f8b76ab347de8`; `harness.title-oracle` regenerates it byte for byte and also refuses a committed input script that differs from `--emit-inputs` |
+| Input scripts (SHA-256) | short `90fff08d9bebfa06f4d61bdc3394533cbd09f4f1d3e7544ab6d3b64a23cf546e`, short-wrong `8b62331d3f01a722c4e1fe3255aae5c7723d86163e214181f82d685461b2cdaf`, long `48dcc3309d4f58a31a8ea4ccb2c244d4307e6be8cfa2d354c5a6a9756f733d17`, shifted `2a87f33f2f43d7240b76cddf5de22f36485cb7bf59124939fd6e010ad7855ab1` |
+| Scenario field counts (video packets, polls to Start, audio packets) | short 3, 4, 2; short-wrong 3, 4, 2; long 12, 13, 4; shifted 13, 14, 4; persist 3 packets, 3 polls, no Start, 0 audio packets (boots from the long run's save image) |
+| Blank digest | SHA-256 of 49,152 zero bytes `2aae7dc846aaf25f1cadf55f1666862046c6db9d65d84bdc07fa039dac405606`; no scenario frame equals it (selftest and document invariant); the refused-frame variant expects it for every packet; blank 32,768-byte save image `c35020473aed1b4642cd726cad727b63fff2824ad68cedd7ffb73c7cbd890479` |
+| Distinguishable controls | the short and short-wrong frame lists first differ at frame index 1 (poll 2), the long and shifted lists first differ at index 1, the persist frame differs from a fresh-boot frame |
+| Independence statement | The oracle imports only the standard library (ast walk of its own source, closed list), reads only its own source (selftest), the input scripts beside it and the constants it carries (each cites its title-spec.md section), and writes only the expectation file and the scripts of `--emit-inputs`. It reads no ROM, no core or runner source, no build output, no manifest row and no output of any other emulator, and it was written before `title.S` exists. |
+
+Choices made in the spec that DR-02 to DR-06 leave open (no decision row changed; an addition, not a
+different value): the tone table is 512 stereo frames of a square wave of period 64 frames and
+amplitude 0x2000 (two identical 2,048-byte packets per burst, table SHA-256
+`a485ccdcb209d568e43bb484c18ad62ba869ea017105cf694c3539671954f363`); the transcript has a boot line
+`L xx yy cccccccc` and an end line `S xx yy cccccccc pp`; the slot restore validates x <= 112 and
+y <= 80; poll `p` follows the VI pending bit of field `p - 1`, so poll 1 follows the VI enable and
+the frame after poll `p` is the packet at B(p); event field `j` (a stamp at the midpoint of
+B(j) to B(j + 1)) is first seen by poll `j + 2`; two A press edges must be at least 3 polls apart and
+the last one at least 2 polls before Start (a burst plays about 1,451,000 ticks); a run models at
+most 64 polls.
+
+Open assumption for plan 12-03 (recorded, not a measurement): the field boundaries use a NOMINAL
+VI enable tick T0 = 550,000 (the open IPL3 boot costs about 530,000 ticks; the research prototype's
+first packet came at about 1.59M ticks, consistent with it). Every stamp is at least 200,000 ticks
+from every boundary, so the expectations hold for any real T0 within 100,000 ticks of the nominal
+value. Plan 12-03 measures the real T0 and the real poll delay; a value outside the band is a change
+to `title-spec.md` TS-4 first, followed by `--emit-inputs` and `--write` (reversible before the
+guest source commit of the authoring-once rule). The short scenarios end near
+B(3) + 60,000 = 3,738,126 ticks, below the runner guest cap of 4,000,000; a fourth field would need
+B(4) = 4,720,834.

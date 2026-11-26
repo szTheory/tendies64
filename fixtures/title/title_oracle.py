@@ -146,6 +146,7 @@ SHORT_MAX_FIELDS = 3
 MIN_A_GAP_POLLS = 3
 MIN_A_TO_START_POLLS = 2
 PERSIST_FIELDS = 3
+LONG_MIN_FIELDS = 10  # DR-05: consumer and pump scenarios render 10 or more fields
 MAX_POLLS = 64
 MAX_EVENTS = 4096  # DR-13
 MAX_SCRIPT_BYTES = 65_536  # DR-13
@@ -437,20 +438,27 @@ def scenario_document(result: dict) -> dict:
 
 def constants_block() -> dict:
     return {
+        "a_edge_gap_polls": MIN_A_GAP_POLLS,
+        "a_to_start_polls": MIN_A_TO_START_POLLS,
         "background_rgba": bytes(BACKGROUND).hex(),
         "boundary_margin_ticks": BOUNDARY_MARGIN,
-        "field_cycles": (H_SYNC + 1) * V_SYNC // 2,
+        "field_cycles": FIELD_CYCLES,
         "frame_bytes": FRAME_BYTES,
         "h_sync": H_SYNC,
         "height": HEIGHT,
         "max_x": MAX_X,
         "max_y": MAX_Y,
         "origin_ticks_nominal": ORIGIN_TICKS,
+        "persist_fields": PERSIST_FIELDS,
         "save_bytes": SAVE_SIZE,
+        "short_max_fields": SHORT_MAX_FIELDS,
+        "slot_magic": "%08x" % SLOT_MAGIC,
         "square_rgba": bytes(SQUARE).hex(),
         "square_size": SQUARE_SIZE,
         "start_x": START_POSITION[0],
         "start_y": START_POSITION[1],
+        "step_pixels": STEP,
+        "stick_threshold": STICK_THRESHOLD,
         "tick_rate": TICK_RATE,
         "v_sync": V_SYNC,
         "vi_clock": VI_CLOCK,
@@ -458,20 +466,100 @@ def constants_block() -> dict:
     }
 
 
+def tone_block() -> dict:
+    table = tone_table()
+    return {
+        "amplitude": TONE_AMPLITUDE,
+        "bitrate": 15,
+        "dacrate": 1103,
+        "descriptor_bytes": len(table),
+        "descriptors_per_burst": 2,
+        "frames": TONE_FRAMES,
+        "period_frames": TONE_PERIOD,
+        "table_sha256": sha256(table),
+    }
+
+
+def committed_script(name: str):
+    """The committed input script of a scenario: its stamps and its bytes. The file must be
+    exactly what --emit-inputs writes, so the stamps follow the boundary function."""
+    path = input_path(name)
+    with open(path, "rb") as handle:
+        data = handle.read(MAX_SCRIPT_BYTES + 1)
+    text = data.decode("ascii")
+    if text != input_text(name):
+        raise Refused("%s differs from the --emit-inputs output (regenerate it)" % os.path.basename(path))
+    return parse_input(text), data
+
+
+def first_difference(left: list, right: list) -> int:
+    """Index of the first position at which two digest lists differ."""
+    for index in range(min(len(left), len(right))):
+        if left[index] != right[index]:
+            return index
+    raise Refused("the digest lists do not differ")
+
+
 def expected_document() -> dict:
+    inputs = {}
+    runs = {}
+    for name in SCENARIO_NAMES:
+        stamps, data = committed_script(name)
+        inputs[name] = {
+            "events": len(stamps),
+            "file": os.path.basename(input_path(name)),
+            "sha256": sha256(data),
+        }
+        cap = SHORT_MAX_FIELDS if name in SHORT_SCENARIOS else None
+        runs[name] = play(stamps, max_fields=cap)
+    long_image = runs["long"]["image"]
+    persist = play([], fields=PERSIST_FIELDS, restore=parse_slot(long_image), base_image=long_image)
+    fresh = play([], fields=1)
+    blank = sha256(BLANK_FRAME)
+    for name, run in list(runs.items()) + [("persist", persist)]:
+        if blank in run["frames"]:
+            raise Refused("a frame of scenario %s equals the blank frame" % name)
+    for name in ("long", "shifted"):
+        if len(runs[name]["frames"]) < LONG_MIN_FIELDS:
+            raise Refused("scenario %s renders fewer than %d fields" % (name, LONG_MIN_FIELDS))
+    long_vs_shifted = first_difference(runs["long"]["frames"], runs["shifted"]["frames"])
+    short_vs_wrong = first_difference(runs["short"]["frames"], runs["short-wrong"]["frames"])
+    if persist["frames"][0] == fresh["frames"][0]:
+        raise Refused("the persist frame equals a fresh boot frame")
+    scenarios = {name: scenario_document(run) for name, run in runs.items()}
+    scenarios["persist"] = scenario_document(persist)
+    scenarios["persist"]["boot_image_of"] = "long"
     return {
         "blank_bytes": len(BLANK_FRAME),
-        "blank_sha256": sha256(BLANK_FRAME),
+        "blank_save_sha256": sha256(bytes(SAVE_SIZE)),
+        "blank_sha256": blank,
         "boundaries": [boundary(k) for k in range(0, 15)],
         "constants": constants_block(),
+        "distinguishable": {
+            "frames_equal_to_blank": 0,
+            "long_vs_shifted_first_difference": long_vs_shifted,
+            "persist_vs_fresh_boot_frame_differ": True,
+            "short_vs_short_wrong_first_difference": short_vs_wrong,
+        },
+        "fresh_boot_frame_sha256": fresh["frames"][0],
+        "inputs": inputs,
         "neutral_frame": {
             "sha256": sha256(render(*START_POSITION)),
             "x": START_POSITION[0],
             "y": START_POSITION[1],
         },
+        "refused": {
+            "audio_packets": 0,
+            "completes": False,
+            "frames_each_sha256": blank,
+            "save_sha256": sha256(bytes(SAVE_SIZE)),
+            "transcript": "",
+        },
+        "scenarios": scenarios,
         "schema": "t64.title-oracle",
         "schema_version": 1,
         "spec": SPEC,
+        "tone": tone_block(),
     }
 
 
@@ -811,6 +899,36 @@ def selftest_model(test: Selftest) -> None:
         '{"buttons":16384,"port":0,"tick":"2114063","x":0,"y":0},'
         '{"buttons":4096,"port":0,"tick":"3156771","x":0,"y":0}],"schema":"t64.input","schema_version":1}\n',
     )
+    # TS-8 tone table: the first period by hand (32 frames of +0x2000, then 32 of -0x2000).
+    table = tone_table()
+    test.equal(
+        "tone-table-shape",
+        lambda: (len(table), table[0:4].hex(), table[124:128].hex(), table[128:132].hex(), table[252:256].hex(), table[256:260].hex(), table[2044:2048].hex()),
+        (2048, "20002000", "20002000", "e000e000", "e000e000", "20002000", "e000e000"),
+    )
+    test.equal("blank-save-digest", lambda: sha256(bytes(32768)), "c35020473aed1b4642cd726cad727b63fff2824ad68cedd7ffb73c7cbd890479")
+    test.equal(
+        "burst-audio-bytes",
+        lambda: [sha256(packet) for packet in play(short)["audio"]],
+        [sha256(table), sha256(table)],
+    )
+    # The expectation document keeps its promises (DR-05, DR-06, T-12-06).
+    def document_checks():
+        document = expected_document()
+        scenarios = document["scenarios"]
+        blank = document["blank_sha256"]
+        return (
+            set(scenarios) == {"short", "short-wrong", "long", "shifted", "persist"},
+            len(scenarios["short"]["frames"]) <= 3 and len(scenarios["short-wrong"]["frames"]) <= 3,
+            len(scenarios["long"]["frames"]) >= 10 and len(scenarios["shifted"]["frames"]) >= 10,
+            all(frame != blank for name in scenarios for frame in scenarios[name]["frames"]),
+            scenarios["long"]["frames"] != scenarios["shifted"]["frames"],
+            scenarios["short"]["frames"][1] != scenarios["short-wrong"]["frames"][1],
+            scenarios["persist"]["save"]["sha256"] == scenarios["long"]["save"]["sha256"],
+            document["refused"]["frames_each_sha256"] == blank == BLANK_SHA256_LITERAL,
+        )
+
+    test.equal("document-promises", document_checks, (True,) * 8)
     test.equal("main-missing-input-exits-2", lambda: quiet_main(["--print", "--input", "no-such-title-script"]), 2)
     test.equal("main-unknown-flag-exits-2", lambda: quiet_main(["--no-such-flag"]), 2)
     test.equal("main-input-without-print-exits-2", lambda: quiet_main(["--input", "x"]), 2)

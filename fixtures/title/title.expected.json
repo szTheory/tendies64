@@ -1,5 +1,6 @@
 {
   "blank_bytes": 49152,
+  "blank_save_sha256": "c35020473aed1b4642cd726cad727b63fff2824ad68cedd7ffb73c7cbd890479",
   "blank_sha256": "2aae7dc846aaf25f1cadf55f1666862046c6db9d65d84bdc07fa039dac405606",
   "boundaries": [
     550000,
@@ -19,6 +20,8 @@
     15147919
   ],
   "constants": {
+    "a_edge_gap_polls": 3,
+    "a_to_start_polls": 2,
     "background_rgba": "203060ff",
     "boundary_margin_ticks": 200000,
     "field_cycles": 812175,
@@ -28,22 +31,530 @@
     "max_x": 112,
     "max_y": 80,
     "origin_ticks_nominal": 550000,
+    "persist_fields": 3,
     "save_bytes": 32768,
+    "short_max_fields": 3,
+    "slot_magic": "54363454",
     "square_rgba": "f0c020ff",
     "square_size": 16,
     "start_x": 56,
     "start_y": 40,
+    "step_pixels": 2,
+    "stick_threshold": 16,
     "tick_rate": 62500000,
     "v_sync": 525,
     "vi_clock": 48681812,
     "width": 128
+  },
+  "distinguishable": {
+    "frames_equal_to_blank": 0,
+    "long_vs_shifted_first_difference": 1,
+    "persist_vs_fresh_boot_frame_differ": true,
+    "short_vs_short_wrong_first_difference": 1
+  },
+  "fresh_boot_frame_sha256": "8227044b9a781c302a8d3130fc67645289acd2c5bc9fd79805f3be6fedca79d3",
+  "inputs": {
+    "long": {
+      "events": 12,
+      "file": "title.long.input.json",
+      "sha256": "48dcc3309d4f58a31a8ea4ccb2c244d4307e6be8cfa2d354c5a6a9756f733d17"
+    },
+    "shifted": {
+      "events": 12,
+      "file": "title.shifted.input.json",
+      "sha256": "2a87f33f2f43d7240b76cddf5de22f36485cb7bf59124939fd6e010ad7855ab1"
+    },
+    "short": {
+      "events": 3,
+      "file": "title.short.input.json",
+      "sha256": "90fff08d9bebfa06f4d61bdc3394533cbd09f4f1d3e7544ab6d3b64a23cf546e"
+    },
+    "short-wrong": {
+      "events": 3,
+      "file": "title.short-wrong.input.json",
+      "sha256": "8b62331d3f01a722c4e1fe3255aae5c7723d86163e214181f82d685461b2cdaf"
+    }
   },
   "neutral_frame": {
     "sha256": "8227044b9a781c302a8d3130fc67645289acd2c5bc9fd79805f3be6fedca79d3",
     "x": 56,
     "y": 40
   },
+  "refused": {
+    "audio_packets": 0,
+    "completes": false,
+    "frames_each_sha256": "2aae7dc846aaf25f1cadf55f1666862046c6db9d65d84bdc07fa039dac405606",
+    "save_sha256": "c35020473aed1b4642cd726cad727b63fff2824ad68cedd7ffb73c7cbd890479",
+    "transcript": ""
+  },
+  "scenarios": {
+    "long": {
+      "audio": {
+        "packet_bytes": 2048,
+        "packet_count": 4,
+        "packet_sha256": [
+          "a485ccdcb209d568e43bb484c18ad62ba869ea017105cf694c3539671954f363",
+          "a485ccdcb209d568e43bb484c18ad62ba869ea017105cf694c3539671954f363",
+          "a485ccdcb209d568e43bb484c18ad62ba869ea017105cf694c3539671954f363",
+          "a485ccdcb209d568e43bb484c18ad62ba869ea017105cf694c3539671954f363"
+        ],
+        "stream_sha256": "42eac0cf13ac8c14c13e6171d3cfab5925274eeeaab6eb81fac279709d14cfd8"
+      },
+      "burst_polls": [
+        6,
+        9
+      ],
+      "completes": true,
+      "frames": [
+        "8227044b9a781c302a8d3130fc67645289acd2c5bc9fd79805f3be6fedca79d3",
+        "548e20167a29ee525ebd971017062df2efeb4c8f6df5091db05dedaab98e1a38",
+        "1b96d63cef35c34567b282923775986d24dd500760d382623b2f0ab11d88b7f6",
+        "bcfa3785def3ce32ae866578b2fdcee8c3a768856ae06d70ec5eb7c1eedc4549",
+        "bcfa3785def3ce32ae866578b2fdcee8c3a768856ae06d70ec5eb7c1eedc4549",
+        "988e2da7573fc76851d614726b357610fa9903692c694294d939fe892be043a5",
+        "3f412c8f308221e4819a10a409aa2e59476971849ee50ce4ad8dcb64bb70bb9e",
+        "3f412c8f308221e4819a10a409aa2e59476971849ee50ce4ad8dcb64bb70bb9e",
+        "548e20167a29ee525ebd971017062df2efeb4c8f6df5091db05dedaab98e1a38",
+        "8227044b9a781c302a8d3130fc67645289acd2c5bc9fd79805f3be6fedca79d3",
+        "6573b964f85f5dbce33a995319ac79b56c2d9bb7915443731a9162257843ae7a",
+        "ef24ff378f35c39f379977596e07950e5ab5c8cb7030c1bd555bd4b74938afc3"
+      ],
+      "poll_count": 13,
+      "polled": [
+        "00000000",
+        "01000000",
+        "05000000",
+        "00002800",
+        "00000ff1",
+        "88000000",
+        "0a000000",
+        "00000000",
+        "80009cce",
+        "40000000",
+        "05000000",
+        "05000000",
+        "10000000"
+      ],
+      "positions": [
+        [
+          56,
+          40
+        ],
+        [
+          58,
+          40
+        ],
+        [
+          60,
+          42
+        ],
+        [
+          62,
+          42
+        ],
+        [
+          62,
+          42
+        ],
+        [
+          62,
+          40
+        ],
+        [
+          60,
+          38
+        ],
+        [
+          60,
+          38
+        ],
+        [
+          58,
+          40
+        ],
+        [
+          56,
+          40
+        ],
+        [
+          58,
+          42
+        ],
+        [
+          60,
+          44
+        ]
+      ],
+      "press_count": 2,
+      "save": {
+        "bytes": 32768,
+        "nonzero": [
+          {
+            "hex": "54363454",
+            "offset": 0
+          },
+          {
+            "hex": "3c",
+            "offset": 7
+          },
+          {
+            "hex": "2c",
+            "offset": 11
+          },
+          {
+            "hex": "02",
+            "offset": 15
+          }
+        ],
+        "sha256": "92d0f715a584b6f92c4e69fa60284a6eff415cf4e1931b86193fc5fef94e29d4"
+      },
+      "transcript": "S 3c 2c 00000002 0d\n",
+      "transcript_bytes": 20,
+      "transcript_sha256": "b8fbd00f2dddfa5a3905a32c767f5dd2d561f179bed6c58ebbf996dc1eab0d56",
+      "video_packets": 12
+    },
+    "persist": {
+      "audio": {
+        "packet_bytes": 0,
+        "packet_count": 0,
+        "packet_sha256": [],
+        "stream_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "boot_image_of": "long",
+      "burst_polls": [],
+      "completes": false,
+      "frames": [
+        "ef24ff378f35c39f379977596e07950e5ab5c8cb7030c1bd555bd4b74938afc3",
+        "ef24ff378f35c39f379977596e07950e5ab5c8cb7030c1bd555bd4b74938afc3",
+        "ef24ff378f35c39f379977596e07950e5ab5c8cb7030c1bd555bd4b74938afc3"
+      ],
+      "poll_count": 3,
+      "polled": [
+        "00000000",
+        "00000000",
+        "00000000"
+      ],
+      "positions": [
+        [
+          60,
+          44
+        ],
+        [
+          60,
+          44
+        ],
+        [
+          60,
+          44
+        ]
+      ],
+      "press_count": 2,
+      "save": {
+        "bytes": 32768,
+        "nonzero": [
+          {
+            "hex": "54363454",
+            "offset": 0
+          },
+          {
+            "hex": "3c",
+            "offset": 7
+          },
+          {
+            "hex": "2c",
+            "offset": 11
+          },
+          {
+            "hex": "02",
+            "offset": 15
+          }
+        ],
+        "sha256": "92d0f715a584b6f92c4e69fa60284a6eff415cf4e1931b86193fc5fef94e29d4"
+      },
+      "transcript": "L 3c 2c 00000002\n",
+      "transcript_bytes": 17,
+      "transcript_sha256": "32b4b47666e35194c22a97c43e8f494892b2145a781a7f19cbf62aff2b2591a4",
+      "video_packets": 3
+    },
+    "shifted": {
+      "audio": {
+        "packet_bytes": 2048,
+        "packet_count": 4,
+        "packet_sha256": [
+          "a485ccdcb209d568e43bb484c18ad62ba869ea017105cf694c3539671954f363",
+          "a485ccdcb209d568e43bb484c18ad62ba869ea017105cf694c3539671954f363",
+          "a485ccdcb209d568e43bb484c18ad62ba869ea017105cf694c3539671954f363",
+          "a485ccdcb209d568e43bb484c18ad62ba869ea017105cf694c3539671954f363"
+        ],
+        "stream_sha256": "42eac0cf13ac8c14c13e6171d3cfab5925274eeeaab6eb81fac279709d14cfd8"
+      },
+      "burst_polls": [
+        7,
+        10
+      ],
+      "completes": true,
+      "frames": [
+        "8227044b9a781c302a8d3130fc67645289acd2c5bc9fd79805f3be6fedca79d3",
+        "8227044b9a781c302a8d3130fc67645289acd2c5bc9fd79805f3be6fedca79d3",
+        "548e20167a29ee525ebd971017062df2efeb4c8f6df5091db05dedaab98e1a38",
+        "1b96d63cef35c34567b282923775986d24dd500760d382623b2f0ab11d88b7f6",
+        "bcfa3785def3ce32ae866578b2fdcee8c3a768856ae06d70ec5eb7c1eedc4549",
+        "bcfa3785def3ce32ae866578b2fdcee8c3a768856ae06d70ec5eb7c1eedc4549",
+        "988e2da7573fc76851d614726b357610fa9903692c694294d939fe892be043a5",
+        "3f412c8f308221e4819a10a409aa2e59476971849ee50ce4ad8dcb64bb70bb9e",
+        "3f412c8f308221e4819a10a409aa2e59476971849ee50ce4ad8dcb64bb70bb9e",
+        "548e20167a29ee525ebd971017062df2efeb4c8f6df5091db05dedaab98e1a38",
+        "8227044b9a781c302a8d3130fc67645289acd2c5bc9fd79805f3be6fedca79d3",
+        "6573b964f85f5dbce33a995319ac79b56c2d9bb7915443731a9162257843ae7a",
+        "ef24ff378f35c39f379977596e07950e5ab5c8cb7030c1bd555bd4b74938afc3"
+      ],
+      "poll_count": 14,
+      "polled": [
+        "00000000",
+        "00000000",
+        "01000000",
+        "05000000",
+        "00002800",
+        "00000ff1",
+        "88000000",
+        "0a000000",
+        "00000000",
+        "80009cce",
+        "40000000",
+        "05000000",
+        "05000000",
+        "10000000"
+      ],
+      "positions": [
+        [
+          56,
+          40
+        ],
+        [
+          56,
+          40
+        ],
+        [
+          58,
+          40
+        ],
+        [
+          60,
+          42
+        ],
+        [
+          62,
+          42
+        ],
+        [
+          62,
+          42
+        ],
+        [
+          62,
+          40
+        ],
+        [
+          60,
+          38
+        ],
+        [
+          60,
+          38
+        ],
+        [
+          58,
+          40
+        ],
+        [
+          56,
+          40
+        ],
+        [
+          58,
+          42
+        ],
+        [
+          60,
+          44
+        ]
+      ],
+      "press_count": 2,
+      "save": {
+        "bytes": 32768,
+        "nonzero": [
+          {
+            "hex": "54363454",
+            "offset": 0
+          },
+          {
+            "hex": "3c",
+            "offset": 7
+          },
+          {
+            "hex": "2c",
+            "offset": 11
+          },
+          {
+            "hex": "02",
+            "offset": 15
+          }
+        ],
+        "sha256": "92d0f715a584b6f92c4e69fa60284a6eff415cf4e1931b86193fc5fef94e29d4"
+      },
+      "transcript": "S 3c 2c 00000002 0e\n",
+      "transcript_bytes": 20,
+      "transcript_sha256": "f6f39e3d27487cf353442f1c757318e1c46b0f72c37e63d3d50dfdd7403bdb66",
+      "video_packets": 13
+    },
+    "short": {
+      "audio": {
+        "packet_bytes": 2048,
+        "packet_count": 2,
+        "packet_sha256": [
+          "a485ccdcb209d568e43bb484c18ad62ba869ea017105cf694c3539671954f363",
+          "a485ccdcb209d568e43bb484c18ad62ba869ea017105cf694c3539671954f363"
+        ],
+        "stream_sha256": "0f662b9b3a9da8502a01bc60abefc2bb48f4ada04f0048d91fef9cd97c0aa07a"
+      },
+      "burst_polls": [
+        2
+      ],
+      "completes": true,
+      "frames": [
+        "8227044b9a781c302a8d3130fc67645289acd2c5bc9fd79805f3be6fedca79d3",
+        "548e20167a29ee525ebd971017062df2efeb4c8f6df5091db05dedaab98e1a38",
+        "8227044b9a781c302a8d3130fc67645289acd2c5bc9fd79805f3be6fedca79d3"
+      ],
+      "poll_count": 4,
+      "polled": [
+        "00000000",
+        "81000000",
+        "40000000",
+        "10000000"
+      ],
+      "positions": [
+        [
+          56,
+          40
+        ],
+        [
+          58,
+          40
+        ],
+        [
+          56,
+          40
+        ]
+      ],
+      "press_count": 1,
+      "save": {
+        "bytes": 32768,
+        "nonzero": [
+          {
+            "hex": "54363454",
+            "offset": 0
+          },
+          {
+            "hex": "38",
+            "offset": 7
+          },
+          {
+            "hex": "28",
+            "offset": 11
+          },
+          {
+            "hex": "01",
+            "offset": 15
+          }
+        ],
+        "sha256": "339a7e8ff686c71f61301486296d961f69fbb1bd2adfddae3359ae6581b0bb0f"
+      },
+      "transcript": "S 38 28 00000001 04\n",
+      "transcript_bytes": 20,
+      "transcript_sha256": "e2af326a06abfd43ea5c68336d89b64cbac44107de684f35c0b0b468b228671d",
+      "video_packets": 3
+    },
+    "short-wrong": {
+      "audio": {
+        "packet_bytes": 2048,
+        "packet_count": 2,
+        "packet_sha256": [
+          "a485ccdcb209d568e43bb484c18ad62ba869ea017105cf694c3539671954f363",
+          "a485ccdcb209d568e43bb484c18ad62ba869ea017105cf694c3539671954f363"
+        ],
+        "stream_sha256": "0f662b9b3a9da8502a01bc60abefc2bb48f4ada04f0048d91fef9cd97c0aa07a"
+      },
+      "burst_polls": [
+        2
+      ],
+      "completes": true,
+      "frames": [
+        "8227044b9a781c302a8d3130fc67645289acd2c5bc9fd79805f3be6fedca79d3",
+        "e063ea0ae6dfb778bdca7af1b1993432ece74a8601a95f5e3ce8654359c0ab54",
+        "8227044b9a781c302a8d3130fc67645289acd2c5bc9fd79805f3be6fedca79d3"
+      ],
+      "poll_count": 4,
+      "polled": [
+        "00000000",
+        "82000000",
+        "40000000",
+        "10000000"
+      ],
+      "positions": [
+        [
+          56,
+          40
+        ],
+        [
+          54,
+          40
+        ],
+        [
+          56,
+          40
+        ]
+      ],
+      "press_count": 1,
+      "save": {
+        "bytes": 32768,
+        "nonzero": [
+          {
+            "hex": "54363454",
+            "offset": 0
+          },
+          {
+            "hex": "38",
+            "offset": 7
+          },
+          {
+            "hex": "28",
+            "offset": 11
+          },
+          {
+            "hex": "01",
+            "offset": 15
+          }
+        ],
+        "sha256": "339a7e8ff686c71f61301486296d961f69fbb1bd2adfddae3359ae6581b0bb0f"
+      },
+      "transcript": "S 38 28 00000001 04\n",
+      "transcript_bytes": 20,
+      "transcript_sha256": "e2af326a06abfd43ea5c68336d89b64cbac44107de684f35c0b0b468b228671d",
+      "video_packets": 3
+    }
+  },
   "schema": "t64.title-oracle",
   "schema_version": 1,
-  "spec": "fixtures/title/title-spec.md"
+  "spec": "fixtures/title/title-spec.md",
+  "tone": {
+    "amplitude": 8192,
+    "bitrate": 15,
+    "dacrate": 1103,
+    "descriptor_bytes": 2048,
+    "descriptors_per_burst": 2,
+    "frames": 512,
+    "period_frames": 64,
+    "table_sha256": "a485ccdcb209d568e43bb484c18ad62ba869ea017105cf694c3539671954f363"
+  }
 }
