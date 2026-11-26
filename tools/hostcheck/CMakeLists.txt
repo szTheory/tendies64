@@ -89,6 +89,36 @@ set_tests_properties(host.pump.title-two-speeds PROPERTIES
   FIXTURES_REQUIRED t64_host
   REQUIRED_FILES "${T64_HOST_TITLE_ROM}")
 
+# host.pump.input-map (plan 12-08, decision DR-12): the logical input mapping table, over
+# every int16 axis value, every mapped and unmapped control, the left trigger threshold and a
+# removed pad. No guest, no ROM, no device.
+add_test(NAME host.pump.input-map
+  COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/check-host.sh
+          --build ${CMAKE_BINARY_DIR} run input-map
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(host.pump.input-map PROPERTIES
+  LABELS "host;phase12"
+  TIMEOUT 60
+  COST 0.01
+  FIXTURES_REQUIRED t64_host)
+
+# host.pump.script (plan 12-08, decision DR-13, T-12-24 and T-12-25): the strict t64.input
+# v1 reader (a seeded refusal per rule, the size and event caps), the committed title
+# scripts against the events python3 reads from the same files, the scripted source against
+# a model of a two-entry queue (lazy queueing, QUEUE_FULL deferral) and against the title
+# (nothing is queued after the guest completed; one short real-core run, so the ROM is a
+# required file as for the other cases that run the guest).
+add_test(NAME host.pump.script
+  COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/check-host.sh
+          --build ${CMAKE_BINARY_DIR} run script
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(host.pump.script PROPERTIES
+  LABELS "host;phase12"
+  TIMEOUT 60
+  COST 0.35
+  FIXTURES_REQUIRED t64_host
+  REQUIRED_FILES "${T64_HOST_TITLE_ROM}")
+
 # repo.host-include-guard (plan 12-07, T-12-22, decision DR-16): the pump and its tests
 # below host/ include only <tendies64/t64_machine.h>, C99 headers and local headers
 # (rule HOST-INCLUDE), no SDL3 include or SDL_ identifier outside host/sdl (rules

@@ -19,11 +19,13 @@
 #                gate build; --rom PATH names another), the expected neutral frame
 #                digest of fixtures/title/title.expected.json and the events of
 #                fixtures/title/title.short.input.json, both read by python3 -I -B.
-#                The case title-two-speeds runs the committed scripts at 240 and 3
-#                fake-clock Hz and pipes the JSON lines into
-#                scripts/check-host-title.py, which judges them against
-#                title.expected.json and title.runner-pins.json (its own seeded
-#                selftest runs first)
+#                Cases that need no guest (input-map, frames) take no ROM; the
+#                case script is given the two committed t64.input scripts, each
+#                with the events python3 reads from the same file; the case
+#                title-two-speeds runs both scripts at 240 and 3 fake-clock Hz and
+#                pipes the JSON lines into scripts/check-host-title.py, which judges
+#                them against title.expected.json and title.runner-pins.json (its
+#                own seeded selftest runs first)
 #
 # --build DIR   the configured and built tree whose install-check prefix is used
 #               (default build/gate); nothing is rebuilt
@@ -145,6 +147,16 @@ cmd_run() {
   done
   [ -x "$HOST_BUILD/t64h_tests" ] || die "no host test executable: run build first"
   command -v python3 >/dev/null 2>&1 || die "python3 not found"
+  case $_case in
+    input-map | frames)
+      # Pure cases: no guest, no ROM, no fixture value.
+      cd "$ROOT"
+      if "$HOST_BUILD/t64h_tests" --case "$_case"; then
+        return 0
+      fi
+      fail "host case $_case failed"
+      ;;
+  esac
   [ -f "$_rom" ] || die "the title ROM is missing: $_rom (build the target t64-phase12-title-fixture)"
   # The expected values of the title scenario come from the committed fixtures: the
   # digest of the neutral first frame and the events of the short script. Every token
@@ -160,6 +172,29 @@ for e in inp["events"]:
 print(" ".join(out))
 ' "$ROOT/fixtures/title") || die "cannot read the title fixtures"
   case $_case in
+    script)
+      # Each committed script with the events python3 reads from the same file (the C
+      # reader must find exactly these); paths are relative to the repository root. The
+      # title ROM serves the one real-core sub-case (nothing is queued after completion).
+      _scripts=$(python3 -I -B -c '
+import json, sys
+d = sys.argv[1]
+out = []
+for name in ("short", "long"):
+    path = "fixtures/title/title.%s.input.json" % name
+    inp = json.load(open(d + "/title.%s.input.json" % name, encoding="utf-8"))
+    out += ["--script", path]
+    for e in inp["events"]:
+        out += ["--event", "%d:%d:%d:%d" % (int(e["tick"]), e["buttons"], e["x"], e["y"])]
+print(" ".join(out))
+' "$ROOT/fixtures/title") || die "cannot read the title input scripts"
+      cd "$ROOT"
+      # shellcheck disable=SC2086 # tokens hold no space or glob character
+      if "$HOST_BUILD/t64h_tests" --case script --rom "$_rom" $_scripts; then
+        return 0
+      fi
+      fail "host case script failed"
+      ;;
     title-two-speeds)
       # The committed short script at 240 and 3 Hz of fake time; the binary prints one JSON
       # line per run and the comparator judges the lines (oracle and recorded pins).
