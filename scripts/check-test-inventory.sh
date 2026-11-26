@@ -347,7 +347,8 @@ api04.disasm
 api04.headers
 api04.seeded
 unit.core.state.v26-z-product-bound
-repo.installed-case-map'
+repo.installed-case-map
+repo.abi-freeze-record'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

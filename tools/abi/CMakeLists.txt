@@ -257,6 +257,30 @@ set_tests_properties(install.abi-symbols PROPERTIES
   FIXTURES_REQUIRED t64_install
   ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
 
+# repo.abi-freeze-record (plan 11-23, API-03, SC5): the bound freeze-candidate
+# record docs/abi/FREEZE-CANDIDATE.md. The check recomputes the four goldens from
+# the installed prefix (the SHA-256 of the installed headers after LF
+# normalisation against docs/abi/header.sha256, the public symbols of the
+# installed archive against docs/abi/public-symbols.txt, the regenerated layout
+# pins against docs/abi/layout.c, the status classes against the installed header)
+# and compares each golden's own SHA-256, the counts, the versions, the amendment
+# log and the padding holes with the machine-read block of the record. Any
+# difference prints "freeze-record: KEY differs" and the re-bind procedure: an
+# incompatible change is an amendment of the record, never a silent edit. COST is
+# the measured native seconds (W-11); TIMEOUT stays far above 3.5 times the hosted
+# figure (F-108).
+add_test(NAME repo.abi-freeze-record
+  COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/check-abi.py freeze
+          --record ${CMAKE_SOURCE_DIR}/docs/abi/FREEZE-CANDIDATE.md
+          --prefix "${T64_INSTALL_MOVED_PREFIX}"
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(repo.abi-freeze-record PROPERTIES
+  LABELS "repo;phase11"
+  TIMEOUT 60
+  COST 0.16
+  FIXTURES_REQUIRED t64_install
+  ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
 # install.abs-paths (plan 11-17, T-11-33): no file of the installed tree and no
 # byte of the archive contains the source root, the build root or a per-user
 # path prefix. The two roots exist only on this command line; a finding names

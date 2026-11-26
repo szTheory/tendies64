@@ -16,7 +16,10 @@
 1	^runner\.composite-two-run$
 1	^harness\.composite-oracle$
 # Phase 11 name families, zero until the owning plan registers them.
-5	^repo\.abi
+# plan 11-23: repo.abi-freeze-record requires the t64_install fixture, so install.setup joins the
+# repo.abi names (header, status-classes, selftest, prefix, layout, freeze-record: 6 plus 1 = 7;
+# 8 after repo.abi-freeze-selftest).
+7	^repo\.abi
 5	^install\.
 # CTest adds the required fixture setup test of every matched test, so the two installed.consumer
 # names count three here (install.setup joins them through the t64_install fixture; plan 11-16);

@@ -32,6 +32,19 @@ Modes:
            no file below DIR (the installed tree, the archive included)
            contains any of the forbidden path strings (CTest
            install.abs-paths). The tool reads bytes and needs no strings(1).
+  freeze   --record FILE --prefix DIR [--goldens DIR] [--nm-file FILE] [--write]
+           the bound freeze-candidate record (plan 11-23, API-03): recompute
+           the four goldens from the installed tree under DIR (the SHA-256 of
+           the installed headers after LF normalisation, the public symbols of
+           the installed archive, the regenerated layout pins, the status
+           classes against the installed header), compare each with its golden
+           file in the goldens directory (default: the directory of FILE) and
+           each golden's own SHA-256 and the counts, versions and padding holes
+           with the machine-read block of the record FILE; any difference is
+           printed as "freeze-record: KEY differs" with the re-bind procedure
+           (CTest repo.abi-freeze-record). --write rewrites header.sha256 and
+           the block of FILE after the three other goldens match the tree.
+           --nm-file replaces the nm run on the archive by a listing file.
 Self-test (CTest repo.abi-selftest):
   --list-cases | --case NAME | --selftest
            seeded breakages of temporary copies of the header and the table,
@@ -44,6 +57,7 @@ Exit codes: 0 clean, 1 a finding, 2 usage error or a missing tool.
 
 import argparse
 import difflib
+import hashlib
 import os
 import pathlib
 import platform
@@ -379,6 +393,8 @@ def probe_source(structs, constants):
         for member in members:
             lines.append(f'  printf("offset {name} {member} %llu\\n", '
                          f'(unsigned long long)offsetof({name}, {member}));')
+            lines.append(f'  printf("msize {name} {member} %llu\\n", '
+                         f'(unsigned long long)sizeof((({name} *)0)->{member}));')
     for name, kind in constants:
         if kind == "string":
             lines.append(f'  printf("strsize {name} %llu\\n", '
@@ -427,6 +443,8 @@ def render_layout(records):
     previous = None
     for record in records:
         kind = record[0]
+        if kind == "msize":
+            continue  # member sizes feed the padding table of freeze mode only
         if kind == "size":
             out.append(f"\n/* {record[1]} */")
             out.append(f"T64_LAYOUT_PIN(sizeof({record[1]}) == {record[2]}u);")
@@ -444,16 +462,25 @@ def render_layout(records):
     return "\n".join(out)
 
 
+def measure_records(include_dir):
+    """Return (records, findings): the probe measurement of the header under DIR."""
+    with tempfile.TemporaryDirectory(prefix="abi-layout-") as scratch:
+        return measure_layout(include_dir, scratch)
+
+
+def layout_counts(records):
+    """(structs, members, constants) of a probe measurement."""
+    return (sum(1 for r in records if r[0] == "size"),
+            sum(1 for r in records if r[0] == "offset"),
+            sum(1 for r in records if r[0] in ("const", "strsize")))
+
+
 def generate_layout(include_dir):
     """Return (layout text or None, findings, counts) for the header under DIR."""
-    with tempfile.TemporaryDirectory(prefix="abi-layout-") as scratch:
-        records, findings = measure_layout(include_dir, scratch)
+    records, findings = measure_records(include_dir)
     if not records:
         return None, findings, (0, 0, 0)
-    counts = (sum(1 for r in records if r[0] == "size"),
-              sum(1 for r in records if r[0] == "offset"),
-              sum(1 for r in records if r[0] in ("const", "strsize")))
-    return render_layout(records), findings, counts
+    return render_layout(records), findings, layout_counts(records)
 
 
 def compile_layout(layout_file, include_dir):
@@ -523,6 +550,11 @@ INTERNAL_PREFIX = "t64i_"
 
 def archive_symbols(library, nm_tool):
     """[(name, nm type)] of the defined global symbols of the archive."""
+    return parse_nm(nm_listing(library, nm_tool), platform.system() == "Darwin")
+
+
+def nm_listing(library, nm_tool):
+    """The text of `nm -P -g --defined-only` over the archive LIB."""
     parts = nm_tool.split()
     if not parts or shutil.which(parts[0]) is None:
         raise UsageError(f"check-abi: nm not found: {nm_tool} (set NM)")
@@ -532,7 +564,7 @@ def archive_symbols(library, nm_tool):
                             capture_output=True, text=True, check=False)
     if result.returncode != 0:
         raise UsageError(f"check-abi: nm failed on {library}: {result.stderr.strip()}")
-    return parse_nm(result.stdout, platform.system() == "Darwin")
+    return result.stdout
 
 
 def parse_nm(text, darwin):
@@ -639,6 +671,364 @@ def run_abspaths(args):
         print(finding)
     print(f"check-abi: abspaths files={scanned} forbidden={len(args.forbid)} "
           f"findings={len(findings)}")
+    return 1 if findings else 0
+
+
+# ---- freeze mode: the bound freeze-candidate record ---------------------------
+
+# The record docs/abi/FREEZE-CANDIDATE.md holds one fenced block of "key: value"
+# lines (the machine-read block). Four goldens sit beside it in docs/abi: the
+# manifest of the installed headers (header.sha256), the public symbol list, the
+# generated layout pins and the status-class table. Freeze mode recomputes what
+# can be recomputed from the installed prefix, compares it with each golden, each
+# golden's own SHA-256 and the counts of the block, and fails on any difference.
+
+FREEZE_FENCE = "```freeze-record"
+FREEZE_CLOSE = "```"
+FREEZE_CANDIDATE_MINOR = 1  # the candidate is ABI 0.1; every amendment adds one
+REAL_RECORD = ROOT / "docs" / "abi" / "FREEZE-CANDIDATE.md"
+REAL_ABI_DIR = ROOT / "docs" / "abi"
+GOLDEN_FILES = (("header", "header.sha256"),
+                ("public_symbols", "public-symbols.txt"),
+                ("layout", "layout.c"),
+                ("status_classes", "status-classes.txt"))
+SCALAR_KEYS = ("abi_version", "package_version", "amendments",
+               "header_sha256", "public_symbols_sha256", "layout_sha256",
+               "status_classes_sha256", "public_function_count", "status_count",
+               "stop_reason_count", "layout_structs", "layout_members",
+               "layout_constants", "padding_holes")
+LIST_KEYS = ("padding_hole",)
+RECORD_LINE_RE = re.compile(r"^([a-z0-9_]+): (\S.*)$")
+AMENDMENT_ROW_RE = re.compile(r"^\|\s*\d{4}-\d{2}-\d{2}\s*\|", re.MULTILINE)
+VERSION_PART_RE = re.compile(
+    r"^#\s*define\s+T64_ABI_VERSION_(MAJOR|MINOR)\s+UINT32_C\(\s*(\d+)\s*\)",
+    re.MULTILINE)
+PACKAGE_VERSION_RE = re.compile(r'set\(PACKAGE_VERSION\s+"([^"]+)"\)')
+PACKAGE_VERSION_FILE = pathlib.Path("lib") / "cmake" / "tendies64" / "tendies64ConfigVersion.cmake"
+REBIND_PROCEDURE = (
+    "freeze-record: this record is the contract; a change of any bound element is an",
+    "  amendment, not an edit. Procedure: (1) evidence of the defect; (2) regenerate the",
+    "  changed golden with its generator (layout --write, symbols --write, or edit the",
+    "  class table) and add 1 to T64_ABI_VERSION_MINOR and the package version;",
+    "  (3) rebuild, install, and re-run the installed-consumer suite; (4) run",
+    "  python3 -B scripts/check-abi.py freeze --record docs/abi/FREEZE-CANDIDATE.md",
+    "  --prefix <installed prefix> --write; (5) add an amendment row (date | golden |",
+    "  change | defect evidence | consumer suite run | new minor) to the record.",
+)
+
+_MEASURE_CACHE = {}
+
+
+def sha256_hex(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def canonical_bytes(data):
+    """The bytes with CRLF and lone CR line endings turned into LF."""
+    return data.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+
+
+def header_manifest(prefix):
+    """(manifest text, header count) of every file below PREFIX/include.
+
+    One line per file, "sha256  include/<posix path>", sorted by path, the hash
+    taken after the line endings of the file are normalised to LF.
+    """
+    include = pathlib.Path(prefix) / "include"
+    if not include.is_dir():
+        raise UsageError(f"check-abi: no include directory below the prefix: {prefix}")
+    entries = sorted((p.relative_to(include).as_posix(), p)
+                     for p in include.rglob("*") if p.is_file())
+    lines = [f"{sha256_hex(canonical_bytes(p.read_bytes()))}  include/{name}\n"
+             for name, p in entries]
+    return "".join(lines), len(lines)
+
+
+def read_installed(path, what):
+    try:
+        return pathlib.Path(path).read_bytes()
+    except OSError as error:
+        raise UsageError(f"check-abi: cannot read the {what} {path}: {error}") from error
+
+
+def padding_holes(records):
+    """Sorted "struct after-member offset bytes" rows of the implicit padding.
+
+    A hole is the gap between a member's end and the next member (or the end of
+    the struct), measured by the probe on the target the check runs on.
+    """
+    sizes, members = {}, {}
+    for record in records:
+        if record[0] == "size":
+            sizes[record[1]] = int(record[2])
+            members[record[1]] = []
+        elif record[0] == "offset":
+            members[record[1]].append([record[2], int(record[3]), 0])
+        elif record[0] == "msize":
+            members[record[1]][-1][2] = int(record[3])
+    holes = []
+    for name, size in sizes.items():
+        rows = members[name]
+        for index, (member, offset, width) in enumerate(rows):
+            end = offset + width
+            following = rows[index + 1][1] if index + 1 < len(rows) else size
+            if following > end:
+                holes.append(f"{name} {member} {end} {following - end}")
+    return sorted(holes)
+
+
+def measure_install(prefix, nm_text):
+    """Everything freeze mode recomputes from the installed tree under PREFIX."""
+    header_path = pathlib.Path(prefix) / "include" / DEFAULT_HEADER
+    header_bytes = read_installed(header_path, "installed header")
+    header_text = canonical_bytes(header_bytes).decode("utf-8")
+    manifest, header_count = header_manifest(prefix)
+    version = {key: int(value) for key, value in VERSION_PART_RE.findall(header_text)}
+    if len(version) != 2:
+        raise UsageError("check-abi: the installed header defines no "
+                         "T64_ABI_VERSION_MAJOR and T64_ABI_VERSION_MINOR")
+    package = PACKAGE_VERSION_RE.search(
+        read_installed(pathlib.Path(prefix) / PACKAGE_VERSION_FILE,
+                       "installed package version file").decode("utf-8"))
+    if package is None:
+        raise UsageError("check-abi: the installed package version file sets no PACKAGE_VERSION")
+    if nm_text is None:
+        nm_text = nm_listing(pathlib.Path(prefix) / "lib" / "libt64_core.a",
+                             os.environ.get("NM") or "nm")
+    key = sha256_hex(header_bytes)
+    if key not in _MEASURE_CACHE:
+        _MEASURE_CACHE[key] = measure_records(pathlib.Path(prefix) / "include")
+    records, layout_findings = _MEASURE_CACHE[key]
+    constants, _classes_findings = parse_constants(header_text)
+    return {
+        "manifest": manifest,
+        "header_count": header_count,
+        "header_text": header_text,
+        "abi_version": f"{version['MAJOR']}.{version['MINOR']}",
+        "abi_minor": version["MINOR"],
+        "package_version": package.group(1),
+        "entries": parse_nm(nm_text, platform.system() == "Darwin"),
+        "records": records,
+        "layout_findings": layout_findings,
+        "layout_text": render_layout(records) if records else None,
+        "layout_counts": layout_counts(records),
+        "holes": padding_holes(records),
+        "status_count": sum(1 for n in constants if n.startswith("T64_STATUS_")),
+        "stop_reason_count": sum(1 for n in constants if n.startswith("T64_STOP_REASON_")),
+    }
+
+
+def parse_record(text):
+    """Return ({key: [values]}, findings) of the machine-read block of the record."""
+    lines = text.split("\n")
+    opens = [i for i, line in enumerate(lines) if line.rstrip() == FREEZE_FENCE]
+    if len(opens) != 1:
+        return {}, [f"the record has {len(opens)} fenced blocks of kind freeze-record, wanted 1"]
+    values, findings = {}, []
+    for line in lines[opens[0] + 1:]:
+        if line.rstrip() == FREEZE_CLOSE:
+            break
+        if not line.strip():
+            continue
+        found = RECORD_LINE_RE.match(line)
+        if found is None:
+            findings.append(f"not a key: value line: {line}")
+            continue
+        key, value = found.group(1), found.group(2).strip()
+        if key not in SCALAR_KEYS and key not in LIST_KEYS:
+            findings.append(f"unknown key: {key}")
+        elif key in values and key not in LIST_KEYS:
+            findings.append(f"duplicate key: {key}")
+        else:
+            values.setdefault(key, []).append(value)
+    else:
+        findings.append("the block is not closed")
+    return values, findings
+
+
+def diff_lines(bound, found, limit=6):
+    delta = difflib.unified_diff(bound.splitlines(), found.splitlines(),
+                                 "bound", "installed", lineterm="", n=0)
+    return [f"  {line}" for line in list(delta)[2:2 + limit]]
+
+
+def golden_files(goldens, optional=()):
+    """{element: bytes} of the four golden files in the directory GOLDENS.
+
+    A file of an element in OPTIONAL may be missing (read as empty): --write
+    creates header.sha256.
+    """
+    files = {}
+    for element, name in GOLDEN_FILES:
+        path = pathlib.Path(goldens) / name
+        files[element] = (b"" if element in optional and not path.exists()
+                          else read_installed(path, f"golden {name}"))
+    return files
+
+
+def content_findings(measured, golden, check_header):
+    """Findings of the installed tree against the golden file texts.
+
+    check_header is false when --write is about to rewrite header.sha256.
+    """
+    findings = []
+
+    def differs(key, detail):
+        findings.append(f"freeze-record: {key} differs: {detail}")
+
+    if check_header and golden["header"].decode("utf-8") != measured["manifest"]:
+        differs("header_sha256",
+                "the installed headers do not hash to the bound manifest "
+                "docs/abi/header.sha256 (any edit of an installed header is an amendment)")
+        findings.extend(diff_lines(golden["header"].decode("utf-8"), measured["manifest"]))
+    names = read_golden_text(golden["public_symbols"])
+    for finding in check_symbols(measured["entries"], names):
+        differs("public_symbols", finding)
+    for finding in measured["layout_findings"]:
+        differs("layout", finding)
+    if measured["layout_text"] is not None and measured["layout_text"] != golden["layout"].decode("utf-8"):
+        differs("layout",
+                "docs/abi/layout.c does not match the layout of the installed header")
+        findings.extend(diff_lines(golden["layout"].decode("utf-8"), measured["layout_text"], 8))
+    _constants, _rows, class_findings = check_classes(
+        measured["header_text"], canonical_bytes(golden["status_classes"]).decode("utf-8"))
+    for finding in class_findings:
+        differs("classes", finding)
+    return findings
+
+
+def read_golden_text(data):
+    return [line for line in data.decode("utf-8").split("\n") if line]
+
+
+def block_values(measured, golden, amendments):
+    """The (key, value) lines of the machine-read block for the measured tree."""
+    names = read_golden_text(golden["public_symbols"])
+    structs, members, constants = measured["layout_counts"]
+    pairs = [
+        ("abi_version", measured["abi_version"]),
+        ("package_version", measured["package_version"]),
+        ("amendments", str(amendments)),
+        ("header_sha256", sha256_hex(golden["header"])),
+        ("public_symbols_sha256", sha256_hex(golden["public_symbols"])),
+        ("layout_sha256", sha256_hex(golden["layout"])),
+        ("status_classes_sha256", sha256_hex(golden["status_classes"])),
+        ("public_function_count", str(len(names))),
+        ("status_count", str(measured["status_count"])),
+        ("stop_reason_count", str(measured["stop_reason_count"])),
+        ("layout_structs", str(structs)),
+        ("layout_members", str(members)),
+        ("layout_constants", str(constants)),
+        ("padding_holes", str(len(measured["holes"]))),
+    ]
+    pairs.extend(("padding_hole", row) for row in measured["holes"])
+    return pairs
+
+
+def record_findings(record_text, measured, golden):
+    """Findings of the record's block against the golden files and the tree."""
+    values, block_findings = parse_record(record_text)
+    findings = [f"freeze-record: record malformed: {f}" for f in block_findings]
+    if values == {} and block_findings:
+        return findings
+    rows = len(AMENDMENT_ROW_RE.findall(record_text))
+    wanted = dict(block_values(measured, golden, rows))
+    for key in SCALAR_KEYS:
+        if key not in values:
+            findings.append(f"freeze-record: {key} differs: the record has no {key} line")
+            continue
+        if values[key][0] != wanted[key]:
+            hint = ""
+            if key.endswith("_sha256"):
+                hint = (f" (the golden file hashes to {wanted[key]}, "
+                        f"the record binds {values[key][0]})")
+            elif key == "amendments":
+                hint = f" (the amendment log has {rows} row(s))"
+            else:
+                hint = f" (measured {wanted[key]}, recorded {values[key][0]})"
+            findings.append(f"freeze-record: {key} differs:{hint}")
+    minor = measured["abi_minor"]
+    if minor != FREEZE_CANDIDATE_MINOR + rows:
+        findings.append(
+            f"freeze-record: amendments differs: ABI minor {minor} of the installed header "
+            f"needs {minor - FREEZE_CANDIDATE_MINOR} amendment row(s) (the candidate is minor "
+            f"{FREEZE_CANDIDATE_MINOR}), the log has {rows}")
+    recorded = sorted(values.get("padding_hole", []))
+    for row in sorted(set(measured["holes"]) - set(recorded)):
+        findings.append(f"freeze-record: padding_hole differs: measured {row}, not in the record")
+    for row in sorted(set(recorded) - set(measured["holes"])):
+        findings.append(f"freeze-record: padding_hole differs: recorded {row}, not measured")
+    return findings
+
+
+def freeze_findings(record_text, goldens, measured):
+    """All findings of freeze mode: the tree against the goldens, then the record."""
+    golden = golden_files(goldens)
+    return (content_findings(measured, golden, True)
+            + record_findings(record_text, measured, golden))
+
+
+def render_block(pairs):
+    return "\n".join([FREEZE_FENCE] + [f"{key}: {value}" for key, value in pairs]
+                     + [FREEZE_CLOSE])
+
+
+def write_freeze(record, goldens, measured):
+    """Rewrite header.sha256 and the block of RECORD; 1 when a golden does not match."""
+    golden = golden_files(goldens, optional=("header",))
+    golden["header"] = measured["manifest"].encode("utf-8")
+    findings = content_findings(measured, golden, False)
+    for finding in findings:
+        print(finding)
+    if findings:
+        print("freeze-record: not written: regenerate the other goldens with their generators first")
+        return 1
+    record_path = pathlib.Path(record)
+    text = (record_path.read_text(encoding="utf-8") if record_path.is_file()
+            else "# Freeze-candidate record\n\n" + FREEZE_FENCE + "\n" + FREEZE_CLOSE + "\n")
+    lines = text.split("\n")
+    opens = [i for i, line in enumerate(lines) if line.rstrip() == FREEZE_FENCE]
+    if len(opens) != 1:
+        raise UsageError(f"check-abi: {record} has {len(opens)} freeze-record blocks, wanted 1")
+    closes = [i for i in range(opens[0] + 1, len(lines)) if lines[i].rstrip() == FREEZE_CLOSE]
+    if not closes:
+        raise UsageError(f"check-abi: the freeze-record block of {record} is not closed")
+    rows = len(AMENDMENT_ROW_RE.findall(text))
+    block = render_block(block_values(measured, golden, rows)).split("\n")
+    lines[opens[0]:closes[0] + 1] = block
+    (pathlib.Path(goldens) / "header.sha256").write_bytes(golden["header"])
+    record_path.write_text("\n".join(lines), encoding="utf-8")
+    print(f"check-abi: freeze wrote header.sha256 and the block of {record_path.name} "
+          f"(abi {measured['abi_version']}, package {measured['package_version']}, "
+          f"amendments {rows}, headers {measured['header_count']})")
+    return 0
+
+
+def run_freeze(args):
+    record = pathlib.Path(args.record)
+    goldens = pathlib.Path(args.goldens) if args.goldens else record.parent
+    nm_text = None
+    if args.nm_file is not None:
+        nm_text = read_installed(args.nm_file, "nm listing").decode("utf-8")
+    measured = measure_install(args.prefix, nm_text)
+    if args.write:
+        return write_freeze(record, goldens, measured)
+    record_text = read_installed(record, "freeze record").decode("utf-8")
+    findings = freeze_findings(record_text, goldens, measured)
+    for finding in findings:
+        print(finding)
+    if findings:
+        for line in REBIND_PROCEDURE:
+            print(line)
+    else:
+        structs, members, constants = measured["layout_counts"]
+        symbols = len(read_golden_text(golden_files(goldens)["public_symbols"]))
+        print(f"abi-freeze: headers={measured['header_count']} abi={measured['abi_version']} "
+              f"package={measured['package_version']} symbols={symbols} "
+              f"layout={structs}/{members}/{constants} holes={len(measured['holes'])} "
+              f"statuses={measured['status_count']} stop_reasons={measured['stop_reason_count']}")
+    count = len([f for f in findings if f.startswith("freeze-record:")])
+    print(f"check-abi: freeze findings={count}")
     return 1 if findings else 0
 
 
@@ -1012,6 +1402,19 @@ def build_parser():
     abspaths.add_argument("--forbid", required=True, nargs="+", metavar="STRING",
                           help="forbidden path strings; roots are reported by position")
     abspaths.set_defaults(run=run_abspaths)
+    freeze = modes.add_parser(
+        "freeze", help="recompute the freeze-candidate record from the installed tree")
+    freeze.add_argument("--record", required=True, metavar="FILE",
+                        help="the record with the machine-read block")
+    freeze.add_argument("--prefix", required=True, metavar="DIR",
+                        help="the installed tree (include/, lib/libt64_core.a, package files)")
+    freeze.add_argument("--goldens", metavar="DIR",
+                        help="the directory of the four golden files (default: that of FILE)")
+    freeze.add_argument("--nm-file", metavar="FILE",
+                        help="an nm -P -g --defined-only listing instead of running nm")
+    freeze.add_argument("--write", action="store_true",
+                        help="rewrite header.sha256 and the block after the other goldens match")
+    freeze.set_defaults(run=run_freeze)
     return parser
 
 
