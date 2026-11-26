@@ -99,12 +99,20 @@ if(T64_GIT_DIR_STATUS EQUAL 0 AND NOT T64_GIT_DIR STREQUAL "")
     ${T64_REVISION_DEPENDENCIES})
 endif()
 
+# The SHA-256 source is folded into the archive (plan 11-16, DR-20): a PRIVATE
+# link of the t64_sha256 target would make install(EXPORT) fail, because an
+# exported target may not link a target outside the export set. The core's
+# private copy is renamed to t64i_sha256_* by the compile definitions below, so
+# the installed archive keeps no unprefixed internal name and host tools keep
+# linking t64_sha256 with the t64_sha256_* names.
 add_library(t64_core STATIC
   ${T64_CORE_SOURCES}
   ${T64_SOFTFLOAT_SOURCES}
-  ${T64_SOFTFLOAT_HEADERS})
+  ${T64_SOFTFLOAT_HEADERS}
+  "${CMAKE_SOURCE_DIR}/tools/common/t64_sha256.c")
 target_include_directories(t64_core
-  PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"
+  PUBLIC "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+         "$<INSTALL_INTERFACE:include>"
   PRIVATE "${CMAKE_SOURCE_DIR}/tools/common"
           "${CMAKE_CURRENT_SOURCE_DIR}/softfloat"
           "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -117,11 +125,46 @@ t64_target_warnings(t64_core)
 # Core-only flags: no implicit float promotion and bounded stack usage.
 target_compile_options(t64_core PRIVATE -Wdouble-promotion
   -Wframe-larger-than=2048)
-target_link_libraries(t64_core PRIVATE t64_sha256)
 target_compile_definitions(t64_core PRIVATE
   "SOFTFLOAT_FAST_INT64=1"
   "T64_BUILD_ID=\"${T64_BUILD_ID}\""
-  "T64_SOURCE_REVISION=\"${T64_SOURCE_REVISION}\"")
+  "T64_SOURCE_REVISION=\"${T64_SOURCE_REVISION}\""
+  # The four sha256 names of the folded copy (DR-17, DR-20).
+  "t64_sha256_init=t64i_sha256_init"
+  "t64_sha256_update=t64i_sha256_update"
+  "t64_sha256_final=t64i_sha256_final"
+  "t64_sha256_hex=t64i_sha256_hex")
+
+# Installable package (plan 11-16, DR-18 and DR-20): the archive, the one
+# public header and the CMake package files, component Development, relocatable
+# through _IMPORT_PREFIX. The package version is the ABI candidate number
+# (0.1.0, SameMinorVersion for 0.x), a literal and never PROJECT_VERSION:
+# project(VERSION 0.0.0) is not a release version and stays untouched. The
+# config records the single built configuration and the build id.
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+add_library(tendies64::core ALIAS t64_core)
+set_target_properties(t64_core PROPERTIES EXPORT_NAME core)
+target_sources(t64_core PUBLIC
+  FILE_SET HEADERS
+  BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/include"
+  FILES "${CMAKE_CURRENT_SOURCE_DIR}/include/tendies64/t64_machine.h")
+install(TARGETS t64_core EXPORT tendies64Targets
+  ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}" COMPONENT Development
+  FILE_SET HEADERS DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
+  COMPONENT Development)
+install(EXPORT tendies64Targets NAMESPACE tendies64:: FILE tendies64Targets.cmake
+  DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/tendies64" COMPONENT Development)
+write_basic_package_version_file(
+  "${CMAKE_CURRENT_BINARY_DIR}/tendies64ConfigVersion.cmake"
+  VERSION 0.1.0 COMPATIBILITY SameMinorVersion)
+configure_package_config_file(tendies64Config.cmake.in
+  "${CMAKE_CURRENT_BINARY_DIR}/tendies64Config.cmake"
+  INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/tendies64")
+install(FILES
+  "${CMAKE_CURRENT_BINARY_DIR}/tendies64Config.cmake"
+  "${CMAKE_CURRENT_BINARY_DIR}/tendies64ConfigVersion.cmake"
+  DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/tendies64" COMPONENT Development)
 
 # The exact IPL3 input and authored hello variants are local, build-only
 # fixtures. Keep their producer incremental and make every consuming test
@@ -377,7 +420,7 @@ add_dependencies(t64-phase10-composite-fixture t64-boot-fixtures)
 
 add_executable(test_tracer tests/test_tracer.c)
 target_include_directories(test_tracer PRIVATE "${CMAKE_SOURCE_DIR}/tests")
-target_link_libraries(test_tracer PRIVATE t64_core)
+target_link_libraries(test_tracer PRIVATE t64_core t64_sha256)
 t64_target_warnings(test_tracer)
 add_dependencies(test_tracer t64-boot-fixtures)
 add_test(NAME unit.core.tracer COMMAND test_tracer)
@@ -547,7 +590,7 @@ add_executable(test_isviewer tests/test_isviewer.c)
 target_include_directories(test_isviewer PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}"
   "${CMAKE_SOURCE_DIR}/tools/common")
-target_link_libraries(test_isviewer PRIVATE t64_core)
+target_link_libraries(test_isviewer PRIVATE t64_core t64_sha256)
 t64_target_warnings(test_isviewer)
 add_dependencies(test_isviewer t64-boot-fixtures)
 add_test(NAME unit.core.isviewer COMMAND test_isviewer)

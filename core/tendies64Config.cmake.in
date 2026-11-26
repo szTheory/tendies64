@@ -1,0 +1,13 @@
+# Package configuration of the installed tendies64 core archive (plan 11-16,
+# DR-20). Relocatable: the targets file derives its prefix from this file.
+@PACKAGE_INIT@
+
+include("${CMAKE_CURRENT_LIST_DIR}/tendies64Targets.cmake")
+
+# The identity of the archive this package installs, recorded at build time so a
+# consumer can compare it with t64_build_identity() of the library it linked,
+# and the single configuration the archive was built for.
+set(tendies64_BUILD_ID "@T64_BUILD_ID@")
+set(tendies64_BUILD_TYPE "@CMAKE_BUILD_TYPE@")
+
+check_required_components(tendies64)
