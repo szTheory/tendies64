@@ -13,6 +13,11 @@ state serialization word are state-format constants of one build family, not
 public API: container version 1 pairs with state 25 and container version 2 with
 state 26.
 
+The written contract of the public C API (the postconditions of every entry,
+the status classes, the `struct_size` rule, the additive-extension rule and the
+threading statement) is [api.md](api.md); this document records the machine
+behavior behind it.
+
 ## Raw ROM admission
 
 `t64_machine_admit_rom` accepts one caller-provided readable byte span. The
