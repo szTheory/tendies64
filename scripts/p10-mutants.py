@@ -592,6 +592,36 @@ MUTANTS = [
         "record": [],
     },
     {
+        "id": "z-limit-half",
+        "tag": "mutant",
+        "expect": "KILLED",
+        "title": "the product limit of state_z_products_bounded doubled (INT64_MAX / 2 instead of INT64_MAX / 4, plan 11-22, W2-01: the boundary case must see the importer accept the first packet the live preflight refuses)",
+        "edits": [
+            (
+                "core/t64_state.c",
+                "  const uint64_t product_limit = (uint64_t)INT64_MAX / UINT64_C(4);\n",
+                "  const uint64_t product_limit = (uint64_t)INT64_MAX / UINT64_C(2);\n",
+            )
+        ],
+        "kill": [own_check("test_state_import_v26", ["--case", "hostile"])],
+        "record": [],
+    },
+    {
+        "id": "z-divisor-plus-one",
+        "tag": "mutant",
+        "expect": "KILLED",
+        "title": "the dy product test of state_z_products_bounded divides by y_bound + 1 (plan 11-22, W2-01: the boundary case must see the importer refuse the last packet the live preflight accepts)",
+        "edits": [
+            (
+                "core/t64_state.c",
+                "           (y_bound != 0u && abs_dy > product_limit / y_bound));\n",
+                "           (y_bound != 0u && abs_dy > product_limit / (y_bound + 1u)));\n",
+            )
+        ],
+        "kill": [own_check("test_state_import_v26", ["--case", "hostile"])],
+        "record": [],
+    },
+    {
         "id": "control-no-compile",
         "tag": "control",
         "expect": "INVALID",
