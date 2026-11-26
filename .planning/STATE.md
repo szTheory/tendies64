@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 12
 current_phase_name: Minimal Host, Playable Homebrew and Final Bind
 status: executing
-stopped_at: Completed 12-09-PLAN.md (SDL3 dependency audit, optional SDL shell, local sdl lane PASS, repo.host-policy; gate 350/350)
-last_updated: "2026-11-26T21:42:31.263Z"
+stopped_at: "Completed 12-10-PLAN.md (API-07 LibFuturo fit evaluation, repo.api07-evaluation, host-found API defect triage, 12-11 trigger: no; gate 351/351)"
+last_updated: "2026-11-26T22:05:04.324Z"
 last_activity: 2026-11-26
-last_activity_desc: "Plan 12-09 complete (SDL3 dependency audit, optional SDL3 shell on the pump, local sdl lane PASS with a virtual gamepad under dummy drivers, repo.host-policy, DR-37)"
-state_head: 5490b2f828f5883f76604acf8b73f0968461d904
+last_activity_desc: "Plan 12-10 complete (API-07 LibFuturo fit evaluation pinned to the local unpublished commit, repo.api07-evaluation, host-found API defect triage with 12-11 trigger: no)"
+state_head: 5a28fc05252f439a92df3ecf7a7dc3ee028acc14
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 68
-  completed_plans: 59
+  completed_plans: 60
   percent: 67
 ---
 
@@ -30,10 +30,10 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 ## Current Position
 
 Phase: 12 (Minimal Host, Playable Homebrew and Final Bind) — EXECUTING
-Plan: 10 of 18
+Plan: 11 of 18
 Status: Ready to execute
-Last activity: 2026-11-26 — Plan 12-09 complete (HOST: SDL3 dependency audit, optional SDL3 shell, local sdl lane, host policy scan)
-Note: plan 12-09 is complete: `docs/evidence/sdl3-host-dependency-audit.md` records the link-only system SDL3 (zlib license, Homebrew core formula, no candidate on ubuntu-24.04, no vendoring, committed before the first `host/sdl` line); `scripts/check-host-policy.sh` (12 rules, 30-case selftest) is the gate names `repo.host-policy` and `repo.host-policy-selftest` (COST 0.08 and 1.60); `host/sdl` holds the optional SDL3 shell (static library, executable `t64h_sdl --rom PATH [--scale N]`, headless smoke), built only with `-DT64H_SDL=ON` by the local lane `sh scripts/check-host.sh sdl` (never a CTest name, workflow step or gate stage; a recorded skip line when SDL3 is absent; sanitized output only). The lane printed `[host-sdl] PASS` on this host (SDL 3.4.10, macOS 26.6.2, dummy drivers, 30 mapping rows, title ok, blit ok, frames 8, audio ok), so the SC2 virtual-joystick clause is CLOSED (a skip elsewhere stays the distinct state not closed); the tier is self-checking host glue only. DR-19 fit test: the host-side save file does not fit and is omitted. Full local gate 350/350 in 186 s (ctest 110 s); the 14 host names cost 10.17 s of COST (HOST ledger row: projected cold margin about 81 to 96 s, under the 120 s warning level, for 12-12 to measure; `repo.host-policy-selftest` is a further reversal candidate). Observation for the owner checklist of 12-18: the unthrottled pump ran about 12.5 million guest ticks per CPU second here against 62.5 million for a real-time guest, so a real-window run would be well below real time (information only; no real-time claim anywhere). API-05 and API-06 stay pending (owner checklist for a real window and a physical controller in 12-18, API-07 and the final audit). Next: plan 12-10 (LibFuturo fit evaluation and host-found API defect triage). Earlier: plan 12-08 gave two-speed equality of the title through the pump (DR-36); plan 12-07 built the standalone host project and the pure-C pump (DR-35); plan 12-06 reviewed the TITLE wave and pushed `884153a`; Host base `0836e40f583f8b47486ee93b0de36889e5626f0b`.
+Last activity: 2026-11-26 — Plan 12-10 complete (API-07: written LibFuturo fit evaluation, its guard, host-found API defect triage; 12-11 trigger: no)
+Note: plan 12-10 is complete: `docs/evidence/phase12-libfuturo-fit.md` is the written API-07 evaluation, pinned to the local, unpublished LibFuturo commit of PIN-IMPACT "API-07 pin" (the pin did not move: 0 commits follow it, no remote), a ten-axis comparison read from committed objects only (3 compatible, 6 convertible with loss, 1 missing), five LibFuturo-side deltas and the conclusion "no adapter now" (any adapter optional and never shaping the core API; no adapter code, no core API change, no claim that LibFuturo support exists). `scripts/check-api07-evaluation.sh` (7 rules, 32-case selftest) is the gate name `repo.api07-evaluation` (COST 1.34); the full local gate passes 351/351 in 161 s (ctest 92 s). PIN-IMPACT "Host-found API defects" is closed at 15 rows (C-1 to C-6, H-01 to H-09): 13 accept, 2 document (C-1 done in 12-07; H-03 is one api.md 8.1 sentence that plan 12-15 must carry: a masked handler status consumes its event and the next advance continues), 0 amend; no row breaks a postcondition, so `12-11 trigger: no` and plan 12-11 closes with a one-line SUMMARY and no code. Evidence of note: a scratch probe showed that an advance with the frame-event stop and target 0 reads the guest tick without moving it (H-02, documented behavior). API-07 is complete; API-05 and API-06 stay pending (owner checklist, final audit). Next: plan 12-11 (the amendment slot, expected to close untriggered), then the HOST review 12-12 (first push of the unpublished commits). Earlier: plan 12-09 added the optional SDL3 shell and the local sdl lane; plan 12-08 gave two-speed equality of the title through the pump (DR-36); plan 12-07 built the pure-C pump (DR-35); plan 12-06 reviewed the TITLE wave and pushed `884153a`; Host base `0836e40f583f8b47486ee93b0de36889e5626f0b`.
 
 Progress: [███████░░░] 67% (0 of 3 v1.2 phases complete)
 
@@ -120,6 +120,7 @@ Progress: [███████░░░] 67% (0 of 3 v1.2 phases complete)
 | Phase 12 P07 | 33 min | 3 tasks | 15 files |
 | Phase 12 P08 | 33 min | 4 tasks | 17 files |
 | Phase 12 P09 | 24 min | 3 tasks | 12 files |
+| Phase 12 P10 | 28 min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -289,6 +290,8 @@ Progress: [███████░░░] 67% (0 of 3 v1.2 phases complete)
 - [Phase 12]: DR-36: the pump input hook takes uint64_t *bound and may lower it to the tick of an event refused with QUEUE_FULL (a deferred event the guest already reached is an input error); the vertical axis is inverted by complement so +32767 reaches -128; the 4,096-event cap of the t64.input reader is pinned through raised byte limits (unreachable at 65,536 bytes)
 - [Phase 12]: DR-37: the SDL shell is a static library linked by the executable and the smoke; a packet the host cannot show is counted and consumed, never held; QUEUE_FULL on the live pad does not lower the bound; repo.host-policy has twelve rules; the sdl lane probes with a scratch find_package project and a found SDL3 never skips
 - [Phase 12]: 12-09: SC2 virtual-joystick clause closed by a PASS of the local sdl lane (SDL 3.4.10, macOS 26.6.2, dummy drivers, 30 mapping rows, 8 title frames; self-checking host glue only); DR-19 fit test: the host-side save file does not fit and is omitted; API-05 stays pending for the owner checklist of 12-18
+- [Phase 12]: 12-10: API-07 evaluation pinned to the local unpublished LibFuturo commit concludes no adapter now (experimental contract with no binary ABI, input sampled once per advance, no profile for this machine); repo.api07-evaluation guards the pin, the conclusion, no support claim and no adapter code
+- [Phase 12]: 12-10: host-found API defect triage closed at 15 rows (13 accept, 2 document, 0 amend); 12-11 trigger: no; H-03 (api.md 8.1 sentence that a masked handler status consumes its event) is owed to 12-15; a guest-tick read exists through an advance with the frame-event stop and target 0 (H-02)
 
 ### Pending Todos
 
@@ -314,8 +317,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-26T21:42:30.772Z
-Stopped at: Completed 12-09-PLAN.md (SDL3 dependency audit, optional SDL shell, local sdl lane PASS, repo.host-policy; gate 350/350)
+Last session: 2026-11-26T22:05:03.839Z
+Stopped at: Completed 12-10-PLAN.md (API-07 LibFuturo fit evaluation, repo.api07-evaluation, host-found API defect triage, 12-11 trigger: no; gate 351/351)
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).

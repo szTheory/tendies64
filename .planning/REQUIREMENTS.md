@@ -35,7 +35,7 @@ Scope refined 2026-11-23 by a five-lens fan-out ([synthesis](research/v1.2-fanou
 
 - [ ] **API-05**: A minimal host separate from the core presents raw video and audio and maps a controller: a pure-C host pump (ring draining, injected clock, input mapping, scripted input) is unit-tested in the required gate, and an optional SDL3 shell (link-only against a system install, never vendored, off by default, in a non-gating lane) sits on top
 - [ ] **API-06**: A rights-cleared playable title authored in this repository with the pinned Binutils and open IPL3 (route A) runs headlessly through the runner and the installed consumer and in the minimal host, staying inside qualified scope (fill-list RDP, standard controller, AI tone, one save slot; no Z, textures, RSP microcode or TLB); the libdragon toolchain route is research only in v1.2
-- [ ] **API-07**: A written LibFuturo fit evaluation pinned to a commit SHA exists: the paper contract read happens in Phase 11 before the freeze candidate, the final text in Phase 12; any adapter is optional and does not shape the core API
+- [x] **API-07**: A written LibFuturo fit evaluation pinned to a commit SHA exists: the paper contract read happens in Phase 11 before the freeze candidate, the final text in Phase 12; any adapter is optional and does not shape the core API
 
 ## Deferred, not scheduled in v1.2
 
@@ -75,7 +75,7 @@ Filled by the roadmapper on 2026-11-23. Carry-ins close in Phase 10, before the 
 | API-04 | Phase 11 | Complete |
 | API-05 | Phase 12 | Pending |
 | API-06 | Phase 12 | Pending |
-| API-07 | Phase 12 | Pending |
+| API-07 | Phase 12 | Complete |
 
 **Coverage:** 14 v1.2 requirements; 14 mapped (Phase 10: 6, Phase 11: 5, Phase 12: 3); 0 unmapped. VID-04 deliberately unmapped (deferred, not scheduled).
 
