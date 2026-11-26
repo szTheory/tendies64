@@ -14,7 +14,7 @@ set(CMAKE_C_EXTENSIONS OFF)
 # The version the consumer requests. Only the version-mismatch negative controls
 # of controls.tsv (plan 11-19) change it, to show that a package older or newer
 # than the request is refused by the package's own version file.
-set(T64C_REQUIRED_VERSION 0.1 CACHE STRING "tendies64 version the consumer requests")
+set(T64C_REQUIRED_VERSION 1.0 CACHE STRING "tendies64 version the consumer requests")
 find_package(tendies64 ${T64C_REQUIRED_VERSION} REQUIRED CONFIG)
 
 set(T64C_SOURCES main.c smoke.c composite.c title.c hostloop.c sequence.c threads.c ops.c t64c_sha256.c)

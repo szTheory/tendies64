@@ -18,8 +18,8 @@ static void case_abi_version(void) {
   T64_CHECK_INT(version, T64_ABI_VERSION);
   T64_CHECK_INT(version >> 16, T64_ABI_VERSION_MAJOR);
   T64_CHECK_INT(version & UINT32_C(0xffff), T64_ABI_VERSION_MINOR);
-  T64_CHECK_INT(T64_ABI_VERSION_MAJOR, 0);
-  T64_CHECK_INT(T64_ABI_VERSION_MINOR, 1);
+  T64_CHECK_INT(T64_ABI_VERSION_MAJOR, 1);
+  T64_CHECK_INT(T64_ABI_VERSION_MINOR, 0);
   T64_CHECK(identity != NULL);
   T64_CHECK(identity != NULL && strncmp(identity, "t64-build-v1-", 13u) == 0);
 }

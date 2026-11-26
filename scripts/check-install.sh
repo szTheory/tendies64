@@ -208,7 +208,7 @@ cmd_build() {
   [ -d "$MOVED" ] || die "no moved prefix: run setup first"
   if ! consumer_configure "$CONSUMER_BUILD" "$MOVED" "$WORK/consumer-configure.log"; then
     cat "$WORK/consumer-configure.log" >&2
-    fail "consumer configure failed (find_package(tendies64 0.1 REQUIRED CONFIG))"
+    fail "consumer configure failed (find_package(tendies64 1.0 REQUIRED CONFIG))"
   fi
   if ! "$CMAKE" --build "$CONSUMER_BUILD" >"$WORK/consumer-build.log" 2>&1; then
     cat "$WORK/consumer-build.log" >&2
@@ -990,7 +990,7 @@ cmd_fresh_archive() {
   [ -n "$_id" ] || fail "fresh-archive: the installed package config names no build id"
   if ! consumer_configure "$_base/consumer" "$_fa_prefix" "$_base/consumer-configure.log"; then
     cat "$_base/consumer-configure.log" >&2
-    fail "fresh-archive: consumer configure failed (find_package(tendies64 0.1 REQUIRED CONFIG))"
+    fail "fresh-archive: consumer configure failed (find_package(tendies64 1.0 REQUIRED CONFIG))"
   fi
   "$CMAKE" --build "$_base/consumer" >"$_base/consumer-build.log" 2>&1 \
     || { cat "$_base/consumer-build.log" >&2; fail "fresh-archive: consumer build failed"; }

@@ -16,9 +16,9 @@ set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
-# The package version the host requests. The final bind of Phase 12 moves it
-# together with the package (PIN-IMPACT B-33).
-find_package(tendies64 0.1 CONFIG REQUIRED)
+# The package version the host requests: the ABI number of the bound ABI 1.0,
+# which moves only together with the package version (PIN-IMPACT B-33).
+find_package(tendies64 1.0 CONFIG REQUIRED)
 
 option(T64H_SDL "Build the optional SDL3 shell" OFF)
 

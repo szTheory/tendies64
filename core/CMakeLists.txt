@@ -137,10 +137,10 @@ target_compile_definitions(t64_core PRIVATE
 
 # Installable package (plan 11-16, DR-18 and DR-20): the archive, the one
 # public header and the CMake package files, component Development, relocatable
-# through _IMPORT_PREFIX. The package version is the ABI candidate number
-# (0.1.0, SameMinorVersion for 0.x), a literal and never PROJECT_VERSION:
-# project(VERSION 0.0.0) is not a release version and stays untouched. The
-# config records the single built configuration and the build id.
+# through _IMPORT_PREFIX. The package version is the ABI number of the bound
+# ABI 1.0 (1.0.0, SameMajorVersion), a literal and never PROJECT_VERSION: it is
+# an ABI identity, not a release version, and project(VERSION 0.0.0) stays
+# untouched. The config records the single built configuration and the build id.
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 add_library(tendies64::core ALIAS t64_core)
@@ -157,7 +157,7 @@ install(EXPORT tendies64Targets NAMESPACE tendies64:: FILE tendies64Targets.cmak
   DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/tendies64" COMPONENT Development)
 write_basic_package_version_file(
   "${CMAKE_CURRENT_BINARY_DIR}/tendies64ConfigVersion.cmake"
-  VERSION 0.1.0 COMPATIBILITY SameMinorVersion)
+  VERSION 1.0.0 COMPATIBILITY SameMajorVersion)
 configure_package_config_file(tendies64Config.cmake.in
   "${CMAKE_CURRENT_BINARY_DIR}/tendies64Config.cmake"
   INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/tendies64")

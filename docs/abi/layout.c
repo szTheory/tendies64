@@ -242,9 +242,9 @@ T64_LAYOUT_PIN(offsetof(t64_save_info, flags) == 12u);
 T64_LAYOUT_PIN(offsetof(t64_save_info, write_generation) == 16u);
 
 /* constants: values of the integer T64_* defines, size of the string ones */
-T64_LAYOUT_PIN((long long)(T64_ABI_VERSION_MAJOR) == 0ll);
-T64_LAYOUT_PIN((long long)(T64_ABI_VERSION_MINOR) == 1ll);
-T64_LAYOUT_PIN((long long)(T64_ABI_VERSION) == 1ll);
+T64_LAYOUT_PIN((long long)(T64_ABI_VERSION_MAJOR) == 1ll);
+T64_LAYOUT_PIN((long long)(T64_ABI_VERSION_MINOR) == 0ll);
+T64_LAYOUT_PIN((long long)(T64_ABI_VERSION) == 65536ll);
 T64_LAYOUT_PIN((long long)(T64_DIGEST_SIZE) == 32ll);
 T64_LAYOUT_PIN((long long)(T64_ROM_HEADER_SIZE) == 64ll);
 T64_LAYOUT_PIN((long long)(T64_PROFILE_TEXT_CAPACITY) == 64ll);
