@@ -138,3 +138,34 @@ and finding F-127; PIN-IMPACT "Gate-growth ledger" has the SHAPE row.
   triggered. The 21 SHAPE names sum 19.62 s on hosted macOS and 14.77 s on hosted Linux.
 
 The Install base is recorded in PIN-IMPACT "Wave bases" by its own commit after this record.
+
+## INSTALL (11-16 to 11-20)
+
+The INSTALL wave (plans 11-16 to 11-20) and the numbered defect-fix plans executed inside it (11-26 for
+the SHAPE warnings S-01 to S-03, run after 11-15; 11-27 for finding F-20-A, run after 11-20). Reviewed by
+plan 11-21.
+
+| Item | Value |
+|------|-------|
+| Install base | `06e31ecab5b84c08996aba79cb3ab6e29bb021cc` (extracted from PIN-IMPACT.md "Wave bases" with the base idiom: exactly one 40-hex line, an existing commit, an ancestor of the head) |
+| Reviewed head | `862920da140e4a9a3936162abae7e660e0b99205` (56 commits after the base; 67 files changed, 53 of them outside `.planning/`) |
+| Host | Darwin arm64, Apple clang 21.0.0, cmake 4.4.3, ninja 1.13.2; 1-minute load 8 to 11 during the scratch gate (unrelated processes on the same machine, so seconds are upper bounds for a quiet host) |
+
+### Task 1: scratch gate of the INSTALL head
+
+Method (the 11-15 form): `git clone --no-checkout --no-hardlinks` of the main repository into
+`build/11-review/install/src`, `git checkout --detach 862920da140e4a9a3936162abae7e660e0b99205`, and a copy (not a
+symlink) of `build/tools/install` into the clone's `build/tools/install`. `git archive` of the head in the clone
+and in the main repository have the same SHA-256 (`1050cef7b6e604426bf43588716aa386ba3cc600b5ac2c28c9a47533ada4b864`),
+so the gated tree is exactly the committed head; `git status --short` of the clone is empty before and after the
+gate. The install fixtures (`install.setup`), the consumer builds and the control scratch directories ran inside
+the clone's own `build/gate`; the gate output was written outside the clone tree (`build/11-review/install/gate.out`,
+ignored, not committed).
+
+Command: `sh scripts/gate.sh` inside `build/11-review/install/src`, default environment (no `CI` variable).
+
+Result: `[gate] PASS`, `[gate] total 160s`, exit 0. Steps in seconds: sh-n 0 (38 scripts), lint-selftest 5,
+fixture-qualification 2, configure 0, build 6, boot-evidence-selftest 14, test-inventory-selftest 33,
+test-inventory 1, ctest 90 (`100% tests passed out of 324`, `Total Test time (real) = 89.49 sec`), core-lint 9.
+No name was excluded and no limit was widened. Phase 11 names: `ctest -N -L phase11` lists 70 (21 at the SHAPE
+review); the whole preset has 324 names, 49 more than the 275 of the SHAPE head.
