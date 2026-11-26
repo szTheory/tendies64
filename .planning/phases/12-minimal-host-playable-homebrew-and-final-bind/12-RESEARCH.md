@@ -386,16 +386,18 @@ SDL_VIDEO_DRIVER=dummy SDL_AUDIO_DRIVER=dummy ./sdl-smoke   # then SDL_AttachVir
 | A2 | `SDL_AUDIO_DUMMY_TIMESCALE`/`SDL_AUDIO_DISK_TIMESCALE` set high or low speeds the dummy audio drain enough for a smoke run | Pattern 5 | Lane takes longer; only the doc text was read, not run |
 | A3 | A shorter field period (V_SYNC 263 about 522k ticks) would work as a fallback lever; arithmetic from the vi.md formula, not run | Pitfall 2 | Fallback unusable; no effect on the recommended path |
 | A4 | `brew install sdl3` works on the hosted macOS image (Homebrew 7.0.14 listed, no SDL) | Pattern 5 | Optional hosted lane unavailable; local lane unaffected |
-| A5 | The owner reads an ABI/package version 1.0.0 as an interface identity, not a release version (D6 reserves "release channel and versioning") | Pattern 6, Open Questions | One-way bind blocked until the owner confirms; default is to proceed under CONTEXT |
+| A5 | (RESOLVED: OWNER CONFIRMED 2026-11-26, CONTEXT) The owner reads an ABI/package version 1.0.0 as an interface identity, not a release version (D6 reserves "release channel and versioning") | Pattern 6, Open Questions | One-way bind blocked until the owner confirms; default is to proceed under CONTEXT |
 | A6 | Title instructions stay inside the qualified CPU opcode set (the prototype ran, but only the listed opcodes) | Pattern 2 | `CPU_UNSUPPORTED` at author time, caught by the first run |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **What does "the final bind is the last plan" mean for the qualifier?** The qualification record must bind the post-bind tree. Recommendation: the bind plan is the last plan that moves ABI-visible bytes; qualification, claims and evidence are two further docs-and-records plans (as 11-24 and 11-25 were). Planner to confirm with the orchestrator.
-2. **Is the ABI major 1 a D6 "versioning" decision?** Recommendation: proceed (CONTEXT locks it) while writing "interface identity, no release, no tag, `project(VERSION)` stays 0.0.0" into the record; if the owner objects, the 0.x continuation is the recorded fallback.
-3. **Phase 12 G4 exception wording and reversal rule** (cold gate-macos above 900 s, or margin under 120 s, moves the long title scenario to a local lane).
-4. **Keyboard fallback in the shell?** Not required by CONTEXT (controller mapping only); a 30-line keyboard map helps owners without a pad but widens test tables. Claude's discretion; default off.
-5. **Is the LibFuturo public repository still the 2-commit history?** Not re-queried (privacy rule); the local pin statement does not depend on it.
+All five questions were settled before planning; the pointers name where each answer is recorded.
+
+1. **What does "the final bind is the last plan" mean for the qualifier?** (RESOLVED) The bind plan is the last plan that moves ABI-visible bytes; qualification, claims and evidence follow it. Answer: CONTEXT "Open questions settled after research", Q "Qualification versus bind ordering?" ("'final bind is the last plan' means the last ABI-moving plan; the Phase 12 qualification record and the final audit follow it"). Planned as: 12-14 is the one ABI-moving bind commit, 12-15 and 12-16 move no bound hash, 12-17 and 12-18 qualify (PIN-IMPACT DR-25, DR-28, DR-30 of 12-01).
+2. **Is the ABI major 1 a D6 "versioning" decision?** (RESOLVED) No: an ABI identity constant, not a release version. Answer: CONTEXT entry "[OWNER CONFIRMED 2026-11-26, answer 'Bind ABI 1.0 / package 1.0.0'; see STATE.md]" and the settled Q "Does a 1.0 ABI/package number count as a D6 versioning decision?". The 0.x continuation stays only a recorded alternative (DR-25); the bind record lists the D6 boundary as an owner-review item (12-14 Task 3).
+3. **Phase 12 G4 exception wording and reversal rule** (RESOLVED) Answer: CONTEXT settled Q "Phase 12 G4 gate growth?" (no equal-time offset; exception for owner review; cold gate-macos above 900 s moves names to local lanes first). Planned as the 12-01 Task 3 Gate-growth ledger with the reversal rule.
+4. **Keyboard fallback in the shell?** (RESOLVED) Off (controller only; scripted source for tests). Answer: CONTEXT settled Q "Keyboard fallback in the SDL shell?"; enforced by the 12-09 policy scan (no keyboard event handler in host/sdl) and DR-12.
+5. **Is the LibFuturo public repository still the 2-commit history?** (RESOLVED) Not re-queried (privacy rule), and the pin does not depend on it: the pin is re-taken from the sibling checkout's committed objects and stated as a local, unpublished SHA. Answer: CONTEXT autonomous Q "Which LibFuturo commit?"; planned as the re-pin rule of 12-01 Task 2 ("API-07 pin: LibFuturo") and its re-verification in 12-10 Task 1.
 
 ## Environment Availability
 
@@ -482,6 +484,8 @@ New names about 24; native seconds roughly: `host.pump.build` 2.5, `installed.co
 | Binary redistribution | Policy (D6) | no upload step, no `.app`, no installer; `git.create_tag` false |
 
 ## Plan Sizing, Ordering and Owner Stops
+
+> **Superseded numbering.** The plan table below is the research-time estimate and its plan numbers are no longer current. The authority for Phase 12 plan numbers and order is the ROADMAP Phase 12 entry (`.planning/ROADMAP.md`, "### Phase 12", 18 plans) and the PLAN files. After the split: 12-12 is the HOST review, the BIND is 12-13 to 12-16 (12-14 is the one coupled bind commit), and QUALIFY is 12-17 (Phase 12 qualifier, rehearsal, push and hosted pair of the bind head) and 12-18 (final audit, Qualification base, final native qualification, claims, evidence and the final hosted pair). The rows "12-12 Final bind", "12-13 qualify-phase12.py" and "12-14 Claims" below map to those post-split plans; the ordering hazards and owner stops still apply.
 
 **Estimate: 12 plans plus one reserved amendment slot (G5 ceiling about 15).** Prior sizes: Phase 10 plans 12 to 44 min, Phase 11 plans 10 to 52 min [CITED: STATE.md performance table]; the guest-authoring and bind plans are the ones that can exceed 45 minutes.
 

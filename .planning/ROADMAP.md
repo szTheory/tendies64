@@ -259,13 +259,12 @@ Plans:
   2. The host pump (ring draining, injected clock, input mapping, scripted input) is unit-tested in the required gate; scripted input gives byte-identical video, audio and save results to the headless run at two fake-clock speeds; a virtual joystick under SDL dummy drivers exercises button and axis mapping
   3. The SDL3 shell is optional, off by default and in a non-gating lane; the core builds and links with no SDL dependency and a build without the host target succeeds
   4. A written LibFuturo fit evaluation pinned to a commit SHA exists with an expected no-adapter-now conclusion, and the final ABI bind is made, or each defect-driven amendment is recorded with evidence and a re-run installed-consumer suite
-**Plans:** 15 plans (linear chain; phase-waves W0 12-01, TITLE 12-02 to 12-05 reviewed by 12-06, HOST 12-07 to 12-11 reviewed by 12-12, BIND 12-13, QUALIFY 12-14 and 12-15; 12-11 is a conditional amendment slot that closes with a one-line SUMMARY and no code unless 12-10 records a host-found API defect with disposition amend; the cold gate-macos run after the 12-15 push is orchestrator-only)
+**Plans:** 18 plans (linear chain; phase-waves W0 12-01 (reviewed with TITLE by 12-06), TITLE 12-02 to 12-05 reviewed by 12-06, HOST 12-07 to 12-11 reviewed by 12-12, BIND 12-13 to 12-16 (12-14 is the one coupled bind commit and the last ABI-moving plan; 12-13 before it and 12-15, 12-16 after it move no bound hash), QUALIFY 12-17 and 12-18; 12-11 is a conditional amendment slot that closes with a one-line SUMMARY and no code unless 12-10 records a host-found API defect with disposition amend; the cold gate-macos run after the 12-18 push is orchestrator-only)
 **UI hint**: no (a development window only; skip UI-SPEC and UI-review steps)
 
 Plans:
-
 **Wave 1**
-- [ ] 12-01-PLAN.md — W0: scripted preflight, Wave 0 base, registration and bind pin-site maps, LibFuturo re-pin, decision record (DR-01 to DR-32), carry-in triage, Phase 12 G4 exception
+- [ ] 12-01-PLAN.md — W0: scripted preflight, Wave 0 base, registration and bind pin-site maps, LibFuturo re-pin, decision record (DR-01 to DR-33), carry-in triage, Phase 12 G4 exception, plan file-count exceptions
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 12-02-PLAN.md — TITLE: title spec, independent oracle (before the guest), input scripts, checkpoint expectations, harness.title-oracle
@@ -280,7 +279,7 @@ Plans:
 - [ ] 12-05-PLAN.md — TITLE: installed-consumer title and title-persist cases, generated literals, consumer-recorded pins
 
 **Wave 6** *(blocked on Wave 5 completion)*
-- [ ] 12-06-PLAN.md — TITLE review in a scratch clone, push, hosted pair, Host base
+- [ ] 12-06-PLAN.md — W0 checklist and TITLE review in a scratch clone, push, hosted pair, Host base
 
 **Wave 7** *(blocked on Wave 6 completion)*
 - [ ] 12-07-PLAN.md — HOST tracer: standalone host project, pure-C pump (clock, advance loop, drain rule), fake-clock cases, include and isolation guards
@@ -301,13 +300,26 @@ Plans:
 - [ ] 12-12-PLAN.md — HOST review in a scratch clone with the full mutant run, push, hosted pair, Bind base
 
 **Wave 13** *(blocked on Wave 12 completion)*
-- [ ] 12-13-PLAN.md — BIND: generalized minor rule, header settle (FN-03), ABI 1.0 and package 1.0.0 (an ABI identity, not a release; D6 owner-review item), every pin site, bound record
+- [ ] 12-13-PLAN.md — BIND prep (no ABI byte): generalized freeze minor rule in check-abi.py, re-measured bind pin-site map with multi-line aware proofs, Bind staging list
 
 **Wave 14** *(blocked on Wave 13 completion)*
-- [ ] 12-14-PLAN.md — QUALIFY: Phase 12 qualifier (thin delta), hermetic test, rehearsal, push and hosted pair of the bind head
+- [ ] 12-14-PLAN.md — BIND: the one coupled bind commit (ABI 1.0 and package 1.0.0, OWNER CONFIRMED as an ABI identity, not a release; D6 owner-review item), every version pin, header settle (FN-03), goldens and bound record, proven in a scratch clone first
 
 **Wave 15** *(blocked on Wave 14 completion)*
-- [ ] 12-15-PLAN.md — QUALIFY: final independent audit, Qualification base, final native qualification, claims, evidence, owner checklist template, final hosted pair
+- [ ] 12-15-PLAN.md — BIND text (no bound hash): production comment and spec relabels, api.md bound sections and FN-02, record "Evidence for the bind" (FN-04), stale-text guard extension
+
+**Wave 16** *(blocked on Wave 15 completion)*
+- [ ] 12-16-PLAN.md — BIND proofs (no bound hash): abi-major-rule unit case, version-mismatch-major control, sweep, oracle-authority, act Linux version controls or recorded skip
+
+**Wave 17** *(blocked on Wave 16 completion)*
+- [ ] 12-17-PLAN.md — QUALIFY: Phase 12 qualifier (thin delta), hermetic test, rehearsal, push and hosted pair of the bind head
+
+**Wave 18** *(blocked on Wave 17 completion)*
+- [ ] 12-18-PLAN.md — QUALIFY: final independent audit, Qualification base, final native qualification, claims, evidence, owner checklist template, final hosted pair
+
+**G5:** Phase 12 has 18 plans, above the G5 guide of about 10-15 plans per phase: the plan-check of 2026-11-26 required the single bind plan (26 files, one uncommitted two-task unit) to be split into four plans with a safe resume point each (12-13 to 12-16); the scope is unchanged. Recorded for owner review, not as an approval.
+
+**File-count exceptions:** plans above the 10-file warning band are recorded with their reasons in the Phase 12 PIN-IMPACT section "Plan file-count exceptions" (12-08 15, 12-11 15, 12-07 14, 12-15 13, 12-02 11, 12-05 11, 12-14 11, 12-09 10); the shared bookkeeping files (scripts/check-test-inventory.sh, scripts/preflight-phase12-regexes.txt, PIN-IMPACT.md) are listed there once.
 
 **G4:** Phase 12 records its own gate-growth exception for owner review in its PIN-IMPACT ledger (new names are required evidence of SC1-SC4, each carries a COST property, no equal-time offset exists; reversal: a measured or projected cold gate-macos above 900 s moves non-essential Phase 12 names to a local lane first).
 
@@ -335,4 +347,4 @@ Priority order. NEXT and NEAR items name their promotion evidence and blocking d
 |-------|-----------|----------------|--------|-----------|
 | 10. Carry-in Closure Before the Freeze | v1.2 | 21/21 | Complete    | 2026-11-25 |
 | 11. Installed Consumer and Freeze Candidate | v1.2 | 29/29 | Complete    | 2026-11-26 |
-| 12. Minimal Host, Playable Homebrew and Final Bind | v1.2 | 0/15 | Planned | - |
+| 12. Minimal Host, Playable Homebrew and Final Bind | v1.2 | 0/18 | Planned | - |

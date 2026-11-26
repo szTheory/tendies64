@@ -4,16 +4,16 @@ milestone: v1.2
 milestone_name: Embeddable and Playable
 current_phase: 12
 current_phase_name: Minimal Host, Playable Homebrew and Final Bind
-status: planning
+status: executing
 stopped_at: Phase 11 complete, ready to plan Phase 12
-last_updated: "2026-11-26T14:09:53.422Z"
+last_updated: "2026-11-26T16:02:43.370Z"
 last_activity: 2026-11-26
 last_activity_desc: Phase 11 complete, transitioned to Phase 12
-state_head: abce0e3c0366359cccda6a1d9a23bc710752b9ab
+state_head: 00c13bcf856a42465d18791523571956c233ae24
 progress:
   total_phases: 3
   completed_phases: 2
-  total_plans: 50
+  total_plans: 68
   completed_plans: 50
   percent: 67
 ---
@@ -29,9 +29,9 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 
 ## Current Position
 
-Phase: 12 — Minimal Host, Playable Homebrew and Final Bind
+Phase: 12 (Minimal Host, Playable Homebrew and Final Bind) — READY TO EXECUTE
 Plan: Not started
-Status: Ready to plan
+Status: Ready to execute
 Last activity: 2026-11-26 — Phase 11 complete, transitioned to Phase 12
 Note: plan 11-25 is complete: final independent audit in a scratch clone (11-REVIEW.md FINAL, zero blocking findings), Qualification base 9b17d8106ce6d1479fd29587931c06136bae66c4, final native record 20261126T091014977323Z-aa393c22 (first attempt, verified), docs/claims/phase11.md and docs/evidence/phase11-qualification.md; origin/main is dc247faaa3f5ceda17870c5e66b7ec181c767637 with a green warm hosted pair (run 45792136442, gate-macos 539 s, gate-linux 271 s, 329 of 329), no tag. Pending (orchestrator): the cold gate-macos run of the final set and the Phase 11 verification; the local commits after dc247fa are records only.
 
