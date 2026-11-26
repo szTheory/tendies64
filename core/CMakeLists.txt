@@ -418,6 +418,38 @@ add_custom_target(t64-phase10-composite-fixture
   DEPENDS ${T64_PHASE10_COMPOSITE_OUTPUTS})
 add_dependencies(t64-phase10-composite-fixture t64-boot-fixtures)
 
+# Phase 12 title fixture (plan 12-03, API-06): one authored guest builds the
+# title ROM and its one-defsym refused-frame control; its own builder (a copy
+# of the composite builder) keeps the earlier builders on their source pins.
+set(T64_PHASE12_TITLE_STEMS
+  phase12-title-s32k phase12-title-refused-s32k)
+set(T64_PHASE12_TITLE_OUTPUTS)
+foreach(T64_TITLE_STEM IN LISTS T64_PHASE12_TITLE_STEMS)
+  list(APPEND T64_PHASE12_TITLE_OUTPUTS
+    "${T64_BOOT_FIXTURE_DIR}/${T64_TITLE_STEM}.z64"
+    "${T64_BOOT_FIXTURE_DIR}/${T64_TITLE_STEM}.elf"
+    "${T64_BOOT_FIXTURE_DIR}/${T64_TITLE_STEM}.payload.bin"
+    "${T64_BOOT_FIXTURE_DIR}/${T64_TITLE_STEM}.json")
+endforeach()
+add_custom_command(
+  OUTPUT ${T64_PHASE12_TITLE_OUTPUTS}
+  COMMAND "${CMAKE_COMMAND}" -E env "CC=${CMAKE_C_COMPILER}"
+    sh "${CMAKE_SOURCE_DIR}/scripts/build-title-fixture.sh" --build
+  DEPENDS
+    "${CMAKE_SOURCE_DIR}/fixtures/manifest.json"
+    "${CMAKE_SOURCE_DIR}/fixtures/title/title.S"
+    "${CMAKE_SOURCE_DIR}/fixtures/title/title.ld"
+    "${CMAKE_SOURCE_DIR}/scripts/build-title-fixture.sh"
+    "${CMAKE_SOURCE_DIR}/tools/fixture/t64_rom_pack.c"
+    "${CMAKE_SOURCE_DIR}/tools/common/t64_sha256.c"
+    "${CMAKE_SOURCE_DIR}/tools/common/t64_sha256.h"
+  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+  COMMENT "Building authored Phase 12 title fixtures"
+  VERBATIM)
+add_custom_target(t64-phase12-title-fixture
+  DEPENDS ${T64_PHASE12_TITLE_OUTPUTS})
+add_dependencies(t64-phase12-title-fixture t64-boot-fixtures)
+
 add_executable(test_tracer tests/test_tracer.c)
 target_include_directories(test_tracer PRIVATE "${CMAKE_SOURCE_DIR}/tests")
 target_link_libraries(test_tracer PRIVATE t64_core t64_sha256)
