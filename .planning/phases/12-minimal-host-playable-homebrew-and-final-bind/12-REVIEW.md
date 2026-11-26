@@ -167,3 +167,72 @@ cache hit on both jobs with key `69d0bfd4`, so a warm sample; no rerun): conclus
 
 Result after the push: zero blocking findings, zero warnings and nine info rows; the TITLE wave is reviewed in a
 scratch clone, pushed, and green on both hosted operating systems.
+
+## HOST (12-07 to 12-11)
+
+| Item | Value |
+|------|-------|
+| Host base | `0836e40f583f8b47486ee93b0de36889e5626f0b` (PIN-IMPACT "Wave bases", base idiom: exactly one 40-hex line, an existing commit, an ancestor of the head); the Wave 0 base `60b9e3c34fc0efc0ff64296cfa31415565b847b2` is read the same way |
+| Reviewed head | `35a2736f1d82b4ca746eb947408cded3722385f9` (26 commits after the Host base: the 12-06 closeout, plans 12-07 to 12-10 and the one-line 12-11 record; 27 commits after `origin/main` `884153a`; 30 files changed outside `.planning/`, all under `host/`, `scripts/`, `tools/hostcheck/`, `docs/evidence/` and one sentence of `docs/spec/api.md`) |
+| Host | Darwin arm64, Apple clang 21.0.0, cmake 4.4.3, ninja 1.13.2; 1-minute load 6.1 at the start of the scratch gate and 11 to 16 during it (an unrelated virtual machine used about 2.6 cores), so the seconds are upper bounds for a quiet host; no limit was widened |
+
+### Task 1: scratch gate and full mutant run of the HOST head
+
+Method (the 12-06 form, with the T-05 procedure note applied from the start): `git clone --no-checkout` of the
+main repository into `build/12-review/host/src`, `git checkout --detach 35a2736f1d82b4ca746eb947408cded3722385f9`,
+the clone's fetch URL set to the public repository with its push URL disabled and `origin/main` fetched (`884153a`),
+and a copy (not a symlink) of `build/tools/install` into the clone's `build/tools/install`. `git archive` of the
+head in the clone and in the main repository have the same SHA-256
+(`413ae2defa59cf5b68ebc58089e6eb4d667a2bfbb8ded668def0b226b47e72b8`), so the gated tree is exactly the committed
+head; `git status --short` of the clone is empty before and after the gate and after the mutant run. The gate
+output was written outside the clone tree (`build/12-review/host/gate.out`, ignored, not committed).
+
+Gate: `sh scripts/gate.sh` inside `build/12-review/host/src`, default environment. `[gate] PASS`, `[gate] total
+193s`, exit 0. Steps in seconds: sh-n 0 (45 scripts), lint-selftest 5, fixture-qualification 1, configure 1,
+build 6, boot-evidence-selftest 13, test-inventory-selftest 45, test-inventory 1, ctest 111 (`100% tests passed
+out of 351`, `Total Test time (real) = 110.75 sec`), core-lint 9. No name was excluded. Phase 12 names:
+`ctest -N -L phase12 -FA .` lists 22 (the 7 TITLE names and the 15 HOST-wave names), 24 with the fixture closure
+(`install.setup`, `installed.consumer.build`); the preset has 351 names, 15 more than the 336 of the TITLE review.
+The 15 HOST-wave names in this run (parallel, loaded host): `host.pump.title-two-speeds` 4.00, `repo.host-policy-selftest`
+2.79, `repo.api07-evaluation` 2.64, `repo.host-include-guard-selftest` 2.27, `repo.host-isolation` 1.54,
+`host.pump.stall` 1.40, `host.pump.build` 0.95, `host.pump.script` 0.48, `host.pump.drain-order` 0.45,
+`repo.host-policy` 0.11, `host.pump.clock` 0.10, `repo.host-include-guard` 0.09, `repo.p12-mutant-anchors` 0.04,
+`host.pump.input-map` 0.02, `host.pump.frames` 0.02 (16.90 s summed).
+
+Mutant run: `python3 -B scripts/p12-mutants.py --run` inside the clone, after its gate (the moved prefix of the
+clone's `build/gate` and the clone's title ROM, which equals its manifest row). It ran: the classifier denial of
+plan 12-08 did not recur, so this is the first execution of the driver's worktree code (`git worktree add
+--detach` of the clone's own repository under the clone's `build/12-mutants/wt`, the `Worktree.revert` path
+with its clean-status proof, the RESULTS write and the clean-tree and prerequisite checks). Exit 0, 37 s wall:
+`step host-build 0.9`, `step title-rom-build 0.5` (the worktree ROM equals its manifest row), `step baseline 7.1
+(7 checks)`. After the run `git worktree list` of the clone shows only the clone and its status is empty.
+
+| ID | Edit (file) | Expected | Result | Killing test | Seconds |
+|----|-------------|----------|--------|--------------|---------|
+| P12-P01 | tick divisor 16 written as 15 (`t64h_pump.h`) | KILLED | KILLED | `host.pump.clock` | 0.9 |
+| P12-P02 | input hook once at the end of a step (`t64h_pump.c`) | KILLED | KILLED | `host.pump.title-two-speeds` | 2.4 |
+| P12-P03 | ISViewer text drain skipped (`t64h_pump.c`) | KILLED | KILLED | `host.pump.drain-order` | 0.9 |
+| P12-P04 | refused video packet dropped, not held (`t64h_pump.c`) | KILLED | KILLED | `host.pump.stall` | 1.8 |
+| P12-P05 | frame rows read at the row length, not `stride_bytes` (`t64h_frames.c`) | KILLED | KILLED | `host.pump.frames` | 0.5 |
+| P12-P06 | dead zone one unit too wide (`t64h_input.c`) | KILLED | KILLED | `host.pump.input-map` | 0.6 |
+| P12-P07 | vertical axis by negation, not complement (`t64h_input.c`) | KILLED | KILLED | `host.pump.input-map` | 0.6 |
+| P12-P08 | guest completion treated as resumable (`t64h_pump.c`) | KILLED | KILLED | `host.pump.stall` | 1.6 |
+| P12-T01 | D-pad right and left bits swapped (`title.S`) | KILLED | KILLED | `host.pump.title-two-speeds` | 3.8 |
+| P12-T02 | horizontal step 3 pixels (`title.S`) | KILLED | KILLED | `host.pump.title-two-speeds` | 3.8 |
+| P12-T03 | one tone sample 0x2001 (`title.S`) | KILLED | KILLED | `host.pump.title-two-speeds` | 3.7 |
+| P12-T04 | press count at slot offset 8 (`title.S`) | KILLED | KILLED | `host.pump.title-two-speeds` | 3.8 |
+| P12-C-EQUIV | division by 16 written as a shift by 4 (`t64h_pump.c`; also `host.pump.title-two-speeds`) | SURVIVED | SURVIVED | - | 3.6 |
+| P12-C-INVALID | `#error` after the pump's include (`t64h_pump.c`) | INVALID | INVALID | - | 0.5 |
+
+12 of 12 mutants KILLED, each by its named test with a failed check line of `t64h_tests.c` or a comparator
+MISMATCH line (the driver's kill rule; a crash or a timeout is never a kill), and both controls as expected:
+no SURVIVED mutant and no unexpected control result, so Task 1 has no blocking finding. The table is the content
+of the clone's `build/gate/12-p12-results.txt` (ignored).
+
+Independent spot check (not the driver): a plain `git archive` copy of `scripts`, `host` and `fixtures` of the
+head under `build/12-review/host/review/indep` with the P12-P04 and P12-P07 edits applied by `sed`, built with
+`sh scripts/check-host.sh --host-build DIR build` against the clone's gate tree: `run stall` fails first at
+`t64h_tests.c:780: status == T64H_STALL` and `:782: b.pump.counters.stall_retries is 5, expected 1` (a dropped
+packet frees the ring, so the refusing sink never stalls), and `run input-map` fails at
+`t64h_tests.c:1215: (unsigned)(pad.y + 128) is 1, expected 0` (host +32767 reaches -127, not -128). Both are the
+cases' own assertions failing for the mutant's own reason.

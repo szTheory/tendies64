@@ -353,6 +353,26 @@ fidelity, compatibility or real-time speed follows from a pass.
 - Dependency audit: `docs/evidence/sdl3-host-dependency-audit.md` (commit e38cd65, an ancestor of the first `host/sdl` commit 9940ebc): link-only system package, zlib license, Homebrew core formula on macOS, no candidate on ubuntu-24.04; nothing was installed by the plan and no SDL source is in the repository.
 - Linux compile (not link, not run): the three `host/sdl` sources compile with the act image's gcc 13.3.0 (`-std=c99 -O2`, the host warning set, `-Werror`, no network) against a temporary copy of the installed SDL3 headers kept outside the repository and removed afterwards; the hosted Linux job never builds them (no libsdl3-dev on ubuntu-24.04).
 - Smoke discrimination (scratch mutants of a copy of `host/`, not committed): A and B swapped (mapping row 0), left trigger dropped (row 25), vertical axis not inverted (row 20), wrong window title (window title), input never queued (input events), audio never queued (audio stream), no gamepad opened (the shell found no gamepad), blit width halved and blit offset by one (blit) and a driver variable that is not dummy (environment check) each fail with the named check; a mutant that only changes rendering outside the sampled points would survive, by the tier above.
+- Full mutant run (plan 12-12 Task 1, the first execution of `python3 -B scripts/p12-mutants.py --run`): in the review clone `build/12-review/host/src` detached at `35a2736f1d82b4ca746eb947408cded3722385f9`, after its gate (`[gate] PASS`, 351 of 351); exit 0 in 37 s (host build 0.9 s, title ROM build 0.5 s equal to its manifest row, baseline 7.1 s over 7 checks); the worktree was created and removed in the clone's own repository and the clone's status stayed empty. A kill needs a failed check line of `t64h_tests.c` or a comparator MISMATCH line.
+
+| ID | Mutant | Expected | Result | Killing test | Seconds |
+|----|--------|----------|--------|--------------|---------|
+| P12-P01 | tick divisor 16 written as 15 | KILLED | KILLED | `host.pump.clock` | 0.9 |
+| P12-P02 | input hook once at the end of a step | KILLED | KILLED | `host.pump.title-two-speeds` | 2.4 |
+| P12-P03 | ISViewer text drain skipped | KILLED | KILLED | `host.pump.drain-order` | 0.9 |
+| P12-P04 | refused video packet dropped, not held | KILLED | KILLED | `host.pump.stall` | 1.8 |
+| P12-P05 | frame rows read at the row length, not `stride_bytes` | KILLED | KILLED | `host.pump.frames` | 0.5 |
+| P12-P06 | dead zone one unit too wide | KILLED | KILLED | `host.pump.input-map` | 0.6 |
+| P12-P07 | vertical axis by negation, not complement | KILLED | KILLED | `host.pump.input-map` | 0.6 |
+| P12-P08 | guest completion treated as resumable | KILLED | KILLED | `host.pump.stall` | 1.6 |
+| P12-T01 | title D-pad right and left bits swapped | KILLED | KILLED | `host.pump.title-two-speeds` | 3.8 |
+| P12-T02 | title horizontal step 3 pixels | KILLED | KILLED | `host.pump.title-two-speeds` | 3.8 |
+| P12-T03 | one title tone sample 0x2001 | KILLED | KILLED | `host.pump.title-two-speeds` | 3.7 |
+| P12-T04 | title press count at slot offset 8 | KILLED | KILLED | `host.pump.title-two-speeds` | 3.8 |
+| P12-C-EQUIV | control: division by 16 as a shift by 4 (also run against `host.pump.title-two-speeds`) | SURVIVED | SURVIVED | - | 3.6 |
+| P12-C-INVALID | control: a non-compiling pump source | INVALID | INVALID | - | 0.5 |
+
+- Mutant result: 12 of 12 mutants KILLED by their named tests, the equivalent control SURVIVED and the non-compiling control INVALID, as expected (12-REVIEW.md "HOST", Task 1).
 
 ## Gate-growth ledger
 
