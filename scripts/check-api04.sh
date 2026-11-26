@@ -54,6 +54,7 @@ NM=${NM:-nm}
 AR=${AR:-ar}
 OBJDUMP=${OBJDUMP:-objdump}
 NFIND=0
+FINDING_TAG=FINDING
 
 usage() {
   echo "usage: sh scripts/check-api04.sh [--expect FILE] members|disasm|undefined --lib LIB | headers --include DIR | seeded --lib LIB --include DIR" >&2
@@ -66,7 +67,7 @@ die() {
 }
 
 finding() {
-  echo "check-api04: FINDING: $*"
+  echo "check-api04: $FINDING_TAG: $*"
   NFIND=$((NFIND + 1))
 }
 
@@ -352,6 +353,8 @@ cmd_seeded() {
   [ -n "$LIB" ] && [ -n "$INC" ] || usage
   [ -d "$SEEDS" ] || die "seed directory not found: $SEEDS"
   extract_members "$LIB" "$TMP/members"
+  # Findings printed below belong to seeded violations that must be detected.
+  FINDING_TAG="expected finding of a seeded run"
   # The clean members are the members check's own subject (api04.members); a
   # seeded run below states the exact expected output, so it cannot pass vacuously.
 

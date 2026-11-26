@@ -307,7 +307,10 @@ install.abi-header
 install.abi-layout
 install.abi-symbols
 install.abs-paths
-api04.members'
+api04.members
+api04.disasm
+api04.headers
+api04.seeded'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

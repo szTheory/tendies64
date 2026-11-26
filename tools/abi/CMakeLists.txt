@@ -291,3 +291,48 @@ set_tests_properties(api04.members PROPERTIES
   TIMEOUT 180
   COST 6.5
   FIXTURES_REQUIRED t64_install)
+
+# api04.disasm: objdump -d --no-show-raw-insn over every member of the installed
+# archive finds no hardware clock or entropy instruction (mrs of CNTVCT, CNTPCT
+# or RNDR, rdtsc, rdtscp, rdrand, rdseed, rdpmc), and the scan refuses to pass on
+# an empty disassembly.
+add_test(NAME api04.disasm
+  COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/check-api04.sh disasm
+          --lib "${T64_INSTALL_MOVED_PREFIX}/lib/libt64_core.a"
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(api04.disasm PROPERTIES
+  LABELS "api04;phase11"
+  TIMEOUT 60
+  COST 0.8
+  FIXTURES_REQUIRED t64_install)
+
+# api04.headers: the Layer-1 determinism scan (tools/lint/core-lint.sh --files, the
+# L1-INCLUDE allowlist and the other Layer-1 rules) over every installed header.
+add_test(NAME api04.headers
+  COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/check-api04.sh headers
+          --include "${T64_INSTALL_MOVED_PREFIX}/include"
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(api04.headers PROPERTIES
+  LABELS "api04;phase11"
+  TIMEOUT 60
+  COST 0.14
+  FIXTURES_REQUIRED t64_install)
+
+# api04.seeded: the checks above can fail. Members plus
+# tools/lint/installed-seeds/seed_host_services.c (clock_gettime, fopen,
+# getentropy, pthread_create) fail with exactly four L2-UNDEF-SYMBOL lines;
+# members plus an object that imports the allowlisted but unrecorded memmove fail
+# the expected-set comparison; members plus seed_hw_counter.c fail the disassembly
+# scan; an include directory plus seed_banned_include.h fails with
+# L1-INCLUDE-BANNED. The seeds live outside tools/lint/selftest, so the per-file
+# lint selftest never runs them.
+add_test(NAME api04.seeded
+  COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/check-api04.sh seeded
+          --lib "${T64_INSTALL_MOVED_PREFIX}/lib/libt64_core.a"
+          --include "${T64_INSTALL_MOVED_PREFIX}/include"
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(api04.seeded PROPERTIES
+  LABELS "api04;phase11"
+  TIMEOUT 180
+  COST 6.6
+  FIXTURES_REQUIRED t64_install)

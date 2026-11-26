@@ -23,7 +23,7 @@
 3	^installed\.consumer\.
 0	^installed\.controls\.
 # api04.* requires the t64_install fixture: install.setup joins the api04 names (plan 11-16 lesson), so the count is the api04 names plus one.
-2	^api04\.
+5	^api04\.
 13	^unit\.core\.api\.
 1	^repo\.consumer-include-guard$
 1	^repo\.consumer-include-guard-selftest$
