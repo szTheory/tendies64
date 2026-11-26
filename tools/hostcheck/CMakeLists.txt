@@ -189,7 +189,7 @@ add_test(NAME repo.host-policy
 set_tests_properties(repo.host-policy PROPERTIES
   LABELS "repo;phase12"
   TIMEOUT 30
-  COST 0.07)
+  COST 0.08)
 
 # repo.host-policy-selftest: seeded copies of the host (one seed per rule and per way of
 # breaking it, 30 failing cases with their rule ids) and the clean controls (the exact title
@@ -202,7 +202,7 @@ add_test(NAME repo.host-policy-selftest
 set_tests_properties(repo.host-policy-selftest PROPERTIES
   LABELS "repo;phase12"
   TIMEOUT 60
-  COST 1.35)
+  COST 1.60)
 
 # repo.p12-mutant-anchors (plan 12-08, decision DR-32): the mutant table of the Phase 12 host
 # pump and title (8 pump mutants, 4 title mutants and 2 controls of scripts/p12-mutants.py):
