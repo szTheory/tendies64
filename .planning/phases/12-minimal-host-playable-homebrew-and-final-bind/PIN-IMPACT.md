@@ -196,6 +196,15 @@ Plan 12-10 re-verifies this pin at its start (a different HEAD is recorded as th
 silently). The expected conclusion stays "no adapter now", with no adapter code, no core API
 change and no claim that LibFuturo support exists.
 
+Plan 12-10 result (2026-11-26): the pin did not move. `cat-file -t` of the pinned commit prints
+commit, the head of the checkout is that commit, 0 commits follow it, the history is 1,169 commits
+and no remote is configured, so the pin is still "local, unpublished". The written evaluation
+`docs/evidence/phase12-libfuturo-fit.md` carries the pin line, the ten-axis comparison and the
+conclusion "no adapter now"; `repo.api07-evaluation` compares its pin with the row above and
+fails on a mismatch. Besides the two files named above the plan read the committed README, the
+LICENSE and the committed file list at the pin (committed objects only; the working tree, which has
+uncommitted edits, was not read).
+
 ## Decision record
 
 Written by plan 12-01 Task 3 before any production edit. Every row binds each later Phase 12
@@ -281,15 +290,41 @@ FN-04 close in this phase. No row is open: 11 rows, 3 done (FN-02, FN-03, FN-04)
 
 ## Host-found API defects
 
-Rows are added by plans 12-02 to 12-10 when a failing test or recorded evidence shows a
-postcondition defect of the bound API (DR-23); a row with disposition "amend" triggers plan
-12-11. Columns: ID, found by plan, postcondition (the `docs/spec/api.md` row), evidence,
-disposition (amend, accept or defer).
+Written by plan 12-10 Task 3 (DR-23), after plans 12-02 to 12-09 and their review. Every API
+observation of the TITLE and HOST waves is one row: the six candidate ergonomics rows of the
+research (C-1 to C-6) and every observation recorded by plans 12-02 to 12-09 (H-01 to H-09). A row
+ends in exactly one disposition: "amend" (a defect of a postcondition of the bound API with a
+failing test or recorded evidence; it triggers plan 12-11), "document" (a text fix outside the
+four goldens, carried by plan 12-15 with the bind text) or "accept" (a documented limit, with a
+reason). An ergonomics wish is not a defect (DR-23): "breaks a postcondition" is "yes" only when
+the code or a test contradicts what `docs/spec/api.md` or the header promises. Evidence tier:
+code and test observations at the Host base of plan 12-06 plus the HOST wave; nothing here is a
+compatibility, throughput or hardware claim.
 
-| ID | Found by plan | Postcondition | Evidence | Disposition |
-|----|---------------|---------------|----------|-------------|
+| ID | Found by plan | Observation | Evidence | Breaks a postcondition | Disposition | Reason |
+|----|---------------|-------------|----------|------------------------|-------------|--------|
+| C-1 | research | The numeric tick rate (62,500,000 per second, one tick per 16 ns) is not given to hosts by any member or sentence | the `docs/spec/api.md` section 8.3 sentence added by plan 12-07 (commit d66562b); `host.pump.clock` (conversions at 0, 15 and 16 ns) | no | document | done in 12-07: api.md is not a golden, so no header change; the pump constant `T64H_TICK_NS` is tested |
+| C-2 | research | `write_generation` does not count guest writes (the title's guest writes its save slot while the counter stays 0) | header comment of `t64_save_info` ("guest writes do not increment it"), `docs/spec/api.md` 10.3 and `docs/spec/save-media.md`; the guest-written save is read by `t64_machine_save_export` and compared by digest in `installed.consumer.title` and `host.pump.title-two-speeds` | no | accept | documented behavior of an observer-only counter; a host exports and compares bytes, which the two named tests do |
+| C-3 | research | `T64_STOP_FRAME_EVENT_COUNT` cannot end an advance with its own reason except for a target equal to the counter | `docs/spec/api.md` 8.2 and section 15, header comment of the stop kinds; the pump bounds by ticks (`host.pump.title-two-speeds`) | no | accept | documented and listed among the known limits of api.md section 15; no host need, since frame pacing uses tick bounds and the video ring |
+| C-4 | research | The maximum video packet size is not in the public header | `t64_machine_output_status` member `video_next_bytes` and the size query of `t64_video_copy` (`BUFFER_TOO_SMALL` with the required length, api.md 9.1 and 9.2); the pump sizes from it and holds `T64H_VIDEO_BUFFER_BYTES` (307,200); the small-buffer sub-run of `host.pump.stall` (T-12-20) | no | accept | every packet has a size query, so no host needs the constant; a header constant would be an additive wish, not a postcondition defect |
+| C-5 | research | `RESOURCE_LIMIT` has several causes (event budget, ring backpressure, counter overflow, a masked handler status) that the caller tells apart only by tick movement and the output status | `docs/spec/api.md` 8.1 lists the causes; the pump encodes the rule (drain, retry once, then a stall) and `host.pump.stall` pins it | no | accept | documented; the pump shows the rule is implementable from the postconditions; the one imprecise sentence about the masked cause is row H-03 |
+| C-6 | research | The `value_out` span of `t64_machine_bus_read` is not judged against the instance (I-05); eight implicit padding holes in six public structs (S-05) | `docs/spec/api.md` 10.1 and section 15, the per-target pins of `docs/abi/layout.c`; the host never calls `t64_machine_bus_read` or `t64_machine_bus_write` (`git grep -c "t64_machine_bus_" -- host` prints nothing) and builds every struct through its INIT macro (`repo.api-init-guard` roots include `host`) | no | accept | per DR-24: bound and pinned for 64-bit pointers, no host evidence against them, and an explicit-reserved amendment would ride only on an amendment that is triggered anyway, and none is |
+| H-01 | 12-07 (O-1) | `t64_video_copy` and `t64_audio_copy` dequeue: there is no non-destructive peek, so a sink that can refuse a packet needs the host to hold it | `host.pump.stall` (a refusing sink: one retry, then "stall without progress", nothing lost once it accepts again); DR-35; 12-07 SUMMARY "API observations" | no | accept | api.md 9.1 documents that a successful copy dequeues exactly that packet; the held-packet rule works and is pinned; a peek would be a new entry (an optional amendment), not a repair |
+| H-02 | 12-07 (O-2) | No call is named a guest-tick query; the pump learns the tick from `result.tick` and so starts at tick 0 | api.md section 8 (the result tick is the tick at which the call stopped) and 8.2 (a frame-event target equal to the counter returns at once); `advance_counter_bound` of `core/t64_scheduler.c`; a scratch probe against the moved prefix, not committed: after an advance that stopped at tick 3,581, an advance with `T64_STOP_FRAME_EVENT_COUNT` and target 0 answered OK with reason FRAME_EVENT_COUNT and tick 3,581, left the machine digest unchanged, and the next bound advance moved on | no | accept | the tick is readable through documented, side-effect-free behavior while the counter is zero (no public entry advances it, api.md 8.2); a pump that resumes an imported state would use that call; no postcondition is missing |
+| H-03 | 12-07 (O-3) | A `RESOURCE_LIMIT` stop that moved nothing also arises from a masked handler status; two such stops at one tick would read as the permanent stall of api.md 8.1 under the documented rule | `core/t64_scheduler.c`: `dispatch_front` pops the event and sets the guest tick to the event's tick before the handler runs, and both advance loops turn a whitelisted non-OK handler status into a `RESOURCE_LIMIT` stop, so the event is consumed and the next advance continues; api.md 8.1 lists the masked status among the causes but ends with "A stall with no progress after a full drain is permanent" without saying that this holds for ring backpressure only; no authored guest produces the case; the header holds no such sentence | no | document | the instance stays resumable, so the promised "resumable after drain or yield" holds; the sentence misleads a host that measures progress by tick movement alone; plan 12-15 adds one sentence to `docs/spec/api.md` 8.1 (a masked handler status consumes its event and the next advance continues; the permanent stall is the ring-backpressure case); no header edit and no golden |
+| H-04 | 12-08 (O-4) | `t64_machine_queue_input` answers `QUEUE_FULL` only after the fact and its capacity (256) is shared with scheduler events; there is no query of free slots | `host.pump.script` (model queue: lazy queueing and `QUEUE_FULL` deferral by lowering the advance bound, DR-36) and `host.pump.title-two-speeds`; 12-08 SUMMARY | no | accept | `QUEUE_FULL` with "refusals change neither the queue nor the sequence" is the documented postcondition (api.md 10.2) and deferral by the bound works; a free-slots read would be an additive entry, not a defect |
+| H-05 | 12-08 (O-5) | A late input event is refused against the tick the advance reached (ticks 10 and 3,580 answered `TIME_REVERSED`, tick 3,581 accepted, after an advance that stopped at 3,581) | measured on the title ROM in plan 12-08 (SUMMARY "API observations"); api.md 10.2 ("a tick at or after the current guest tick"); `host.pump.script` | no | accept | the measurement confirms the documented postcondition; nothing differs from the text |
+| H-06 | 12-05 | A long slice bound ends in a `RESOURCE_LIMIT` stop long before the bound: the per-advance event budget of the open IPL3 boot ends an advance after a few thousand ticks (the consumer's 1,000,000-tick slice tripped its own 64-stop guard at tick 137,316; the probe of H-02 stopped a 250,000-tick bound at tick 3,581) | 12-05 SUMMARY "Choices and observations" item 6; api.md 8.1 and 8.3 ("each advance dispatches at most the profile's event budget, so a call does a bounded amount of work"); the consumer slice of 16,384 ticks | no | accept | documented bounded work per call; a host loops on `RESOURCE_LIMIT` with tick movement, as the pump does; the 12-05 SUMMARY already records that this is not a library defect |
+| H-07 | 12-08 | The runner's `t64.input` parser caps a schedule at 128 events and the host reader at 4,096, while the core queue holds 256 events shared with the scheduler: a script the host accepts above 128 events cannot run through the runner | 12-08 SUMMARY (last bullet of "API observations"); DR-13 and DR-36 item 3 | no | accept | the runner is not installed and is outside the freeze record; the caps are consumer-side limits chosen on purpose (DR-13), and the core's only contract is `QUEUE_FULL` (row H-04) |
+| H-08 | 12-04 | The runner cannot drain a 49,152-byte video packet without raw capture and refuses artifact producers together with raw capture, so it yields no save image of the title and no frames of the refused ROM | DR-34 and the 12-04 SUMMARY "Decision B"; `runner.title-two-run`, `controls.real.title-refused-frame` and `installed.consumer.title-refused` (the consumer holds the assertions the runner cannot) | no | accept | runner limits, not postconditions of the installed library; recorded as executable facts and moved to the consumer and the pump (DR-34); a reversal is a runner plan, not an API amendment |
+| H-09 | 12-09 | The unthrottled pump ran about 12.5 million guest ticks per CPU second on the measuring host, against 62.5 million for a real-time guest, so the shell with a real clock would play the title below real time there | 12-09 SUMMARY "Issues Encountered" (the throwaway measurement of DR-20, information only) | no | accept | the API makes no throughput or real-time promise (AGENTS.md: no real-time claim); a faster core is outside the API and this phase, and the owner checklist of plan 12-18 should say so |
 
-none at Wave 0
+Closed list: 15 rows, none dropped, one disposition each: 13 accept (C-2 to C-6, H-01, H-02,
+H-04 to H-09), 2 document (C-1, done in 12-07; H-03, open: plan 12-15 carries the api.md 8.1
+sentence) and 0 amend. No row breaks a postcondition: the HOST wave produced no failing test of
+the bound API and no recorded evidence of a defect, so the amendment slot stays closed.
+
+12-11 trigger: no
 
 ## Owner questions
 
