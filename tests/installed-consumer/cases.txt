@@ -12,6 +12,8 @@
 smoke
 composite
 title
+title-persist
+title-refused
 ops-lifetime
 ops-handshake
 ops-struct-size

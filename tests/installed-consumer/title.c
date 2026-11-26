@@ -44,7 +44,7 @@
 #define T64C_TITLE_MAX_AUDIO 8u
 #define T64C_TITLE_TEXT_MAX 512u
 /* Ticks per advance (the default of the title cases; --slice N overrides it). */
-#define T64C_TITLE_SLICE UINT64_C(65536)
+#define T64C_TITLE_SLICE UINT64_C(16384)
 /* The refused-frame ROM is advanced to this guest tick (plan 12-05, decision DR-34). */
 #define T64C_TITLE_REFUSED_BOUND UINT64_C(5000000)
 #define T64C_TITLE_REFUSED_MIN_PACKETS 3u
@@ -397,6 +397,23 @@ static t64c_title_run *title_play(const t64c_title_plan *plan, t64c_tally *tally
   return run;
 }
 
+/* The index of the first packet of the run whose digest differs from the literal
+ * (over the packets both have), or SIZE_MAX when they are equal throughout. */
+static size_t title_first_difference(const t64c_title_run *run, const char *const *literal,
+                                     size_t literal_count) {
+  size_t i;
+
+  for (i = 0u; i < run->video_count && i < literal_count; i++) {
+    char hex[T64C_SHA256_HEX_SIZE];
+
+    t64c_sha256_hex(run->video_sha[i], hex);
+    if (strcmp(hex, literal[i]) != 0) {
+      return i;
+    }
+  }
+  return SIZE_MAX;
+}
+
 /* The frame digests of a run against the literals, one line per checkpoint
  * ("blank" marks a packet equal to the blank digest). Returns the index of the
  * first checkpoint that differs, or SIZE_MAX when every checkpoint is equal. */
@@ -583,20 +600,50 @@ static void title_compare_runner_pins(t64c_tally *tally, const t64c_title_run *r
                T64C_TPIN_RUNNER_LABEL, "short video packet count");
 }
 
+/* A plan for one scenario of the table (no import). */
+static void title_plan_of(t64c_title_plan *plan, const t64c_args *args,
+                          const t64c_title_expect *want) {
+  memset(plan, 0, sizeof *plan);
+  plan->rom_path = args->rom_path;
+  plan->slice = args->slice;
+  plan->events = want->events;
+  plan->event_count = want->event_count;
+  plan->bound = want->bound;
+}
+
+/* The consumer-recorded pins of the long scenario: the values this consumer itself
+ * recorded once (plan 12-05), compared on every run so a change of the library
+ * shows. Agreement, not independence. */
+static void title_compare_consumer_pins(t64c_tally *tally, const t64c_title_run *run) {
+  char hex[T64C_SHA256_HEX_SIZE];
+  char what[128];
+
+  (void)printf("%s: source: %s\n", T64C_TPIN_CONSUMER_LABEL, T64C_TPIN_CONSUMER_SOURCE);
+  (void)snprintf(what, sizeof what, "long completion tick %llu",
+                 (unsigned long long)run->tick);
+  title_pinned(tally, run->tick == T64C_TPIN_CONSUMER_COMPLETION_TICK, T64C_TPIN_CONSUMER_LABEL,
+               what);
+  title_pinned(tally, run->stop_reason == T64C_TPIN_CONSUMER_STOP_REASON,
+               T64C_TPIN_CONSUMER_LABEL, "long stop reason " T64C_TPIN_CONSUMER_STOP_REASON_NAME);
+  t64c_sha256_hex(run->digest, hex);
+  (void)snprintf(what, sizeof what, "long final state digest %s", hex);
+  title_pinned(tally, strcmp(hex, T64C_TPIN_CONSUMER_FINAL_DIGEST_HEX) == 0,
+               T64C_TPIN_CONSUMER_LABEL, what);
+  title_pinned(tally, run->video_count == T64C_TPIN_CONSUMER_VIDEO_PACKET_COUNT,
+               T64C_TPIN_CONSUMER_LABEL, "long video packet count");
+}
+
 int t64c_case_title(const t64c_args *args) {
   t64c_tally tally = {0ul, 0ul};
   t64c_title_plan plan;
   t64c_title_run *run;
+  size_t first;
+  char what[128];
 
   T64C_CHECK_U32(&tally, t64c_sha256_selfcheck(), 0u);
-  memset(&plan, 0, sizeof plan);
-  plan.rom_path = args->rom_path;
-  plan.slice = args->slice;
 
   /* The short scenario: the independent literals and the runner-recorded pins. */
-  plan.events = title_expect[TITLE_SHORT].events;
-  plan.event_count = title_expect[TITLE_SHORT].event_count;
-  plan.bound = title_expect[TITLE_SHORT].bound;
+  title_plan_of(&plan, args, &title_expect[TITLE_SHORT]);
   run = title_play(&plan, &tally, "short");
   if (run == NULL) {
     return 2;
@@ -607,5 +654,185 @@ int t64c_case_title(const t64c_args *args) {
     title_print_run("short", run);
   }
   free(run);
+
+  /* The long scenario (12 fields, longer than the runner's guest cap allows). */
+  title_plan_of(&plan, args, &title_expect[TITLE_LONG]);
+  run = title_play(&plan, &tally, "long");
+  if (run == NULL) {
+    return 2;
+  }
+  title_compare_scenario(&tally, &title_expect[TITLE_LONG], run);
+  title_compare_consumer_pins(&tally, run);
+  if (args->print) {
+    title_print_run("long", run);
+  }
+  free(run);
+
+  /* The shifted scenario (the long events one field later): its frames are those of
+   * the shifted literals and leave the long literals at the first moved field. */
+  title_plan_of(&plan, args, &title_expect[TITLE_SHIFTED]);
+  plan.bound = T64C_TLIT_SHIFTED_PREFIX_BOUND_TICKS;
+  run = title_play(&plan, &tally, "shifted prefix");
+  if (run == NULL) {
+    return 2;
+  }
+  (void)title_compare_frames(&tally, "shifted", run, title_expect[TITLE_SHIFTED].frames,
+                             title_expect[TITLE_SHIFTED].frame_count,
+                             T64C_TLIT_SHIFTED_PREFIX_FRAMES);
+  first = title_first_difference(run, title_expect[TITLE_LONG].frames,
+                                 title_expect[TITLE_LONG].frame_count);
+  (void)snprintf(what, sizeof what, "shifted differs from the long literals at checkpoint %u",
+                 (unsigned)T64C_TLIT_LONG_SHIFTED_FIRST_DIFFERENCE);
+  title_independent(&tally,
+                    first != SIZE_MAX && first == T64C_TLIT_LONG_SHIFTED_FIRST_DIFFERENCE, what);
+  if (first != SIZE_MAX) {
+    (void)printf("shifted differs at checkpoint %u\n", (unsigned)first);
+  }
+  free(run);
   return t64c_report("title", &tally);
+}
+
+/* ---- the persistence case -------------------------------------------------------- */
+
+int t64c_case_title_persist(const t64c_args *args) {
+  t64c_tally tally = {0ul, 0ul};
+  t64c_title_plan plan;
+  t64c_title_run *long_run;
+  t64c_title_run *run;
+  char hex[T64C_SHA256_HEX_SIZE];
+
+  T64C_CHECK_U32(&tally, t64c_sha256_selfcheck(), 0u);
+
+  /* The long run saves on Start: its exported save image is the image to restore. */
+  title_plan_of(&plan, args, &title_expect[TITLE_LONG]);
+  long_run = title_play(&plan, &tally, "long");
+  if (long_run == NULL) {
+    return 2;
+  }
+  title_independent(&tally,
+                    long_run->stop_reason == T64_STOP_REASON_GUEST_COMPLETION &&
+                        long_run->tick < title_expect[TITLE_LONG].bound,
+                    "long ends in an authored completion");
+  title_compare_save(&tally, "long", long_run, title_expect[TITLE_LONG].save_pairs,
+                     title_expect[TITLE_LONG].save_pair_count,
+                     title_expect[TITLE_LONG].save_sha256);
+  title_compare_consumer_pins(&tally, long_run);
+
+  /* A fresh instance imports that image and runs with no input events: the restored
+   * position and the boot transcript equal the persistence literals. */
+  title_plan_of(&plan, args, &title_expect[TITLE_PERSIST]);
+  plan.import_image = long_run->save;
+  run = title_play(&plan, &tally, "persist (save imported)");
+  if (run == NULL) {
+    free(long_run);
+    return 2;
+  }
+  title_compare_scenario(&tally, &title_expect[TITLE_PERSIST], run);
+  if (args->print) {
+    title_print_run("persist", run);
+  }
+  title_independent(&tally,
+                    strcmp(title_persist_frames[0], T64C_TLIT_FRESH_BOOT_FRAME_SHA256_HEX) != 0,
+                    "the restored frame is not the fresh-boot frame");
+  free(run);
+
+  /* The control: the same run without the import is a fresh boot. Its frame is the
+   * fresh-boot literal and not the restored frame, so a missing restore fails the
+   * comparison above. */
+  title_plan_of(&plan, args, &title_expect[TITLE_PERSIST]);
+  plan.bound = T64C_TLIT_PERSIST_CONTROL_BOUND_TICKS;
+  run = title_play(&plan, &tally, "persist control (no import)");
+  if (run == NULL) {
+    free(long_run);
+    return 2;
+  }
+  title_independent(&tally, run->video_count == 1u, "control: one video packet");
+  t64c_sha256_hex(run->video_sha[0], hex);
+  title_independent(&tally, strcmp(hex, T64C_TLIT_FRESH_BOOT_FRAME_SHA256_HEX) == 0,
+                    "control: the frame without an import is the fresh-boot frame");
+  title_independent(&tally, strcmp(hex, title_persist_frames[0]) != 0,
+                    "control: the frame without an import is not the restored frame");
+  free(run);
+  free(long_run);
+  return t64c_report("title-persist", &tally);
+}
+
+/* ---- the refused-frame case (decision DR-34) ---------------------------------------- */
+
+int t64c_case_title_refused(const t64c_args *args) {
+  static const uint8_t zero_frame[T64C_TLIT_FRAME_BYTES] = {0u};
+  static const uint8_t zero_save[T64C_TLIT_SAVE_BYTES] = {0u};
+  t64c_tally tally = {0ul, 0ul};
+  t64c_title_plan plan;
+  t64c_title_run *run;
+  char hex[T64C_SHA256_HEX_SIZE];
+  char what[96];
+  bool all_blank = true;
+  bool save_zero = true;
+  size_t i;
+
+  T64C_CHECK_U32(&tally, t64c_sha256_selfcheck(), 0u);
+  /* The blank digests are the SHA-256 of zero bytes, by the consumer's own implementation:
+   * a blank frame is what the literal says it is, and it is not any frame of the title. */
+  t64c_sha256_hex_of(zero_frame, sizeof zero_frame, hex);
+  title_independent(&tally, strcmp(hex, T64C_TLIT_BLANK_SHA256_HEX) == 0,
+                    "the blank digest is the SHA-256 of 49152 zero bytes");
+  t64c_sha256_hex_of(zero_save, sizeof zero_save, hex);
+  title_independent(&tally, strcmp(hex, T64C_TLIT_BLANK_SAVE_SHA256_HEX) == 0,
+                    "the blank save digest is the SHA-256 of 32768 zero bytes");
+  title_independent(&tally,
+                    strcmp(T64C_TLIT_REFUSED_FRAME_SHA256_HEX, T64C_TLIT_BLANK_SHA256_HEX) == 0,
+                    "the refused-frame expectation is the blank digest");
+
+  /* The refused-frame ROM under the short script, advanced to the refused-frame bound. */
+  memset(&plan, 0, sizeof plan);
+  plan.rom_path = args->rom_path;
+  plan.slice = args->slice;
+  plan.events = title_expect[TITLE_SHORT].events;
+  plan.event_count = title_expect[TITLE_SHORT].event_count;
+  plan.bound = T64C_TITLE_REFUSED_BOUND;
+  run = title_play(&plan, &tally, "refused");
+  if (run == NULL) {
+    return 2;
+  }
+  (void)snprintf(what, sizeof what, "refused: at least %u video packets",
+                 (unsigned)T64C_TITLE_REFUSED_MIN_PACKETS);
+  title_independent(&tally, run->video_count >= T64C_TITLE_REFUSED_MIN_PACKETS, what);
+  for (i = 0u; i < run->video_count; i++) {
+    bool blank;
+
+    t64c_sha256_hex(run->video_sha[i], hex);
+    blank = strcmp(hex, T64C_TLIT_REFUSED_FRAME_SHA256_HEX) == 0;
+    all_blank = all_blank && blank;
+    (void)snprintf(what, sizeof what, "refused packet %u is %s", (unsigned)i,
+                   blank ? "blank" : "NOT blank");
+    title_independent(&tally, blank, what);
+  }
+  title_independent(&tally, run->video_shape_ok && all_blank,
+                    "refused: every packet is the 128x96 blank frame");
+  title_independent(&tally, run->audio_count == T64C_TLIT_REFUSED_AUDIO_COUNT,
+                    "refused: no audio packet");
+  title_independent(&tally, run->text_length == T64C_TLIT_REFUSED_TRANSCRIPT_BYTES,
+                    "refused: an empty transcript");
+  title_independent(&tally,
+                    T64C_TLIT_REFUSED_COMPLETES == 0u &&
+                        run->stop_reason != T64_STOP_REASON_GUEST_COMPLETION,
+                    "refused: no authored completion");
+  title_independent(&tally,
+                    run->stop_reason == T64_STOP_REASON_BOUND &&
+                        run->tick == T64C_TITLE_REFUSED_BOUND,
+                    "refused: the run ends at the bound");
+  for (i = 0u; i < run->save_length && i < T64C_TLIT_SAVE_BYTES; i++) {
+    save_zero = save_zero && run->save[i] == 0u;
+  }
+  t64c_sha256_hex_of(run->save, run->save_length, hex);
+  title_independent(&tally,
+                    run->save_length == T64C_TLIT_SAVE_BYTES && save_zero &&
+                        strcmp(hex, T64C_TLIT_REFUSED_SAVE_SHA256_HEX) == 0,
+                    "refused: the save export is the blank save image");
+  if (args->print) {
+    title_print_run("refused", run);
+  }
+  free(run);
+  return t64c_report("title-refused", &tally);
 }

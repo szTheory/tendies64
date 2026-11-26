@@ -437,15 +437,13 @@ def generate_title(root):
         raise Usage("%s: profile_id is missing" % TITLE_PINS_REL)
     if runner[3] != expected["scenarios"]["short"]["video_packets"]:
         raise Usage("%s: the runner packet count is not the short scenario's packet count" % TITLE_PINS_REL)
-    consumer = None
-    if "consumer" in pins:
-        if not isinstance(pins["consumer"], dict):
-            raise Usage("%s: consumer is not a record" % TITLE_PINS_REL)
-        consumer = title_pins_section(pins["consumer"], CONSUMER_PIN_LABEL, "long", TITLE_PINS_REL)
-        if pins["consumer"]["source"] != CONSUMER_PIN_SOURCE:
-            raise Usage("%s: the consumer record does not cite %r" % (TITLE_PINS_REL, CONSUMER_PIN_SOURCE))
-        if consumer[3] != expected["scenarios"]["long"]["video_packets"]:
-            raise Usage("%s: the consumer packet count is not the long scenario's packet count" % TITLE_PINS_REL)
+    if not isinstance(pins.get("consumer"), dict):
+        raise Usage("%s: the section consumer is missing" % TITLE_PINS_REL)
+    consumer = title_pins_section(pins["consumer"], CONSUMER_PIN_LABEL, "long", TITLE_PINS_REL)
+    if pins["consumer"]["source"] != CONSUMER_PIN_SOURCE:
+        raise Usage("%s: the consumer record does not cite %r" % (TITLE_PINS_REL, CONSUMER_PIN_SOURCE))
+    if consumer[3] != expected["scenarios"]["long"]["video_packets"]:
+        raise Usage("%s: the consumer packet count is not the long scenario's packet count" % TITLE_PINS_REL)
     boundaries = expected["boundaries"]
     margin = expected["constants"]["boundary_margin_ticks"]
 
@@ -525,9 +523,8 @@ def generate_title(root):
     w(" * RECORDED PINS: source %s\n" % TITLE_PINS_REL)
     w(" * (%s) the four values of the short scenario of the supervised\n" % PIN_LABEL)
     w(" * runner, cited: %s\n" % pins["source"])
-    if consumer is not None:
-        w(" * (%s) the four values of the long scenario of this consumer,\n" % CONSUMER_PIN_LABEL)
-        w(" * cited: %s\n" % pins["consumer"]["source"])
+    w(" * (%s) the four values of the long scenario of this consumer,\n" % CONSUMER_PIN_LABEL)
+    w(" * cited: %s\n" % pins["consumer"]["source"])
     w(" * The consumer checks that the installed package agrees with them; they are never an\n")
     w(" * independent expectation and are never called one.\n")
     w(" * ====================================================================== */\n\n")
@@ -539,14 +536,13 @@ def generate_title(root):
     w("#define T64C_TPIN_RUNNER_STOP_REASON T64_STOP_REASON_%s\n" % runner[1])
     w("#define T64C_TPIN_RUNNER_FINAL_DIGEST_HEX %s\n" % c_string(runner[2]))
     w("#define T64C_TPIN_RUNNER_VIDEO_PACKET_COUNT %du\n" % runner[3])
-    if consumer is not None:
-        w("\n#define T64C_TPIN_CONSUMER_LABEL %s\n" % c_string(CONSUMER_PIN_LABEL))
-        w("#define T64C_TPIN_CONSUMER_SOURCE %s\n" % c_string(pins["consumer"]["source"]))
-        w("#define T64C_TPIN_CONSUMER_COMPLETION_TICK UINT64_C(%d)\n" % consumer[0])
-        w("#define T64C_TPIN_CONSUMER_STOP_REASON_NAME %s\n" % c_string(consumer[1]))
-        w("#define T64C_TPIN_CONSUMER_STOP_REASON T64_STOP_REASON_%s\n" % consumer[1])
-        w("#define T64C_TPIN_CONSUMER_FINAL_DIGEST_HEX %s\n" % c_string(consumer[2]))
-        w("#define T64C_TPIN_CONSUMER_VIDEO_PACKET_COUNT %du\n" % consumer[3])
+    w("\n#define T64C_TPIN_CONSUMER_LABEL %s\n" % c_string(CONSUMER_PIN_LABEL))
+    w("#define T64C_TPIN_CONSUMER_SOURCE %s\n" % c_string(pins["consumer"]["source"]))
+    w("#define T64C_TPIN_CONSUMER_COMPLETION_TICK UINT64_C(%d)\n" % consumer[0])
+    w("#define T64C_TPIN_CONSUMER_STOP_REASON_NAME %s\n" % c_string(consumer[1]))
+    w("#define T64C_TPIN_CONSUMER_STOP_REASON T64_STOP_REASON_%s\n" % consumer[1])
+    w("#define T64C_TPIN_CONSUMER_FINAL_DIGEST_HEX %s\n" % c_string(consumer[2]))
+    w("#define T64C_TPIN_CONSUMER_VIDEO_PACKET_COUNT %du\n" % consumer[3])
     w("\n#endif /* T64C_TITLE_H */\n")
     return "".join(out), runner, consumer
 
@@ -562,7 +558,7 @@ def check_title(root, header_path):
     if committed != text:
         findings.append("%s differs from the regenerated header (run with --write after "
                         "changing a fixture; a hand edit of a literal is a finding)" % TITLE_HEADER_REL)
-    for label in (PIN_LABEL,) + ((CONSUMER_PIN_LABEL,) if consumer is not None else ()):
+    for label in (PIN_LABEL, CONSUMER_PIN_LABEL):
         if committed.count(label) < 1:
             findings.append("%s does not carry the label %r" % (TITLE_HEADER_REL, label))
     record_path = os.path.join(root, TITLE_RECORD_REL)
@@ -571,8 +567,6 @@ def check_title(root, header_path):
     with open(record_path, "r", encoding="utf-8") as handle:
         record = handle.read()
     for who, pin in (("runner", runner), ("consumer", consumer)):
-        if pin is None:
-            continue
         if "{:,}".format(pin[0]) not in record:
             findings.append("the cited record does not contain the %s completion tick %s"
                             % (who, "{:,}".format(pin[0])))

@@ -360,7 +360,9 @@ PHASE12_TESTS='harness.title-oracle
 runner.title-two-run
 controls.real.title-wrong-input
 controls.real.title-refused-frame
-installed.consumer.title'
+installed.consumer.title
+installed.consumer.title-persist
+installed.consumer.title-refused'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

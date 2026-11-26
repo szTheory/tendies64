@@ -220,6 +220,8 @@
  * RECORDED PINS: source fixtures/title/title.runner-pins.json
  * (runner-recorded pin, not independent) the four values of the short scenario of the supervised
  * runner, cited: plan 12-04 runner.title-two-run, supervised run
+ * (consumer-recorded pin, not independent) the four values of the long scenario of this consumer,
+ * cited: plan 12-05 installed.consumer.title
  * The consumer checks that the installed package agrees with them; they are never an
  * independent expectation and are never called one.
  * ====================================================================== */
@@ -232,5 +234,13 @@
 #define T64C_TPIN_RUNNER_STOP_REASON T64_STOP_REASON_GUEST_COMPLETION
 #define T64C_TPIN_RUNNER_FINAL_DIGEST_HEX "57b683dff8b9d387d1ec813dff58aef223e561975755eec3006242a106991ae7"
 #define T64C_TPIN_RUNNER_VIDEO_PACKET_COUNT 3u
+
+#define T64C_TPIN_CONSUMER_LABEL "consumer-recorded pin, not independent"
+#define T64C_TPIN_CONSUMER_SOURCE "plan 12-05 installed.consumer.title"
+#define T64C_TPIN_CONSUMER_COMPLETION_TICK UINT64_C(13078313)
+#define T64C_TPIN_CONSUMER_STOP_REASON_NAME "GUEST_COMPLETION"
+#define T64C_TPIN_CONSUMER_STOP_REASON T64_STOP_REASON_GUEST_COMPLETION
+#define T64C_TPIN_CONSUMER_FINAL_DIGEST_HEX "151bf84028782ead7a1265bf9d9d77917fdadfcd94bf0ee6dcb38314baad6b34"
+#define T64C_TPIN_CONSUMER_VIDEO_PACKET_COUNT 12u
 
 #endif /* T64C_TITLE_H */

@@ -1,5 +1,14 @@
 {
   "completion_tick": "3693938",
+  "consumer": {
+    "completion_tick": "13078313",
+    "final_state_digest": "151bf84028782ead7a1265bf9d9d77917fdadfcd94bf0ee6dcb38314baad6b34",
+    "label": "consumer-recorded pin, not independent",
+    "scenario": "long",
+    "source": "plan 12-05 installed.consumer.title",
+    "stop_reason": "GUEST_COMPLETION",
+    "video_packet_count": 12
+  },
   "final_state_digest": "57b683dff8b9d387d1ec813dff58aef223e561975755eec3006242a106991ae7",
   "label": "runner-recorded pin, not independent",
   "profile_id": "ntsc-cart-4m-openipl3-rdram-b-t1-si-v2-s32k",

@@ -398,6 +398,8 @@ set(T64_CONSUMER_ROM "${CMAKE_SOURCE_DIR}/build/fixtures/phase10-composite-s32k.
 # case that runs another authored ROM names it in T64_CONSUMER_ROM_<case>; every other case
 # gets T64_CONSUMER_ROM (the composite ROM, which the three-way, controls and lanes keep).
 set(T64_CONSUMER_ROM_title "${CMAKE_SOURCE_DIR}/build/fixtures/phase12-title-s32k.z64")
+set(T64_CONSUMER_ROM_title-persist "${CMAKE_SOURCE_DIR}/build/fixtures/phase12-title-s32k.z64")
+set(T64_CONSUMER_ROM_title-refused "${CMAKE_SOURCE_DIR}/build/fixtures/phase12-title-refused-s32k.z64")
 
 # installed.consumer.literals: the constants of the consumer's t64c_composite.h
 # equal the committed fixture files (the independent literals of
@@ -446,7 +448,9 @@ set(T64_CONSUMER_COST_hostloop-cadence 0.46)
 set(T64_CONSUMER_COST_hostloop-delay 0.66)
 set(T64_CONSUMER_COST_two-instance 0.30)
 set(T64_CONSUMER_COST_sequence 1.20)
-set(T64_CONSUMER_COST_title 0.52)
+set(T64_CONSUMER_COST_title 2.72)
+set(T64_CONSUMER_COST_title-persist 2.55)
+set(T64_CONSUMER_COST_title-refused 0.69)
 foreach(T64_CONSUMER_CASE IN LISTS T64_CONSUMER_CASES)
   if(T64_CONSUMER_CASE STREQUAL "smoke")
     continue()

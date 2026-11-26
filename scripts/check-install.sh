@@ -804,11 +804,19 @@ cmd_sanitize() {
   _failed=0
   for _case in $(grep '^[a-z]' "$ROOT/tests/installed-consumer/cases.txt"); do
     _c0=$(date +%s)
+    # The title cases (plan 12-05) run the authored title ROMs, as the CTest names do
+    # (tools/abi/CMakeLists.txt, T64_CONSUMER_ROM_<case>); every other case gets --rom.
+    _case_rom=$SAN_ROM
+    case $_case in
+      title | title-persist) _case_rom=$ROOT/build/fixtures/phase12-title-s32k.z64 ;;
+      title-refused) _case_rom=$ROOT/build/fixtures/phase12-title-refused-s32k.z64 ;;
+    esac
+    [ -f "$_case_rom" ] || fail "sanitize $SAN_MODE: the ROM of case $_case is not built: ${_case_rom#"$ROOT"/}"
     if [ "$_case" = sequence ]; then
       "$_base/consumer/t64c" --case sequence --rom "$SAN_ROM" --steps "$SAN_STEPS" \
         --digest-stride "$SAN_STRIDE" >"$_base/$_case.log" 2>&1 && _rc=0 || _rc=$?
     else
-      "$_base/consumer/t64c" --case "$_case" --rom "$SAN_ROM" >"$_base/$_case.log" 2>&1 && _rc=0 || _rc=$?
+      "$_base/consumer/t64c" --case "$_case" --rom "$_case_rom" >"$_base/$_case.log" 2>&1 && _rc=0 || _rc=$?
     fi
     _c1=$(date +%s)
     if [ "$_rc" -eq 0 ]; then

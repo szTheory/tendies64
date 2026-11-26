@@ -43,6 +43,8 @@ static const t64c_case t64c_cases[] = {
     {"smoke", case_smoke_entry},
     {"composite", t64c_case_composite},
     {"title", t64c_case_title},
+    {"title-persist", t64c_case_title_persist},
+    {"title-refused", t64c_case_title_refused},
 #ifdef T64C_THREADS
     /* local lane only (scripts/check-install.sh tsan): never listed in cases.txt */
     {"threads", t64c_case_threads},
