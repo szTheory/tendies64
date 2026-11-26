@@ -437,6 +437,14 @@ end of Phase 12); no API or ABI freeze is implied.
 
 ### Order of checks
 
+Before the first check below, a non-NULL report whose caller-filled `struct_size`
+is under the v1 size (32 bytes) is refused with `STRUCT_TOO_SMALL` (plan 11-13):
+nothing is written, the machine is unchanged and the blob is not read. A report
+span that wraps or aliases the machine is not read for its size and stays
+unusable exactly as in check 1. A NULL report is still accepted and carries no
+size. A larger `struct_size` receives the v1 members only, never the
+`struct_size` member and never a byte past the v1 size.
+
 1. Arguments and disjointness: machine and bytes present (`ARG_NULL`), length
    non-zero and at most 64 MiB (`ARG_LENGTH`), no flag bit other than
    `T64_STATE_IMPORT_DROP_OBSERVERS` (`ARG_FLAGS`), the blob span and the report

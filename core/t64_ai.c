@@ -623,12 +623,20 @@ void t64_ai_reset_machine_state(t64_machine *machine) {
 t64_status t64_audio_info(const t64_machine *machine,
                           t64_audio_packet_info *info_out) {
   t64_address_range output_range;
+  uint32_t caller_size;
 
   T64_ENTRY_GUARD(machine);
   if (machine == NULL || info_out == NULL ||
       !t64_internal_make_range(info_out, sizeof *info_out, &output_range) ||
       !t64_internal_observation_range_is_disjoint(machine, output_range)) {
     return T64_STATUS_INVALID_ARGUMENT;
+  }
+  /* DR-06: the span is judged first (a hostile pointer is never read), then an
+   * info below the v1 size is refused before the state checks, with the struct
+   * untouched. */
+  caller_size = info_out->struct_size;
+  if (caller_size < T64_AUDIO_PACKET_INFO_V1_SIZE) {
+    return T64_STATUS_STRUCT_TOO_SMALL;
   }
   if (!machine->has_image || !t64_has_ai_device(machine)) {
     return T64_STATUS_NOT_READY;
@@ -637,29 +645,30 @@ t64_status t64_audio_info(const t64_machine *machine,
   /* Copy-out of the oldest retained slot into the public struct, member by
    * member (plan 11-04, DR-08): the retained slot is an internal type, so the
    * public struct can change its layout without moving a retained byte. The
-   * destination is cleared first, which keeps the bytes (padding included)
-   * exactly those of the slot copy this replaces while the layouts are equal. */
+   * record is built in a cleared local and copied out after struct_size, which
+   * stays the caller's (plan 11-13, DR-06); the slot's own struct_size is not
+   * copied. */
   {
     const t64_ai_packet_slot *slot =
         &machine->ai.packet_info[machine->ai.packet_head];
+    t64_audio_packet_info info;
 
-    (void)memset(info_out, 0, sizeof *info_out);
-    info_out->struct_size = slot->struct_size;
-    info_out->sequence = slot->sequence;
-    info_out->first_sample_index = slot->first_sample_index;
-    info_out->first_tick = slot->first_tick;
-    info_out->last_tick = slot->last_tick;
-    info_out->frame_count = slot->frame_count;
-    info_out->rate_numerator = slot->rate_numerator;
-    info_out->rate_denominator = slot->rate_denominator;
-    info_out->channels = slot->channels;
-    info_out->bits_per_sample = slot->bits_per_sample;
-    info_out->encoding = slot->encoding;
-    info_out->byte_length = slot->byte_length;
-    (void)memcpy(info_out->profile_id, slot->profile_id,
-                 sizeof info_out->profile_id);
-    (void)memcpy(info_out->build_id, slot->build_id,
-                 sizeof info_out->build_id);
+    (void)memset(&info, 0, sizeof info);
+    info.struct_size = caller_size;
+    info.sequence = slot->sequence;
+    info.first_sample_index = slot->first_sample_index;
+    info.first_tick = slot->first_tick;
+    info.last_tick = slot->last_tick;
+    info.frame_count = slot->frame_count;
+    info.rate_numerator = slot->rate_numerator;
+    info.rate_denominator = slot->rate_denominator;
+    info.channels = slot->channels;
+    info.bits_per_sample = slot->bits_per_sample;
+    info.encoding = slot->encoding;
+    info.byte_length = slot->byte_length;
+    (void)memcpy(info.profile_id, slot->profile_id, sizeof info.profile_id);
+    (void)memcpy(info.build_id, slot->build_id, sizeof info.build_id);
+    t64_internal_copy_out(info_out, caller_size, &info, sizeof info);
   }
   return T64_STATUS_OK;
 }

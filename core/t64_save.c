@@ -297,13 +297,22 @@ t64_status t64_machine_save_info(const t64_machine *machine,
                                  uint32_t requested_kind,
                                  t64_save_info *info_out) {
   t64_address_range output_range;
+  t64_save_info info;
   t64_status status;
+  uint32_t caller_size;
 
   T64_ENTRY_GUARD(machine);
   if (machine == NULL || info_out == NULL ||
       !t64_internal_make_range(info_out, sizeof *info_out, &output_range) ||
       !t64_internal_observation_range_is_disjoint(machine, output_range)) {
     return T64_STATUS_INVALID_ARGUMENT;
+  }
+  /* DR-06: the span is judged first (a hostile pointer is never read), then an
+   * info below the v1 size is refused before the admission and request checks,
+   * with the struct untouched. */
+  caller_size = info_out->struct_size;
+  if (caller_size < T64_SAVE_INFO_V1_SIZE) {
+    return T64_STATUS_STRUCT_TOO_SMALL;
   }
   if (!machine->has_image) {
     return T64_STATUS_NOT_READY;
@@ -312,11 +321,16 @@ t64_status t64_machine_save_info(const t64_machine *machine,
   if (status != T64_STATUS_OK) {
     return status;
   }
-  info_out->kind = machine->profile.save_kind;
-  info_out->size_bytes =
+  /* The record is built in a zeroed local and copied out after struct_size,
+   * which stays the caller's (DR-06). */
+  (void)memset(&info, 0, sizeof info);
+  info.struct_size = caller_size;
+  info.kind = machine->profile.save_kind;
+  info.size_bytes =
       (uint32_t)t64_save_storage_bytes(machine->profile.save_kind);
-  info_out->flags = t64_save_in_flight(machine) ? T64_SAVE_INFO_BUSY : 0u;
-  info_out->write_generation = machine->save.write_generation;
+  info.flags = t64_save_in_flight(machine) ? T64_SAVE_INFO_BUSY : 0u;
+  info.write_generation = machine->save.write_generation;
+  t64_internal_copy_out(info_out, caller_size, &info, sizeof info);
   return T64_STATUS_OK;
 }
 

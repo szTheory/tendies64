@@ -3350,8 +3350,26 @@ t64_status t64_machine_state_import(t64_machine *machine,
   t64_state_import_report report;
   bool report_usable = report_out != NULL;
   t64_status status;
+  uint32_t caller_size = T64_STATE_IMPORT_REPORT_V1_SIZE;
 
   T64_ENTRY_GUARD(machine);
+  /* DR-06: a report below the v1 size is refused before the blob and the flags
+   * are looked at, and nothing is written (no report can hold the answer). A
+   * NULL report is still allowed: it carries no size. A report span that wraps
+   * or aliases the machine is never read here: it stays unusable and is
+   * refused later exactly as before. */
+  if (report_out != NULL) {
+    t64_address_range report_range;
+
+    if (t64_internal_make_range(report_out, sizeof *report_out,
+                                &report_range) &&
+        t64_internal_observation_range_is_disjoint(machine, report_range)) {
+      caller_size = report_out->struct_size;
+      if (caller_size < T64_STATE_IMPORT_REPORT_V1_SIZE) {
+        return T64_STATUS_STRUCT_TOO_SMALL;
+      }
+    }
+  }
   (void)memset(&report, 0, sizeof report);
   status = state_import_attempt(machine, bytes, length, flags, report_out,
                                 &report, &report_usable);
@@ -3360,9 +3378,10 @@ t64_status t64_machine_state_import(t64_machine *machine,
     (void)memset(&machine->state_summary, 0, sizeof machine->state_summary);
   }
   if (report_usable && report_out != NULL) {
-    /* struct_size is the caller's and is written back unchanged (DR-06). */
-    report.struct_size = report_out->struct_size;
-    *report_out = report;
+    /* The report is copied out after struct_size, which stays the caller's, and
+     * at most min(caller, known) bytes of it (DR-06). */
+    report.struct_size = caller_size;
+    t64_internal_copy_out(report_out, caller_size, &report, sizeof report);
   }
   return status;
 }

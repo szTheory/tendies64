@@ -23,12 +23,20 @@ t64_status t64_machine_output_drain(t64_machine *machine, uint8_t *bytes_out,
   t64_output_drain_result result;
   t64_sha256_ctx digest_context;
   size_t pending_bytes;
+  uint32_t caller_size;
 
   T64_ENTRY_GUARD(machine);
   if (machine == NULL || result_out == NULL ||
       !t64_internal_make_range(result_out, sizeof *result_out, &result_range) ||
       !observation_span_is_disjoint(machine, result_range)) {
     return T64_STATUS_INVALID_ARGUMENT;
+  }
+  /* DR-06: the result span is judged first (a hostile pointer is never read),
+   * then a result below the v1 size is refused before the data span and the
+   * state checks, with the result, the data span and the machine untouched. */
+  caller_size = result_out->struct_size;
+  if (caller_size < T64_OUTPUT_DRAIN_RESULT_V1_SIZE) {
+    return T64_STATUS_STRUCT_TOO_SMALL;
   }
   if (bytes_out == NULL) {
     if (capacity != 0u) {
@@ -59,8 +67,9 @@ t64_status t64_machine_output_drain(t64_machine *machine, uint8_t *bytes_out,
                       machine->output.captured_bytes);
   }
   (void)memset(&result, 0, sizeof result);
-  /* struct_size is the caller's and is written back unchanged (DR-06). */
-  result.struct_size = result_out->struct_size;
+  /* The result is built in a local and copied out after struct_size, which
+   * stays the caller's (DR-06). */
+  result.struct_size = caller_size;
   result.required_bytes = pending_bytes;
   result.total_attempted_bytes = machine->output.total_attempted_bytes;
   result.lost_output = machine->output.lost_output;
@@ -68,7 +77,7 @@ t64_status t64_machine_output_drain(t64_machine *machine, uint8_t *bytes_out,
       !machine->output.total_attempted_bytes_saturated;
   t64_sha256_final(&digest_context, result.captured_sha256);
   if (capacity < pending_bytes) {
-    *result_out = result;
+    t64_internal_copy_out(result_out, caller_size, &result, sizeof result);
     return T64_STATUS_BUFFER_TOO_SMALL;
   }
   if (pending_bytes > 0u && (!has_bytes_range || bytes_out == NULL)) {
@@ -82,7 +91,7 @@ t64_status t64_machine_output_drain(t64_machine *machine, uint8_t *bytes_out,
   }
   result.copied_bytes = pending_bytes;
   machine->output_drain_cursor += pending_bytes;
-  *result_out = result;
+  t64_internal_copy_out(result_out, caller_size, &result, sizeof result);
   return T64_STATUS_OK;
 }
 

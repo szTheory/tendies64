@@ -1,8 +1,10 @@
 /*
- * Size handshake of the public API (plan 11-12; plan 11-13 adds the
- * struct_size cases of the other entries). This file includes only the public
+ * Size handshake of the public API (plan 11-12) and the struct_size contract
+ * of every in/out entry (plan 11-13). This file includes only the public
  * header and the shared test header, so it sees exactly what an installed
  * consumer sees.
+ *
+ * Group "handshake" (CTest unit.core.api.handshake, the default group):
  *
  *   handshake            the create-info checks of DR-05: NULL arguments, a
  *                        short create-info, a skewed ABI version and a short
@@ -14,6 +16,13 @@
  *                        below the v1 record refused with every output
  *                        untouched, above it used as the stride with the
  *                        trailing bytes of each record untouched
+ *
+ * Group "struct-size" (CTest unit.core.api.struct-size): per in/out entry, a
+ * floor case (a struct_size below the v1 size answers
+ * T64_STATUS_STRUCT_TOO_SMALL with the sentinel struct and the machine digest
+ * unchanged) and a larger-caller case (a struct_size above the v1 size gets
+ * exactly the v1 members, never the struct_size member and never a trailing
+ * byte). The cases are named after their entry.
  */
 #include <stdbool.h>
 #include <stddef.h>
@@ -28,6 +37,16 @@
 #define AUTHORED_ROM_BYTES 4096u
 #define TRACE_SLOTS 8u
 #define TRACE_PAD 8u
+#define MAX_FIXTURE_BYTES (64u * 1024u)
+#define HELLO_PROFILE "ntsc-cart-4m-openipl3-warm-v1"
+#define HELLO_TRANSCRIPT "Tendies64 hello via open IPL3\n"
+#define HELLO_BYTES 30u
+#define HELLO_BOUND_TICK UINT64_C(700000)
+#define AV_PROFILE "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-filter-v9-ai-v1"
+#define SAVE_PROFILE "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e4k"
+#define IPL3_ASSET_BYTES 4096u
+#define TAIL_BYTES 16u
+#define SENTINEL_BYTE 0xa5u
 
 typedef struct {
   unsigned allocations;
@@ -434,37 +453,811 @@ static void case_trace_record_size(void) {
   T64_CHECK_INT(counts.releases, counts.allocations);
 }
 
+/* ---- struct_size group (plan 11-13) ---------------------------------------
+ *
+ * A sentinel is a byte fill of 0xa5 over the type and TAIL_BYTES more, kept in
+ * a wrapper whose struct_size member is then set by name: no member of the type
+ * can pass by accident, and a write onto struct_size or past the v1 size shows.
+ */
+#define SENTINEL_U32 UINT32_C(0xa5a5a5a5)
+#define SENTINEL_U64 UINT64_C(0xa5a5a5a5a5a5a5a5)
+#define ADVANCE_TICK UINT64_C(20000)
+
+static uint8_t hello_rom[MAX_FIXTURE_BYTES];
+static size_t hello_length;
+static uint8_t audio_rom[MAX_FIXTURE_BYTES];
+static size_t audio_length;
+static uint8_t ipl3_asset[IPL3_ASSET_BYTES];
+
+/* Read a whole file of at most capacity bytes; false on any error. */
+static bool read_file(const char *path, uint8_t *bytes, size_t capacity,
+                      size_t *length_out) {
+  FILE *file;
+  size_t length;
+  int extra;
+
+  file = fopen(path, "rb");
+  if (file == NULL) return false;
+  length = fread(bytes, 1u, capacity, file);
+  extra = fgetc(file);
+  if (ferror(file) != 0 || extra != EOF || length == 0u) {
+    (void)fclose(file);
+    return false;
+  }
+  if (fclose(file) != 0) return false;
+  *length_out = length;
+  return true;
+}
+
+static bool read_fixture(const char *name, uint8_t *bytes, size_t capacity,
+                         size_t *length_out) {
+  const char *directory = getenv("T64_BOOT_FIXTURES_DIR");
+  char path[512];
+  int written;
+
+  if (directory == NULL || directory[0] == '\0') return false;
+  written = snprintf(path, sizeof path, "%s/%s", directory, name);
+  if (written < 0 || (size_t)written >= sizeof path) return false;
+  return read_file(path, bytes, capacity, length_out);
+}
+
+typedef struct {
+  counting_context counts;
+  t64_host_allocator allocator;
+  t64_machine *machine;
+} machine_item;
+
+/* A machine of the profile with the image admitted (NULL image: none). */
+static bool make_machine(machine_item *item, const char *profile_id,
+                         const uint8_t *image, size_t image_length) {
+  const t64_profile_descriptor *profile = NULL;
+
+  (void)memset(item, 0, sizeof *item);
+  item->allocator = (t64_host_allocator)T64_HOST_ALLOCATOR_INIT(
+      counting_allocate, counting_release, &item->counts);
+  T64_CHECK_INT(t64_profile_lookup(profile_id, &profile), T64_STATUS_OK);
+  if (profile == NULL) return false;
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &item->allocator, profile),
+                    &item->machine),
+                T64_STATUS_OK);
+  if (item->machine == NULL) return false;
+  if (image != NULL) {
+    const t64_status status =
+        t64_machine_admit_rom(item->machine, image, image_length);
+
+    T64_CHECK_INT(status, T64_STATUS_OK);
+    if (status != T64_STATUS_OK) return false;
+  }
+  return true;
+}
+
+static void destroy_machine(machine_item *item) {
+  t64_machine_destroy(item->machine);
+  item->machine = NULL;
+  T64_CHECK(item->counts.allocations > 0u);
+  T64_CHECK_INT(item->counts.releases, item->counts.allocations);
+}
+
+static bool digest_of(const t64_machine *machine,
+                      uint8_t digest[T64_DIGEST_SIZE]) {
+  const t64_status status = t64_machine_digest(machine, digest);
+
+  T64_CHECK_INT(status, T64_STATUS_OK);
+  return status == T64_STATUS_OK;
+}
+
+/* advance with a request and a result of the given struct_size values: the
+ * answer is STRUCT_TOO_SMALL, the sentinel result comes back byte for byte and
+ * the machine digest does not move. */
+static void advance_refused(t64_machine *machine, bool admitted,
+                            uint32_t request_size, uint32_t result_size) {
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, ADVANCE_TICK);
+  t64_stop_result result =
+      T64_STOP_RESULT_INIT_WITH(SENTINEL_U32, SENTINEL_U64);
+  uint8_t pristine[sizeof result];
+  uint8_t before[T64_DIGEST_SIZE];
+  uint8_t after[T64_DIGEST_SIZE];
+  bool have_digest = false;
+
+  request.struct_size = request_size;
+  result.struct_size = result_size;
+  (void)memcpy(pristine, &result, sizeof result);
+  if (admitted) have_digest = digest_of(machine, before);
+  T64_CHECK_INT(t64_machine_advance(machine, &request, &result),
+                T64_STATUS_STRUCT_TOO_SMALL);
+  T64_CHECK(memcmp(pristine, &result, sizeof result) == 0);
+  if (admitted && have_digest && digest_of(machine, after)) {
+    T64_CHECK(memcmp(before, after, sizeof before) == 0);
+  }
+}
+
+typedef struct {
+  t64_stop_request request;
+  uint8_t tail[TAIL_BYTES];
+} larger_request;
+
+typedef struct {
+  t64_stop_result result;
+  uint8_t tail[TAIL_BYTES];
+} larger_result;
+
+/* advance: a request or a result below its v1 size is refused before any state
+ * change (and before the not-admitted answer); a larger caller request and
+ * result behave exactly as the v1 pair, write only the v1 members and leave
+ * struct_size and the trailing bytes alone. */
+static void case_advance(void) {
+  const uint32_t request_v1 = (uint32_t)sizeof(t64_stop_request);
+  const uint32_t result_v1 = (uint32_t)sizeof(t64_stop_result);
+  const uint32_t request_shorter[] = {0u, 1u, 4u, request_v1 - 1u};
+  const uint32_t result_shorter[] = {0u, 1u, 4u, result_v1 - 1u};
+  machine_item exact;
+  machine_item twin;
+  machine_item bare;
+  larger_request big_request;
+  larger_result big_result;
+  uint8_t request_pristine[sizeof(larger_request)];
+  uint8_t tail_pristine[TAIL_BYTES];
+  t64_stop_request request =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, ADVANCE_TICK);
+  t64_stop_result result = T64_STOP_RESULT_INIT;
+  uint8_t exact_digest[T64_DIGEST_SIZE];
+  uint8_t twin_digest[T64_DIGEST_SIZE];
+  size_t index;
+
+  if (!make_machine(&exact, HELLO_PROFILE, hello_rom, hello_length)) return;
+  if (!make_machine(&twin, HELLO_PROFILE, hello_rom, hello_length)) {
+    destroy_machine(&exact);
+    return;
+  }
+  if (!make_machine(&bare, HELLO_PROFILE, NULL, 0u)) {
+    destroy_machine(&exact);
+    destroy_machine(&twin);
+    return;
+  }
+
+  /* Floor: a short request, a short result, both short. */
+  for (index = 0u; index < sizeof request_shorter / sizeof request_shorter[0];
+       index++) {
+    advance_refused(exact.machine, true, request_shorter[index], result_v1);
+    advance_refused(exact.machine, true, request_v1, result_shorter[index]);
+    advance_refused(exact.machine, true, request_shorter[index],
+                    result_shorter[index]);
+    advance_refused(bare.machine, false, request_shorter[index], result_v1);
+    advance_refused(bare.machine, false, request_v1, result_shorter[index]);
+  }
+  /* A well-formed pair on a machine without an image is still NOT_READY. */
+  T64_CHECK_INT(t64_machine_advance(bare.machine, &request, &result),
+                T64_STATUS_NOT_READY);
+
+  /* Larger caller: the same answer, state and members as the v1 pair. */
+  T64_CHECK_INT(t64_machine_advance(exact.machine, &request, &result),
+                T64_STATUS_OK);
+  T64_CHECK(result.reason != 0u);
+  (void)memset(&big_request, SENTINEL_BYTE, sizeof big_request);
+  (void)memset(&big_result, SENTINEL_BYTE, sizeof big_result);
+  big_request.request = (t64_stop_request)T64_STOP_REQUEST_INIT(
+      T64_STOP_GUEST_TICK, ADVANCE_TICK);
+  big_request.request.struct_size = (uint32_t)sizeof big_request;
+  big_result.result.struct_size = (uint32_t)sizeof big_result;
+  (void)memcpy(request_pristine, &big_request, sizeof big_request);
+  (void)memcpy(tail_pristine, big_result.tail, sizeof tail_pristine);
+  T64_CHECK_INT(
+      t64_machine_advance(twin.machine, &big_request.request,
+                          &big_result.result),
+      T64_STATUS_OK);
+  T64_CHECK_INT(big_result.result.reason, result.reason);
+  T64_CHECK(big_result.result.tick == result.tick);
+  T64_CHECK_INT(big_result.result.struct_size, sizeof big_result);
+  T64_CHECK(memcmp(big_result.tail, tail_pristine, sizeof tail_pristine) == 0);
+  T64_CHECK(memcmp(&big_request, request_pristine, sizeof big_request) == 0);
+  T64_CHECK(digest_of(exact.machine, exact_digest));
+  T64_CHECK(digest_of(twin.machine, twin_digest));
+  T64_CHECK(memcmp(exact_digest, twin_digest, sizeof exact_digest) == 0);
+  destroy_machine(&exact);
+  destroy_machine(&twin);
+  destroy_machine(&bare);
+}
+
+/* Advance in strides, resuming after the resumable per-advance event budget
+ * stop, until the bound is reached or the machine stops for good. */
+static uint32_t advance_to(t64_machine *machine, uint64_t tick) {
+  uint32_t reason = 0u;
+  uint64_t previous_tick = UINT64_MAX;
+  unsigned attempt;
+
+  for (attempt = 0u; attempt < 200000u; attempt++) {
+    t64_stop_request request =
+        T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, tick);
+    t64_stop_result result = T64_STOP_RESULT_INIT;
+    const t64_status status = t64_machine_advance(machine, &request, &result);
+
+    T64_CHECK_INT(status, T64_STATUS_OK);
+    if (status != T64_STATUS_OK) return 0u;
+    reason = result.reason;
+    if (reason != T64_STOP_REASON_RESOURCE_LIMIT) break;
+    if (result.tick == previous_tick) return 0u;
+    previous_tick = result.tick;
+  }
+  return reason;
+}
+
+/* ---- the generic floor and larger-caller probes --------------------------
+ * A probe is a byte buffer big enough for the largest in/out struct and
+ * aligned for any of them. The entry under test sees a pointer to it as the
+ * struct, with struct_size set by the test. */
+typedef union {
+  max_align_t alignment;
+  uint8_t bytes[sizeof(t64_profile_descriptor) + 2u * TAIL_BYTES];
+} probe_buffer;
+
+typedef t64_status (*entry_fn)(t64_machine *machine, void *out, void *aux);
+
+static void probe_fill(probe_buffer *probe, uint32_t struct_size) {
+  (void)memset(probe->bytes, SENTINEL_BYTE, sizeof probe->bytes);
+  (void)memcpy(probe->bytes, &struct_size, sizeof struct_size);
+}
+
+static uint32_t probe_struct_size(const probe_buffer *probe) {
+  uint32_t value;
+
+  (void)memcpy(&value, probe->bytes, sizeof value);
+  return value;
+}
+
+/* Floor: a struct_size below the v1 size is refused with the sentinel struct
+ * byte for byte as it was and the machine digest unchanged. */
+static void check_floor(const char *label, entry_fn call,
+                        t64_machine *machine, void *aux, uint32_t known_size) {
+  const uint32_t shorter[] = {0u, 1u, 4u, known_size - 1u};
+  size_t index;
+
+  for (index = 0u; index < sizeof shorter / sizeof shorter[0]; index++) {
+    probe_buffer probe;
+    probe_buffer pristine;
+    uint8_t before[T64_DIGEST_SIZE];
+    uint8_t after[T64_DIGEST_SIZE];
+    bool have_digest = false;
+    t64_status status;
+
+    probe_fill(&probe, shorter[index]);
+    pristine = probe;
+    if (machine != NULL) have_digest = digest_of(machine, before);
+    status = call(machine, probe.bytes, aux);
+    if (status != T64_STATUS_STRUCT_TOO_SMALL) {
+      fprintf(stderr, "%s floor: struct_size %u answered %d\n", label,
+              (unsigned)shorter[index], (int)status);
+    }
+    T64_CHECK_INT(status, T64_STATUS_STRUCT_TOO_SMALL);
+    T64_CHECK(memcmp(&probe, &pristine, sizeof probe) == 0);
+    if (have_digest && digest_of(machine, after)) {
+      T64_CHECK(memcmp(before, after, sizeof before) == 0);
+    }
+  }
+}
+
+/* Larger caller of a repeatable entry: the exact-size call and the larger call
+ * both answer want; the larger call writes the same members as the exact one,
+ * leaves struct_size and every trailing byte as it was, and the exact call
+ * wrote members (it is not a vacuous pass). */
+static void check_larger(const char *label, entry_fn call,
+                         t64_machine *machine, void *aux, uint32_t known_size,
+                         t64_status want) {
+  probe_buffer exact;
+  probe_buffer larger;
+  probe_buffer baseline;
+  const uint32_t larger_size = known_size + TAIL_BYTES;
+  t64_status status;
+
+  probe_fill(&exact, known_size);
+  baseline = exact;
+  status = call(machine, exact.bytes, aux);
+  if (status != want) {
+    fprintf(stderr, "%s exact: answered %d, want %d\n", label, (int)status,
+            (int)want);
+  }
+  T64_CHECK_INT(status, want);
+  T64_CHECK_INT(probe_struct_size(&exact), known_size);
+  T64_CHECK(memcmp(exact.bytes + sizeof(uint32_t),
+                   baseline.bytes + sizeof(uint32_t),
+                   known_size - sizeof(uint32_t)) != 0);
+  T64_CHECK(memcmp(exact.bytes + known_size, baseline.bytes + known_size,
+                   sizeof exact.bytes - known_size) == 0);
+
+  probe_fill(&larger, larger_size);
+  baseline = larger;
+  status = call(machine, larger.bytes, aux);
+  if (status != want) {
+    fprintf(stderr, "%s larger: answered %d, want %d\n", label, (int)status,
+            (int)want);
+  }
+  T64_CHECK_INT(status, want);
+  T64_CHECK_INT(probe_struct_size(&larger), larger_size);
+  T64_CHECK(memcmp(larger.bytes + sizeof(uint32_t),
+                   exact.bytes + sizeof(uint32_t),
+                   known_size - sizeof(uint32_t)) == 0);
+  T64_CHECK(memcmp(larger.bytes + known_size, baseline.bytes + known_size,
+                   sizeof larger.bytes - known_size) == 0);
+}
+
+static t64_status call_cpu_stop_detail(t64_machine *machine, void *out,
+                                       void *aux) {
+  (void)aux;
+  return t64_machine_cpu_stop_detail(machine, (t64_cpu_stop_detail *)out);
+}
+
+typedef struct {
+  uint8_t *bytes;
+  size_t capacity;
+} drain_args;
+
+static t64_status call_output_drain(t64_machine *machine, void *out,
+                                    void *aux) {
+  const drain_args *args = (const drain_args *)aux;
+
+  return t64_machine_output_drain(machine, args->bytes, args->capacity,
+                                  (t64_output_drain_result *)out);
+}
+
+typedef struct {
+  const uint8_t *bytes;
+  size_t length;
+  uint32_t flags;
+} import_args;
+
+static t64_status call_state_import(t64_machine *machine, void *out,
+                                    void *aux) {
+  const import_args *args = (const import_args *)aux;
+
+  return t64_machine_state_import(machine, args->bytes, args->length,
+                                  args->flags, (t64_state_import_report *)out);
+}
+
+static t64_status call_video_info(t64_machine *machine, void *out, void *aux) {
+  (void)aux;
+  return t64_video_info(machine, (t64_video_packet_info *)out);
+}
+
+static t64_status call_audio_info(t64_machine *machine, void *out, void *aux) {
+  (void)aux;
+  return t64_audio_info(machine, (t64_audio_packet_info *)out);
+}
+
+static t64_status call_save_info(t64_machine *machine, void *out, void *aux) {
+  const uint32_t *kind = (const uint32_t *)aux;
+
+  return t64_machine_save_info(machine, *kind, (t64_save_info *)out);
+}
+
+static t64_status call_output_status(t64_machine *machine, void *out,
+                                     void *aux) {
+  (void)aux;
+  return t64_machine_output_status(machine, (t64_output_status *)out);
+}
+
+/* cpu_stop_detail: the floor holds before the terminal stop (it precedes the
+ * not-ready answer) and after it; a larger caller gets the v1 members. */
+static void case_cpu_stop_detail(void) {
+  machine_item item;
+  t64_cpu_stop_detail detail = T64_CPU_STOP_DETAIL_INIT;
+
+  if (!make_machine(&item, HELLO_PROFILE, hello_rom, hello_length)) return;
+  check_floor("cpu_stop_detail", call_cpu_stop_detail, item.machine, NULL,
+              (uint32_t)sizeof(t64_cpu_stop_detail));
+  T64_CHECK_INT(t64_machine_cpu_stop_detail(item.machine, &detail),
+                T64_STATUS_NOT_READY);
+  T64_CHECK_INT(advance_to(item.machine, HELLO_BOUND_TICK),
+                T64_STOP_REASON_GUEST_COMPLETION);
+  T64_CHECK_INT(t64_machine_cpu_stop_detail(item.machine, &detail),
+                T64_STATUS_OK);
+  T64_CHECK(detail.retired_instructions != 0u);
+  check_floor("cpu_stop_detail", call_cpu_stop_detail, item.machine, NULL,
+              (uint32_t)sizeof(t64_cpu_stop_detail));
+  check_larger("cpu_stop_detail", call_cpu_stop_detail, item.machine, NULL,
+               (uint32_t)sizeof(t64_cpu_stop_detail), T64_STATUS_OK);
+  destroy_machine(&item);
+}
+
+/* output_drain: floor; a larger result with an undersized capacity (the result
+ * is written, nothing is consumed) equals the exact-size result; then a larger
+ * result on a real drain returns the transcript and keeps struct_size and the
+ * tail. */
+static void case_output_drain(void) {
+  machine_item item;
+  drain_args empty = {NULL, 0u};
+  uint8_t drained[HELLO_BYTES + 2u];
+  drain_args roomy = {drained, sizeof drained};
+  struct {
+    t64_output_drain_result result;
+    uint8_t tail[TAIL_BYTES];
+  } big;
+  uint8_t tail_pristine[TAIL_BYTES];
+
+  if (!make_machine(&item, HELLO_PROFILE, hello_rom, hello_length)) return;
+  T64_CHECK_INT(advance_to(item.machine, HELLO_BOUND_TICK),
+                T64_STOP_REASON_GUEST_COMPLETION);
+  check_floor("output_drain", call_output_drain, item.machine, &empty,
+              (uint32_t)sizeof(t64_output_drain_result));
+  check_floor("output_drain", call_output_drain, item.machine, &roomy,
+              (uint32_t)sizeof(t64_output_drain_result));
+  check_larger("output_drain", call_output_drain, item.machine, &empty,
+               (uint32_t)sizeof(t64_output_drain_result),
+               T64_STATUS_BUFFER_TOO_SMALL);
+
+  (void)memset(&big, SENTINEL_BYTE, sizeof big);
+  big.result.struct_size = (uint32_t)sizeof big;
+  (void)memcpy(tail_pristine, big.tail, sizeof tail_pristine);
+  (void)memset(drained, 0, sizeof drained);
+  T64_CHECK_INT(
+      t64_machine_output_drain(item.machine, drained, sizeof drained,
+                               &big.result),
+      T64_STATUS_OK);
+  T64_CHECK_INT(big.result.struct_size, sizeof big);
+  T64_CHECK_INT(big.result.copied_bytes, HELLO_BYTES);
+  T64_CHECK_INT(big.result.required_bytes, HELLO_BYTES);
+  T64_CHECK(memcmp(drained, HELLO_TRANSCRIPT, HELLO_BYTES) == 0);
+  T64_CHECK(memcmp(big.tail, tail_pristine, sizeof tail_pristine) == 0);
+  destroy_machine(&item);
+}
+
+/* state_import: a report below its v1 size is refused before the blob is read
+ * (a NULL blob still answers STRUCT_TOO_SMALL) with the machine unchanged; a
+ * NULL report is still accepted; a larger report equals the exact-size report
+ * on a refusal and on a real import. */
+static void case_state_import(void) {
+  machine_item item;
+  uint8_t garbage[4096];
+  uint8_t *blob;
+  size_t blob_length = 0u;
+  import_args bad = {garbage, sizeof garbage, 0u};
+  import_args no_blob = {NULL, 0u, 0u};
+  import_args good;
+  uint8_t before[T64_DIGEST_SIZE];
+  uint8_t after[T64_DIGEST_SIZE];
+  probe_buffer probe;
+  t64_status status;
+  uint32_t larger_size;
+
+  (void)memset(garbage, 0x5a, sizeof garbage);
+  if (!make_machine(&item, SAVE_PROFILE, ipl3_asset, sizeof ipl3_asset)) {
+    return;
+  }
+  T64_CHECK_INT(advance_to(item.machine, UINT64_C(20000)) != 0u, true);
+  T64_CHECK_INT(t64_machine_state_export(item.machine, NULL, 0u, &blob_length),
+                T64_STATUS_BUFFER_TOO_SMALL);
+  blob = (uint8_t *)malloc(blob_length);
+  if (blob == NULL) {
+    T64_CHECK(false);
+    destroy_machine(&item);
+    return;
+  }
+  T64_CHECK_INT(
+      t64_machine_state_export(item.machine, blob, blob_length, &blob_length),
+      T64_STATUS_OK);
+  good.bytes = blob;
+  good.length = blob_length;
+  good.flags = 0u;
+
+  check_floor("state_import", call_state_import, item.machine, &bad,
+              (uint32_t)sizeof(t64_state_import_report));
+  check_floor("state_import", call_state_import, item.machine, &good,
+              (uint32_t)sizeof(t64_state_import_report));
+  check_floor("state_import", call_state_import, item.machine, &no_blob,
+              (uint32_t)sizeof(t64_state_import_report));
+  /* No report is still allowed: the refusal is the blob's, not the size's. */
+  T64_CHECK_INT(t64_machine_state_import(item.machine, garbage, sizeof garbage,
+                                         0u, NULL),
+                T64_STATUS_STATE_FORMAT);
+  check_larger("state_import", call_state_import, item.machine, &bad,
+               (uint32_t)sizeof(t64_state_import_report),
+               T64_STATUS_STATE_FORMAT);
+
+  /* A real import through a larger report: the same state comes back. */
+  T64_CHECK(digest_of(item.machine, before));
+  larger_size = (uint32_t)sizeof(t64_state_import_report) + TAIL_BYTES;
+  probe_fill(&probe, larger_size);
+  status = call_state_import(item.machine, probe.bytes, &good);
+  T64_CHECK_INT(status, T64_STATUS_OK);
+  T64_CHECK_INT(probe_struct_size(&probe), larger_size);
+  {
+    t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
+    uint8_t baseline[TAIL_BYTES];
+
+    (void)memcpy(&report, probe.bytes, sizeof report);
+    T64_CHECK_INT(report.status, T64_STATUS_OK);
+    (void)memset(baseline, SENTINEL_BYTE, sizeof baseline);
+    T64_CHECK(memcmp(probe.bytes + sizeof(t64_state_import_report), baseline,
+                     sizeof baseline) == 0);
+  }
+  T64_CHECK(digest_of(item.machine, after));
+  T64_CHECK(memcmp(before, after, sizeof before) == 0);
+  check_larger("state_import", call_state_import, item.machine, &good,
+               (uint32_t)sizeof(t64_state_import_report), T64_STATUS_OK);
+  free(blob);
+  destroy_machine(&item);
+}
+
+/* The packet and status observers need a machine with raw video and audio
+ * packets queued at once: the audio fixture on the AI profile. The video ring
+ * fills first (two packets) and then advance stops resumably at backpressure,
+ * so the video ring is drained until the first audio packet exists. */
+static uint8_t video_scratch[320u * 240u * 4u];
+
+static bool av_machine(machine_item *item) {
+  uint64_t tick = 0u;
+  unsigned stride;
+
+  if (!make_machine(item, AV_PROFILE, audio_rom, audio_length)) return false;
+  for (stride = 0u; stride < 64u; stride++) {
+    t64_video_packet_info video = T64_VIDEO_PACKET_INFO_INIT;
+    t64_audio_packet_info audio = T64_AUDIO_PACKET_INFO_INIT;
+    size_t length = 0u;
+
+    tick += UINT64_C(50000);
+    (void)advance_to(item->machine, tick);
+    if (t64_audio_info(item->machine, &audio) == T64_STATUS_OK) {
+      if (t64_video_info(item->machine, &video) == T64_STATUS_OK) return true;
+      continue;
+    }
+    while (t64_video_copy(item->machine, video_scratch, sizeof video_scratch,
+                          &length) == T64_STATUS_OK) {
+    }
+  }
+  T64_CHECK(false);
+  destroy_machine(item);
+  return false;
+}
+
+static void case_video_info(void) {
+  machine_item item;
+
+  if (!av_machine(&item)) return;
+  check_floor("video_info", call_video_info, item.machine, NULL,
+              (uint32_t)sizeof(t64_video_packet_info));
+  check_larger("video_info", call_video_info, item.machine, NULL,
+               (uint32_t)sizeof(t64_video_packet_info), T64_STATUS_OK);
+  destroy_machine(&item);
+}
+
+static void case_audio_info(void) {
+  machine_item item;
+
+  if (!av_machine(&item)) return;
+  check_floor("audio_info", call_audio_info, item.machine, NULL,
+              (uint32_t)sizeof(t64_audio_packet_info));
+  check_larger("audio_info", call_audio_info, item.machine, NULL,
+               (uint32_t)sizeof(t64_audio_packet_info), T64_STATUS_OK);
+  destroy_machine(&item);
+}
+
+/* output_status (plan 11-04) joins the matrix so every in/out struct has both
+ * cases in one place. */
+static void case_output_status(void) {
+  machine_item item;
+
+  if (!av_machine(&item)) return;
+  check_floor("output_status", call_output_status, item.machine, NULL,
+              (uint32_t)sizeof(t64_output_status));
+  check_larger("output_status", call_output_status, item.machine, NULL,
+               (uint32_t)sizeof(t64_output_status), T64_STATUS_OK);
+  destroy_machine(&item);
+}
+
+static void case_save_info(void) {
+  machine_item item;
+  const t64_profile_descriptor *profile = NULL;
+  uint32_t kind;
+
+  if (!make_machine(&item, SAVE_PROFILE, ipl3_asset, sizeof ipl3_asset)) {
+    return;
+  }
+  T64_CHECK_INT(t64_machine_profile(item.machine, &profile), T64_STATUS_OK);
+  if (profile == NULL) {
+    destroy_machine(&item);
+    return;
+  }
+  kind = profile->save_kind;
+  T64_CHECK(kind != 0u);
+  check_floor("save_info", call_save_info, item.machine, &kind,
+              (uint32_t)sizeof(t64_save_info));
+  check_larger("save_info", call_save_info, item.machine, &kind,
+               (uint32_t)sizeof(t64_save_info), T64_STATUS_OK);
+  destroy_machine(&item);
+}
+
+/* t64_profile_hash and t64_profile_serialize read a descriptor: a struct_size
+ * below the v1 size is refused with every output untouched; a larger caller
+ * descriptor hashes and serializes exactly as the v1 one (named members only,
+ * never the struct_size member or the bytes after the known layout). */
+static void case_profile_descriptor(void) {
+  const t64_profile_descriptor *registered = NULL;
+  const uint32_t known = (uint32_t)sizeof(t64_profile_descriptor);
+  const uint32_t shorter[] = {0u, 1u, 4u, known - 1u};
+  uint8_t reference[T64_DIGEST_SIZE];
+  uint8_t reference_bytes[T64_PROFILE_SERIALIZED_MAX_BYTES];
+  size_t reference_length = 0u;
+  probe_buffer probe;
+  probe_buffer pristine;
+  size_t index;
+
+  T64_CHECK_INT(t64_profile_lookup("ntsc-cart-4m-skeleton", &registered),
+                T64_STATUS_OK);
+  if (registered == NULL) return;
+  T64_CHECK_INT(t64_profile_hash(registered, reference), T64_STATUS_OK);
+  T64_CHECK_INT(t64_profile_serialize(registered, reference_bytes,
+                                      sizeof reference_bytes,
+                                      &reference_length),
+                T64_STATUS_OK);
+
+  for (index = 0u; index < sizeof shorter / sizeof shorter[0]; index++) {
+    uint8_t digest[T64_DIGEST_SIZE];
+    uint8_t digest_pristine[T64_DIGEST_SIZE];
+    uint8_t bytes[T64_PROFILE_SERIALIZED_MAX_BYTES];
+    uint8_t bytes_pristine[T64_PROFILE_SERIALIZED_MAX_BYTES];
+    size_t length = (size_t)SENTINEL_U64;
+
+    probe_fill(&probe, known);
+    (void)memcpy(probe.bytes, registered, known);
+    (void)memcpy(probe.bytes, &shorter[index], sizeof shorter[index]);
+    pristine = probe;
+    (void)memset(digest, SENTINEL_BYTE, sizeof digest);
+    (void)memcpy(digest_pristine, digest, sizeof digest);
+    (void)memset(bytes, SENTINEL_BYTE, sizeof bytes);
+    (void)memcpy(bytes_pristine, bytes, sizeof bytes);
+    T64_CHECK_INT(
+        t64_profile_hash((const t64_profile_descriptor *)(const void *)probe.bytes,
+                         digest),
+        T64_STATUS_STRUCT_TOO_SMALL);
+    T64_CHECK(memcmp(digest, digest_pristine, sizeof digest) == 0);
+    T64_CHECK_INT(
+        t64_profile_serialize(
+            (const t64_profile_descriptor *)(const void *)probe.bytes, bytes,
+            sizeof bytes, &length),
+        T64_STATUS_STRUCT_TOO_SMALL);
+    T64_CHECK(memcmp(bytes, bytes_pristine, sizeof bytes) == 0);
+    T64_CHECK(length == (size_t)SENTINEL_U64);
+    T64_CHECK(memcmp(&probe, &pristine, sizeof probe) == 0);
+  }
+
+  /* A larger caller descriptor: the known layout is read, nothing else. */
+  {
+    const uint32_t larger_size = known + TAIL_BYTES;
+    uint8_t digest[T64_DIGEST_SIZE];
+    uint8_t bytes[T64_PROFILE_SERIALIZED_MAX_BYTES];
+    size_t length = 0u;
+
+    probe_fill(&probe, known);
+    (void)memcpy(probe.bytes, registered, known);
+    (void)memcpy(probe.bytes, &larger_size, sizeof larger_size);
+    pristine = probe;
+    T64_CHECK_INT(
+        t64_profile_hash((const t64_profile_descriptor *)(const void *)probe.bytes,
+                         digest),
+        T64_STATUS_OK);
+    T64_CHECK(memcmp(digest, reference, sizeof digest) == 0);
+    T64_CHECK_INT(
+        t64_profile_serialize(
+            (const t64_profile_descriptor *)(const void *)probe.bytes, bytes,
+            sizeof bytes, &length),
+        T64_STATUS_OK);
+    T64_CHECK(length == reference_length);
+    T64_CHECK(length <= sizeof bytes &&
+              memcmp(bytes, reference_bytes, length) == 0);
+    T64_CHECK(memcmp(&probe, &pristine, sizeof probe) == 0);
+    T64_CHECK_INT(probe_struct_size(&probe), larger_size);
+  }
+}
+
+typedef struct {
+  const char *name;
+  void (*run)(void);
+} named_case;
+
+static const named_case handshake_cases[] = {
+    {"handshake", case_handshake},
+    {"profile-hash-stable", case_profile_hash_stable},
+    {"trace-record-size", case_trace_record_size},
+};
+
+static const named_case struct_size_cases[] = {
+    {"advance", case_advance},
+    {"cpu-stop-detail", case_cpu_stop_detail},
+    {"output-drain", case_output_drain},
+    {"state-import", case_state_import},
+    {"video-info", case_video_info},
+    {"audio-info", case_audio_info},
+    {"output-status", case_output_status},
+    {"save-info", case_save_info},
+    {"profile-descriptor", case_profile_descriptor},
+};
+
+static const named_case *find_case(const named_case *table, size_t count,
+                                   const char *name) {
+  size_t index;
+
+  for (index = 0u; index < count; index++) {
+    if (strcmp(table[index].name, name) == 0) return &table[index];
+  }
+  return NULL;
+}
+
+static void run_group(const named_case *table, size_t count) {
+  size_t index;
+
+  for (index = 0u; index < count; index++) table[index].run();
+}
+
+#define HANDSHAKE_COUNT (sizeof handshake_cases / sizeof handshake_cases[0])
+#define STRUCT_SIZE_COUNT \
+  (sizeof struct_size_cases / sizeof struct_size_cases[0])
+
+static bool load_fixtures(void) {
+  const char *ipl3_path = getenv("T64_TEST_IPL3_PATH");
+  size_t ipl3_length = 0u;
+
+  return read_fixture("hello.z64", hello_rom, sizeof hello_rom,
+                      &hello_length) &&
+         read_fixture("audio-pcm.z64", audio_rom, sizeof audio_rom,
+                      &audio_length) &&
+         ipl3_path != NULL && ipl3_path[0] != '\0' &&
+         read_file(ipl3_path, ipl3_asset, sizeof ipl3_asset, &ipl3_length) &&
+         ipl3_length == sizeof ipl3_asset;
+}
+
+/* The struct-size cases need the boot fixtures; the handshake cases do not. */
+static bool fixtures_for(const char *case_name) {
+  if (find_case(struct_size_cases, STRUCT_SIZE_COUNT, case_name) == NULL) {
+    return true;
+  }
+  if (!load_fixtures()) {
+    fprintf(stderr, "T64_BOOT_FIXTURES_DIR and T64_TEST_IPL3_PATH must name the fixtures\n");
+    return false;
+  }
+  return true;
+}
+
 int main(int argc, char **argv) {
-  static const char *const cases[] = {"handshake", "profile-hash-stable",
-                                      "trace-record-size"};
+  const named_case *selected;
+  size_t index;
 
   if (argc == 2 && strcmp(argv[1], "--list-cases") == 0) {
-    size_t index;
-
-    for (index = 0u; index < sizeof cases / sizeof cases[0]; index++) {
-      printf("%s\n", cases[index]);
+    for (index = 0u; index < HANDSHAKE_COUNT; index++) {
+      printf("%s\n", handshake_cases[index].name);
+    }
+    for (index = 0u; index < STRUCT_SIZE_COUNT; index++) {
+      printf("%s\n", struct_size_cases[index].name);
     }
     return 0;
   }
   if (argc == 3 && strcmp(argv[1], "--case") == 0) {
-    if (strcmp(argv[2], "handshake") == 0) {
-      case_handshake();
-    } else if (strcmp(argv[2], "profile-hash-stable") == 0) {
-      case_profile_hash_stable();
-    } else if (strcmp(argv[2], "trace-record-size") == 0) {
-      case_trace_record_size();
-    } else {
+    selected = find_case(handshake_cases, HANDSHAKE_COUNT, argv[2]);
+    if (selected == NULL) {
+      selected = find_case(struct_size_cases, STRUCT_SIZE_COUNT, argv[2]);
+    }
+    if (selected == NULL) {
       fprintf(stderr, "unknown case: %s\n", argv[2]);
       return 2;
     }
+    if (!fixtures_for(argv[2])) return 2;
+    selected->run();
     return T64_TEST_FINISH(argv[2]);
   }
+  if (argc == 3 && strcmp(argv[1], "--group") == 0 &&
+      strcmp(argv[2], "struct-size") == 0) {
+    if (!load_fixtures()) {
+      fprintf(stderr, "T64_BOOT_FIXTURES_DIR and T64_TEST_IPL3_PATH must name the fixtures\n");
+      return 2;
+    }
+    run_group(struct_size_cases, STRUCT_SIZE_COUNT);
+    return T64_TEST_FINISH("unit.core.api.struct-size");
+  }
   if (argc != 1) {
-    fprintf(stderr, "usage: %s [--list-cases|--case NAME]\n", argv[0]);
+    fprintf(stderr, "usage: %s [--list-cases|--case NAME|--group struct-size]\n",
+            argv[0]);
     return 2;
   }
-  case_handshake();
-  case_profile_hash_stable();
-  case_trace_record_size();
+  run_group(handshake_cases, HANDSHAKE_COUNT);
   return T64_TEST_FINISH("unit.core.api.handshake");
 }

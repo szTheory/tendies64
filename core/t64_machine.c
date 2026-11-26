@@ -2644,7 +2644,16 @@ t64_status t64_profile_hash(const t64_profile_descriptor *profile,
   profile_writer writer = {NULL, 0u, NULL};
   t64_sha256_ctx context;
 
-  if (digest_out == NULL || !profile_fields_are_valid(profile)) {
+  if (digest_out == NULL || profile == NULL) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  /* DR-06: a descriptor below the v1 size is refused before it is read. The
+   * hash reads named members only, so a larger caller descriptor contributes
+   * exactly its v1 members. */
+  if (profile->struct_size < T64_PROFILE_DESCRIPTOR_V1_SIZE) {
+    return T64_STATUS_STRUCT_TOO_SMALL;
+  }
+  if (!profile_fields_are_valid(profile)) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
   t64_sha256_init(&context);
@@ -2663,7 +2672,16 @@ t64_status t64_profile_serialize(const t64_profile_descriptor *profile,
   t64_address_range bytes_range;
   size_t required;
 
-  if (length_out == NULL || !profile_fields_are_valid(profile) ||
+  if (length_out == NULL || profile == NULL) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  /* DR-06: a descriptor below the v1 size is refused before it is read. The
+   * serialization reads named members only and the overlap checks use the v1
+   * size, so a larger caller descriptor contributes exactly its v1 members. */
+  if (profile->struct_size < T64_PROFILE_DESCRIPTOR_V1_SIZE) {
+    return T64_STATUS_STRUCT_TOO_SMALL;
+  }
+  if (!profile_fields_are_valid(profile) ||
       !t64_internal_make_range(profile, sizeof *profile, &profile_range) ||
       !t64_internal_make_range(length_out, sizeof *length_out,
                                &length_range) ||
@@ -3192,14 +3210,43 @@ t64_status t64_machine_unload(t64_machine *machine) {
 t64_status t64_machine_advance(t64_machine *machine,
                                const t64_stop_request *request,
                                t64_stop_result *result_out) {
+  t64_stop_request local_request;
+  t64_stop_result local_result;
+  uint32_t request_size;
+  uint32_t result_size;
+  t64_status status;
+
   T64_ENTRY_GUARD(machine);
   if (machine == NULL || request == NULL || result_out == NULL) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
+  /* DR-06: a request or a result below its v1 size is refused before any state
+   * change and before the not-admitted answer, with the result untouched. The
+   * request is read through a local of the known layout (at most
+   * min(caller, known) bytes), and the result is computed in a local and copied
+   * out after struct_size only on success, so a larger caller struct keeps its
+   * struct_size and its trailing bytes. */
+  request_size = request->struct_size;
+  result_size = result_out->struct_size;
+  if (request_size < T64_STOP_REQUEST_V1_SIZE ||
+      result_size < T64_STOP_RESULT_V1_SIZE) {
+    return T64_STATUS_STRUCT_TOO_SMALL;
+  }
   if (!machine->has_image) {
     return T64_STATUS_NOT_READY;
   }
-  return t64_scheduler_advance(machine, request, result_out);
+  (void)memset(&local_request, 0, sizeof local_request);
+  (void)memcpy(&local_request, request,
+               request_size < sizeof local_request ? (size_t)request_size
+                                                   : sizeof local_request);
+  (void)memset(&local_result, 0, sizeof local_result);
+  local_result.struct_size = result_size;
+  status = t64_scheduler_advance(machine, &local_request, &local_result);
+  if (status == T64_STATUS_OK) {
+    t64_internal_copy_out(result_out, result_size, &local_result,
+                          sizeof local_result);
+  }
+  return status;
 }
 
 t64_status t64_machine_content_digest(
@@ -3284,6 +3331,7 @@ t64_status t64_machine_cpu_stop_detail(
     const t64_machine *machine, t64_cpu_stop_detail *detail_out) {
   t64_address_range output_range;
   t64_cpu_stop_detail detail;
+  uint32_t caller_size;
 
   T64_ENTRY_GUARD(machine);
   if (machine == NULL || detail_out == NULL ||
@@ -3291,14 +3339,23 @@ t64_status t64_machine_cpu_stop_detail(
       !t64_internal_observation_range_is_disjoint(machine, output_range)) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
+  /* DR-06: the span is judged first (a hostile pointer is never read), then a
+   * struct_size below the v1 size is refused before the state checks, with the
+   * struct untouched. */
+  caller_size = detail_out->struct_size;
+  if (caller_size < T64_CPU_STOP_DETAIL_V1_SIZE) {
+    return T64_STATUS_STRUCT_TOO_SMALL;
+  }
   if (!machine->has_image || !machine->cpu.stopped) {
     return T64_STATUS_NOT_READY;
   }
-  /* struct_size is the caller's and is written back unchanged (DR-06). */
-  detail.struct_size = detail_out->struct_size;
+  /* The record is built in a zeroed local and copied out after struct_size,
+   * which stays the caller's (DR-06). */
+  (void)memset(&detail, 0, sizeof detail);
+  detail.struct_size = caller_size;
   detail.retired_instructions = machine->cpu.retired_instructions;
   detail.pc = machine->cpu.stop_pc;
   detail.opcode = machine->cpu.stop_opcode;
-  (void)memcpy(detail_out, &detail, sizeof detail);
+  t64_internal_copy_out(detail_out, caller_size, &detail, sizeof detail);
   return T64_STATUS_OK;
 }

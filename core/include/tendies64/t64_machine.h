@@ -230,6 +230,19 @@ T64_API uint32_t t64_abi_version(void);
  * t64_trace_record is an array element without struct_size: the caller passes
  * its record size to t64_machine_trace_drain instead.
  *
+ * Check order of every entry that takes a struct (plan 11-13): a NULL machine
+ * or NULL struct is T64_STATUS_INVALID_ARGUMENT, a poisoned or reentrant call
+ * is answered as for every entry, a struct span that wraps or overlaps the
+ * machine is T64_STATUS_INVALID_ARGUMENT before the struct is read, then a
+ * struct_size below the v1 size is T64_STATUS_STRUCT_TOO_SMALL, before the
+ * admission and state checks (NOT_READY and the rest) and with every output,
+ * the struct and the machine untouched. A larger struct_size gets exactly the
+ * v1 members: the callee never writes struct_size and never reads or writes a
+ * byte past the v1 size. t64_machine_advance checks its request and its result
+ * this way, t64_machine_state_import its report (a NULL report is still
+ * accepted and carries no size), and t64_profile_hash and t64_profile_serialize
+ * the descriptor.
+ *
  * t64_host_storage is the one struct the core fills for the host: the core is
  * its caller and sets struct_size before every allocate callback; the callback
  * writes only data, capacity and alignment.

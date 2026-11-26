@@ -1271,6 +1271,7 @@ t64_status t64_vi_event(t64_machine *machine, const t64_event *event) {
 t64_status t64_video_info(const t64_machine *machine,
                           t64_video_packet_info *info_out) {
   t64_address_range output_range;
+  uint32_t caller_size;
 
   T64_ENTRY_GUARD(machine);
   if (machine == NULL || info_out == NULL ||
@@ -1278,60 +1279,68 @@ t64_status t64_video_info(const t64_machine *machine,
       !t64_internal_observation_range_is_disjoint(machine, output_range)) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
+  /* DR-06: the span is judged first (a hostile pointer is never read), then an
+   * info below the v1 size is refused before the state checks, with the struct
+   * untouched. */
+  caller_size = info_out->struct_size;
+  if (caller_size < T64_VIDEO_PACKET_INFO_V1_SIZE) {
+    return T64_STATUS_STRUCT_TOO_SMALL;
+  }
   if (!machine->has_image || !t64_has_rdp_vi_profile(machine))
     return T64_STATUS_NOT_READY;
   if (machine->vi.packet_count == 0u) return T64_STATUS_NOT_READY;
   /* Copy-out of the oldest retained slot into the public struct, member by
    * member (plan 11-04, DR-08): the retained slot is an internal type, so the
    * public struct can change its layout without moving a retained byte. The
-   * destination is cleared first, which keeps the bytes (padding included)
-   * exactly those of the slot copy this replaces while the layouts are equal. */
+   * record is built in a cleared local and copied out after struct_size, which
+   * stays the caller's (plan 11-13, DR-06). */
   {
     const t64_vi_packet_slot *slot =
         &machine->vi.packet_info[machine->vi.packet_head];
+    t64_video_packet_info info;
 
-    (void)memset(info_out, 0, sizeof *info_out);
-    info_out->width = slot->width;
-    info_out->height = slot->height;
-    info_out->stride_bytes = slot->stride_bytes;
-    info_out->source_address = slot->source_address;
-    info_out->source_format = slot->source_format;
-    info_out->output_encoding = slot->output_encoding;
-    info_out->field = slot->field;
-    info_out->parity = slot->parity;
-    info_out->control = slot->control;
-    info_out->burst = slot->burst;
-    info_out->h_sync = slot->h_sync;
-    info_out->v_sync = slot->v_sync;
-    info_out->h_start = slot->h_start;
-    info_out->h_end = slot->h_end;
-    info_out->v_start = slot->v_start;
-    info_out->v_end = slot->v_end;
-    info_out->source_width = slot->source_width;
-    info_out->source_pitch_bytes = slot->source_pitch_bytes;
-    info_out->source_x_offset = slot->source_x_offset;
-    info_out->source_y_offset = slot->source_y_offset;
-    info_out->x_scale = slot->x_scale;
-    info_out->y_scale = slot->y_scale;
-    info_out->filter = slot->filter;
-    info_out->start_tick = slot->start_tick;
-    info_out->end_tick = slot->end_tick;
-    info_out->sequence = slot->sequence;
-    info_out->commands_completed = slot->commands_completed;
-    info_out->fullsync_completed = slot->fullsync_completed;
-    info_out->last_command_word = slot->last_command_word;
-    info_out->last_command_byte = slot->last_command_byte;
-    info_out->last_opcode_field = slot->last_opcode_field;
-    info_out->source_bytes = slot->source_bytes;
-    info_out->packet_bytes = slot->packet_bytes;
-    (void)memcpy(info_out->profile_id, slot->profile_id,
-                 sizeof info_out->profile_id);
-    (void)memcpy(info_out->build_id, slot->build_id,
-                 sizeof info_out->build_id);
-    (void)memcpy(info_out->vi_clock_policy, slot->vi_clock_policy,
-                 sizeof info_out->vi_clock_policy);
-    (void)memcpy(info_out->vi_output_policy, slot->vi_output_policy,
-                 sizeof info_out->vi_output_policy);
+    (void)memset(&info, 0, sizeof info);
+    info.struct_size = caller_size;
+    info.width = slot->width;
+    info.height = slot->height;
+    info.stride_bytes = slot->stride_bytes;
+    info.source_address = slot->source_address;
+    info.source_format = slot->source_format;
+    info.output_encoding = slot->output_encoding;
+    info.field = slot->field;
+    info.parity = slot->parity;
+    info.control = slot->control;
+    info.burst = slot->burst;
+    info.h_sync = slot->h_sync;
+    info.v_sync = slot->v_sync;
+    info.h_start = slot->h_start;
+    info.h_end = slot->h_end;
+    info.v_start = slot->v_start;
+    info.v_end = slot->v_end;
+    info.source_width = slot->source_width;
+    info.source_pitch_bytes = slot->source_pitch_bytes;
+    info.source_x_offset = slot->source_x_offset;
+    info.source_y_offset = slot->source_y_offset;
+    info.x_scale = slot->x_scale;
+    info.y_scale = slot->y_scale;
+    info.filter = slot->filter;
+    info.start_tick = slot->start_tick;
+    info.end_tick = slot->end_tick;
+    info.sequence = slot->sequence;
+    info.commands_completed = slot->commands_completed;
+    info.fullsync_completed = slot->fullsync_completed;
+    info.last_command_word = slot->last_command_word;
+    info.last_command_byte = slot->last_command_byte;
+    info.last_opcode_field = slot->last_opcode_field;
+    info.source_bytes = slot->source_bytes;
+    info.packet_bytes = slot->packet_bytes;
+    (void)memcpy(info.profile_id, slot->profile_id, sizeof info.profile_id);
+    (void)memcpy(info.build_id, slot->build_id, sizeof info.build_id);
+    (void)memcpy(info.vi_clock_policy, slot->vi_clock_policy,
+                 sizeof info.vi_clock_policy);
+    (void)memcpy(info.vi_output_policy, slot->vi_output_policy,
+                 sizeof info.vi_output_policy);
+    t64_internal_copy_out(info_out, caller_size, &info, sizeof info);
   }
   return T64_STATUS_OK;
 }

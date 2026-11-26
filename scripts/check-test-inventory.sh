@@ -295,7 +295,8 @@ repo.api-init-guard-selftest
 repo.abi-prefix
 repo.stale-freeze-text
 repo.stale-freeze-text-selftest
-unit.core.api.handshake'
+unit.core.api.handshake
+unit.core.api.struct-size'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

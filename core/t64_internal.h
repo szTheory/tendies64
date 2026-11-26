@@ -11,6 +11,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 /*
  * v1 sizes of the public structs (plan 11-12, DR-06): a caller struct_size, or
@@ -61,6 +62,29 @@ _Static_assert(offsetof(t64_host_storage, struct_size) == 0u &&
                    offsetof(t64_profile_descriptor, struct_size) == 0u &&
                    offsetof(t64_machine_create_info, struct_size) == 0u,
                "leading struct_size");
+/*
+ * Copy-out of a record into a caller struct of the caller's own size (plan
+ * 11-13, DR-06). The callee computes the record in a local of the known layout,
+ * then copies the bytes after the leading struct_size member, at most
+ * min(caller_size, known_size) bytes of the record, so the caller's struct_size
+ * and every byte past the known size stay exactly as the caller left them. The
+ * entry has already refused a caller_size below the v1 size, which is the known
+ * size, so the copy always covers the whole record after struct_size.
+ */
+static inline void t64_internal_copy_out(void *caller_struct,
+                                         uint32_t caller_size,
+                                         const void *record,
+                                         size_t known_size) {
+  const size_t copy_size =
+      (size_t)caller_size < known_size ? (size_t)caller_size : known_size;
+
+  if (copy_size > sizeof(uint32_t)) {
+    (void)memcpy((uint8_t *)caller_struct + sizeof(uint32_t),
+                 (const uint8_t *)record + sizeof(uint32_t),
+                 copy_size - sizeof(uint32_t));
+  }
+}
+
 /* An empty host storage record: the core is the caller of t64_host_storage
  * and fills struct_size before every allocate callback (DR-06, INFO-03). */
 #define T64_HOST_STORAGE_EMPTY {T64_HOST_STORAGE_V1_SIZE, NULL, 0u, 0u}

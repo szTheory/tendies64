@@ -921,18 +921,29 @@ set_tests_properties(unit.core.api.reset
 
 # Size handshake (plan 11-12): the create-info checks, the registered profile
 # hashes against the Wave 0 base and the trace record_size stride. Public
-# header only, like test_api_surface; plan 11-13 adds the struct-size cases.
+# header only, like test_api_surface. Plan 11-13 adds the struct-size group:
+# the floor and larger-caller cases of every in/out entry (it needs the boot
+# fixtures and the K1 environment, so its dependencies are explicit).
 add_executable(test_api_struct_size tests/test_api_struct_size.c)
 target_include_directories(test_api_struct_size PRIVATE
   "${CMAKE_SOURCE_DIR}/tests")
 target_link_libraries(test_api_struct_size PRIVATE t64_core)
 t64_target_warnings(test_api_struct_size)
+add_dependencies(test_api_struct_size t64-boot-fixtures t64-rdp-fill-fixture
+  t64-audio-fixture)
 add_test(NAME unit.core.api.handshake COMMAND test_api_struct_size)
 set_tests_properties(unit.core.api.handshake PROPERTIES
   LABELS "unit;phase11"
   TIMEOUT 30
   COST 1
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
+add_test(NAME unit.core.api.struct-size
+  COMMAND test_api_struct_size --group struct-size)
+set_tests_properties(unit.core.api.struct-size PROPERTIES
+  LABELS "unit;phase11"
+  TIMEOUT 60
+  COST 1
+  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64;T64_BOOT_FIXTURES_DIR=${T64_BOOT_FIXTURE_DIR}")
 
 # Descriptor 13 family (plan 10-09): the four registered si-v2 ids with their
 # pinned profile hashes, and ISViewer activity on the eight SI family ids; plan
