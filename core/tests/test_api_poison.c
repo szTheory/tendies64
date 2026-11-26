@@ -1021,6 +1021,123 @@ static void defect_digest_tables(void) {
   }
 }
 
+/* AMBIG-A/B, SHAPE review S-02 (plan 11-26): the observer cursor and the ring
+ * indexes are rejected by state import, so no caller input reaches a machine
+ * that violates them. A call that still finds one is looking at a broken
+ * internal invariant: INTERNAL_DEFECT and poison, outputs untouched, not a
+ * refused-class answer (RESOURCE_EXHAUSTED, or a quiet zero in the status). */
+typedef enum {
+  OBSERVER_CURSOR_PAST_CAPTURE,
+  OBSERVER_CAPTURE_PAST_LIMIT,
+  OBSERVER_VIDEO_HEAD,
+  OBSERVER_VIDEO_COUNT,
+  OBSERVER_AUDIO_HEAD,
+  OBSERVER_AUDIO_COUNT,
+  OBSERVER_BREAK_COUNT
+} observer_break;
+
+static const char *const observer_break_names[OBSERVER_BREAK_COUNT] = {
+    "cursor-past-capture", "capture-past-limit", "video-head", "video-count",
+    "audio-head", "audio-count"};
+
+static void observer_break_apply(t64_machine *machine, observer_break which) {
+  switch (which) {
+  case OBSERVER_CURSOR_PAST_CAPTURE:
+    machine->output_drain_cursor =
+        (size_t)machine->output.captured_bytes + 1u;
+    break;
+  case OBSERVER_CAPTURE_PAST_LIMIT:
+    machine->output.captured_bytes = T64_ISVIEWER_CAPTURE_BYTES + 1u;
+    break;
+  case OBSERVER_VIDEO_HEAD:
+    machine->vi.packet_head = T64_VIDEO_QUEUE_CAPACITY;
+    break;
+  case OBSERVER_VIDEO_COUNT:
+    machine->vi.packet_count = T64_VIDEO_QUEUE_CAPACITY + 1u;
+    break;
+  case OBSERVER_AUDIO_HEAD:
+    machine->ai.packet_head = T64_AUDIO_QUEUE_CAPACITY;
+    break;
+  case OBSERVER_AUDIO_COUNT:
+    machine->ai.packet_count = T64_AUDIO_QUEUE_CAPACITY + 1u;
+    break;
+  default:
+    break;
+  }
+}
+
+/* The drain cursor and the capture length are the drain's own invariants; the
+ * ring indexes belong to the status call. */
+static void defect_output_drain(void) {
+  enum { DRAIN_BYTES = 64 };
+  static const observer_break breaks[2] = {OBSERVER_CURSOR_PAST_CAPTURE,
+                                           OBSERVER_CAPTURE_PAST_LIMIT};
+  unsigned which;
+
+  for (which = 0u; which < 2u; which++) {
+    instance item;
+    uint8_t bytes[DRAIN_BYTES];
+    uint8_t bytes_expected[DRAIN_BYTES];
+    t64_output_drain_result result;
+    t64_output_drain_result result_expected;
+
+    if (!make_instance(&item, SAVE_PROFILE_ID, true)) return;
+    (void)memset(bytes, 0xa5, sizeof bytes);
+    (void)memcpy(bytes_expected, bytes, sizeof bytes_expected);
+    poison_drain_result(&result);
+    (void)memcpy(&result_expected, &result, sizeof result_expected);
+    /* Control: the healthy instance answers OK, so the branch under test is
+     * the one that is reached next. */
+    T64_CHECK_INT(t64_machine_output_drain(item.machine, bytes, sizeof bytes,
+                                           &result),
+                  T64_STATUS_OK);
+    (void)memset(bytes, 0xa5, sizeof bytes);
+    poison_drain_result(&result);
+    observer_break_apply(item.machine, breaks[which]);
+    T64_CHECK_INT(t64_machine_output_drain(item.machine, bytes, sizeof bytes,
+                                           &result),
+                  T64_STATUS_INTERNAL_DEFECT);
+    T64_CHECK(memcmp(bytes, bytes_expected, sizeof bytes) == 0);
+    T64_CHECK(memcmp(&result, &result_expected, sizeof result) == 0);
+    T64_CHECK(is_poisoned(item.machine));
+    T64_CHECK_INT(t64_machine_output_drain(item.machine, bytes, sizeof bytes,
+                                           &result),
+                  T64_STATUS_POISONED);
+    T64_CHECK(memcmp(&result, &result_expected, sizeof result) == 0);
+    destroy_and_check(&item);
+  }
+}
+
+static void defect_output_status(void) {
+  unsigned which;
+
+  for (which = 0u; which < (unsigned)OBSERVER_BREAK_COUNT; which++) {
+    instance item;
+    t64_output_status status;
+    t64_output_status status_expected;
+    const observer_break kind = (observer_break)which;
+
+    if (!make_instance(&item, SAVE_PROFILE_ID, true)) return;
+    poison_output_status(&status);
+    (void)memcpy(&status_expected, &status, sizeof status_expected);
+    /* Control: a healthy instance answers OK and writes the record. */
+    T64_CHECK_INT(t64_machine_output_status(item.machine, &status),
+                  T64_STATUS_OK);
+    T64_CHECK(not_poisoned(item.machine));
+    poison_output_status(&status);
+    observer_break_apply(item.machine, kind);
+    printf("output status break %s\n", observer_break_names[kind]);
+    T64_CHECK_INT(t64_machine_output_status(item.machine, &status),
+                  T64_STATUS_INTERNAL_DEFECT);
+    T64_CHECK(memcmp(&status, &status_expected, sizeof status) == 0);
+    T64_CHECK(is_poisoned(item.machine));
+    T64_CHECK_INT(t64_machine_output_status(item.machine, &status),
+                  T64_STATUS_POISONED);
+    T64_CHECK(memcmp(&status, &status_expected, sizeof status) == 0);
+    destroy_and_check(&item);
+  }
+}
+
 /* AMBIG-B: state export no longer touches the buffer on a refusal. The
  * buffer is larger than any header or table so a stray clear would show. */
 static void export_refusal_untouched(void) {
@@ -1206,6 +1323,8 @@ static void case_defect_sites(void) {
   defect_cp0_phase();
   defect_profile_digest();
   defect_digest_tables();
+  defect_output_drain();
+  defect_output_status();
   export_refusal_untouched();
   for (scenario = 0u; scenario < (unsigned)SCENARIO_COUNT; scenario++) {
     guest_driven_case((handler_scenario)scenario);
