@@ -17,8 +17,14 @@
 
 /*
  * Every public function is marked T64_API: default symbol visibility under
- * GCC and Clang, nothing elsewhere. A host that links the installed archive
- * sees exactly the marked functions.
+ * GCC and Clang, nothing elsewhere. T64_API marks the public functions and
+ * hides nothing: the library is a static archive, no visibility attribute is
+ * promised for its other symbols, and a host link line can see every global
+ * the archive defines. Every global that is not one of the marked functions
+ * carries the t64i_ prefix (a generated rename header keeps it so), so no
+ * internal name can collide with a host name, and the repository gate checks
+ * the symbol list of the archive (nm) against the marked functions of this
+ * header, which enforces the public symbol list.
  */
 #if defined(__GNUC__) || defined(__clang__)
 #define T64_API __attribute__((visibility("default")))
@@ -576,8 +582,13 @@ T64_API void t64_machine_destroy(t64_machine *machine);
  * untouched on each entry that takes a machine, and t64_machine_destroy(NULL)
  * does nothing. A call made on an instance from inside one of its own host
  * allocator callbacks (admission and destruction call the host) is refused with
- * T64_STATUS_REENTRANT before it reads or writes anything. One instance still
- * needs external serialization; distinct instances are independent.
+ * T64_STATUS_REENTRANT before it reads or writes anything. The one call that
+ * is not refused is t64_machine_destroy, which is unguarded by design so that
+ * it can always release the instance. It frees the instance under any running
+ * call, so t64_machine_destroy must not be called from inside one of that
+ * instance's own allocator callbacks (undefined behaviour of the caller). One
+ * instance still needs external serialization; distinct instances are
+ * independent.
  *
  * This query reports 1 in *poisoned_out for a poisoned instance and 0
  * otherwise. It is the one entry other than destroy with no poison or
@@ -638,7 +649,13 @@ T64_API t64_status t64_machine_rom_size(const t64_machine *machine,
 T64_API t64_status t64_machine_rom_header(const t64_machine *machine,
                                           uint8_t *header_out, size_t capacity,
                                           size_t *length_out);
-/* The returned descriptor is borrowed and valid until machine destruction. */
+/*
+ * The returned descriptor is borrowed and valid until machine destruction. It
+ * is the instance's own copy at the v1 descriptor size: its struct_size is the
+ * v1 size, whatever the caller's descriptor carried at create. A consumer built
+ * against a later, larger descriptor layout must check struct_size before it
+ * reads any member beyond the v1 members.
+ */
 T64_API t64_status t64_machine_profile(
     const t64_machine *machine, const t64_profile_descriptor **profile_out);
 T64_API t64_status t64_machine_digest(const t64_machine *machine,

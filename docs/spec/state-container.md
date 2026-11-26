@@ -445,14 +445,16 @@ unusable exactly as in check 1. A NULL report is still accepted and carries no
 size. A larger `struct_size` receives the v1 members only, never the
 `struct_size` member and never a byte past the v1 size.
 
-1. Arguments and disjointness: machine and bytes present (`ARG_NULL`), length
-   non-zero and at most 64 MiB (`ARG_LENGTH`), no flag bit other than
-   `T64_STATE_IMPORT_DROP_OBSERVERS` (`ARG_FLAGS`), the blob span and the report
-   span disjoint from the machine allocation, the admitted image and both packet
-   storages (`ARG_OVERLAP_LIVE`; an unusable report span is never written, and the
-   span is judged before every one of these refusals, so even `ARG_NULL`,
-   `ARG_LENGTH` and `ARG_FLAGS` leave an aliasing span untouched), then an
-   admitted image (`NOT_ADMITTED`, status `NOT_READY`).
+1. Arguments and disjointness: a NULL machine answers
+   INVALID_ARGUMENT at the entry guard with the report untouched, and only a
+   NULL blob answers `ARG_NULL`; length non-zero and at most 64 MiB
+   (`ARG_LENGTH`), no flag bit other than `T64_STATE_IMPORT_DROP_OBSERVERS`
+   (`ARG_FLAGS`), the blob span and the report span disjoint from the machine
+   allocation, the admitted image and both packet storages (`ARG_OVERLAP_LIVE`;
+   an unusable report span is never written, and the span is judged before every
+   one of these refusals, so even `ARG_NULL`, `ARG_LENGTH` and `ARG_FLAGS` leave
+   an aliasing span untouched), then an admitted image (`NOT_ADMITTED`, status
+   `NOT_READY`).
 2. Header: length at least header plus trailer, magic, container version 1, total
    length equal to the supplied length, section count 1 to 32, header flags zero,
    and the build identity field holding a terminator with only zero bytes after it
