@@ -3212,12 +3212,25 @@ t64_status t64_machine_advance(t64_machine *machine,
                                t64_stop_result *result_out) {
   t64_stop_request local_request;
   t64_stop_result local_result;
+  t64_address_range request_range;
+  t64_address_range result_range;
   uint32_t request_size;
   uint32_t result_size;
   t64_status status;
 
   T64_ENTRY_GUARD(machine);
-  if (machine == NULL || request == NULL || result_out == NULL) {
+  /* Plan 11-27 (finding F-20-A): the spans of the request and of the result
+   * are judged first, as every other entry that takes a struct does, so a
+   * struct that wraps or overlaps the instance's own storage (the machine, the
+   * admitted image, the packet storages) is refused before either struct_size
+   * is read and before the admission answer, and nothing is read from or
+   * written to it. The known v1 sizes give the spans: the caller's struct_size
+   * is not known yet. */
+  if (machine == NULL || request == NULL || result_out == NULL ||
+      !t64_internal_make_range(request, sizeof *request, &request_range) ||
+      !t64_internal_observation_range_is_disjoint(machine, request_range) ||
+      !t64_internal_make_range(result_out, sizeof *result_out, &result_range) ||
+      !t64_internal_observation_range_is_disjoint(machine, result_range)) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
   /* DR-06: a request or a result below its v1 size is refused before any state

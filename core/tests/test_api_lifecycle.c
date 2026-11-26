@@ -15,7 +15,10 @@
  *   unload           public unload releases the image storage through the
  *                    host allocator; afterwards admission equals a fresh
  *                    admission by digest, and destroy leaves nothing live
- *   not-ready-table  one table over every machine-taking entry after unload
+ *   not-ready-table  one table over every machine-taking entry after unload,
+ *                    and the advance span rule (plan 11-27): a request or a
+ *                    result placed inside the instance's own blocks is refused
+ *                    with INVALID_ARGUMENT before struct_size and admission
  *   output-status    t64_machine_output_status reports the ring occupancy
  *                    (added by task 3 of the plan)
  */
@@ -737,6 +740,152 @@ static void table_for_profile(const char *profile_id) {
   }
 }
 
+/* ---- the advance span rule (plan 11-27, finding F-20-A) ------------------------
+ *
+ * The header's check order for every entry that takes a struct puts a span that
+ * wraps or overlaps the instance before the struct is read, before the
+ * struct_size answer and before the admission answer, and names
+ * t64_machine_advance among the entries that judge their request and their
+ * result that way. The instance owns the blocks its allocator returned (the
+ * machine storage, the admitted image, the packet storages); the counting
+ * allocator lists them, so the test can put a request or a result inside each of
+ * them with the public API alone.
+ *
+ * Four stop objects are written into the block, 16 bytes apart (a valid
+ * request, a request whose struct_size is 0, a poisoned result and a result
+ * whose struct_size is 0), the original bytes are saved first and written back
+ * last, and the machine digest is taken after the placement: the placement is
+ * the test's own deliberate write, and what must stay equal is everything the
+ * refused calls could have changed. A refused call must answer
+ * INVALID_ARGUMENT, write no placed byte, leave a result outside the instance
+ * as the caller left it, leave the digest unchanged and not poison the
+ * instance. */
+#define SPAN_PLACED_BYTES 64u
+
+static size_t span_offset(size_t block_size) {
+  return ((block_size - SPAN_PLACED_BYTES) / 2u) & ~(size_t)15u;
+}
+
+static bool is_poisoned_now(const t64_machine *machine) {
+  uint32_t poisoned = 99u;
+
+  T64_CHECK_INT(t64_machine_is_poisoned(machine, &poisoned), T64_STATUS_OK);
+  return poisoned != 0u;
+}
+
+static void advance_span_block(instance *item, size_t block, bool admitted) {
+  uint8_t *base = (uint8_t *)item->counts.live[block];
+  const size_t size = item->counts.live_size[block];
+  uint8_t *where;
+  uint8_t saved[SPAN_PLACED_BYTES];
+  uint8_t placed[SPAN_PLACED_BYTES];
+  uint8_t before[T64_DIGEST_SIZE];
+  uint8_t after[T64_DIGEST_SIZE];
+  t64_stop_request request_valid;
+  t64_stop_request request_zero;
+  t64_stop_result result_poisoned;
+  t64_stop_result result_zero;
+  t64_stop_request outside_request =
+      (t64_stop_request)T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, 1000u);
+  t64_stop_request outside_zero_request =
+      (t64_stop_request)T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, 1000u);
+  t64_stop_result outside_result;
+  t64_stop_result outside_expected;
+
+  T64_CHECK(base != NULL);
+  T64_CHECK(size >= 2u * SPAN_PLACED_BYTES);
+  if (base == NULL || size < 2u * SPAN_PLACED_BYTES) return;
+  where = base + span_offset(size);
+  (void)memcpy(saved, where, sizeof saved);
+
+  request_valid =
+      (t64_stop_request)T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, 1000u);
+  request_zero = request_valid;
+  request_zero.struct_size = 0u;
+  poison_stop_result(&result_poisoned);
+  result_zero = result_poisoned;
+  result_zero.struct_size = 0u;
+  (void)memcpy(placed + 0u, &request_valid, sizeof request_valid);
+  (void)memcpy(placed + 16u, &request_zero, sizeof request_zero);
+  (void)memcpy(placed + 32u, &result_poisoned, sizeof result_poisoned);
+  (void)memcpy(placed + 48u, &result_zero, sizeof result_zero);
+  (void)memcpy(where, placed, sizeof placed);
+  outside_zero_request.struct_size = 0u;
+  poison_stop_result(&outside_result);
+  outside_expected = outside_result;
+
+  if (admitted) {
+    T64_CHECK(digest_of(item->machine, before));
+  }
+
+  /* A request inside the block: the span answer wins over a valid struct_size
+   * and over a struct_size of 0 that would otherwise be too small. */
+  T64_CHECK_INT(t64_machine_advance(
+                    item->machine, (const t64_stop_request *)(const void *)where,
+                    &outside_result),
+                T64_STATUS_INVALID_ARGUMENT);
+  T64_CHECK(memcmp(&outside_result, &outside_expected,
+                   sizeof outside_result) == 0);
+  T64_CHECK_INT(t64_machine_advance(
+                    item->machine,
+                    (const t64_stop_request *)(const void *)(where + 16u),
+                    &outside_result),
+                T64_STATUS_INVALID_ARGUMENT);
+  T64_CHECK(memcmp(&outside_result, &outside_expected,
+                   sizeof outside_result) == 0);
+  /* A result inside the block, the request outside (valid, then too small). */
+  T64_CHECK_INT(t64_machine_advance(
+                    item->machine, &outside_request,
+                    (t64_stop_result *)(void *)(where + 32u)),
+                T64_STATUS_INVALID_ARGUMENT);
+  T64_CHECK_INT(t64_machine_advance(
+                    item->machine, &outside_zero_request,
+                    (t64_stop_result *)(void *)(where + 48u)),
+                T64_STATUS_INVALID_ARGUMENT);
+  /* Both inside. */
+  T64_CHECK_INT(t64_machine_advance(
+                    item->machine, (const t64_stop_request *)(const void *)where,
+                    (t64_stop_result *)(void *)(where + 32u)),
+                T64_STATUS_INVALID_ARGUMENT);
+  /* The other side of the order: with both spans outside the instance, a
+   * request below the v1 size is STRUCT_TOO_SMALL, before the admission
+   * answer. */
+  T64_CHECK_INT(t64_machine_advance(item->machine, &outside_zero_request,
+                                    &outside_result),
+                T64_STATUS_STRUCT_TOO_SMALL);
+  T64_CHECK(memcmp(&outside_result, &outside_expected,
+                   sizeof outside_result) == 0);
+
+  /* No placed byte was written, the instance is not poisoned and (when it has
+   * an image to hash) the digest is the one taken after the placement. */
+  T64_CHECK(memcmp(where, placed, sizeof placed) == 0);
+  T64_CHECK(!is_poisoned_now(item->machine));
+  if (admitted) {
+    T64_CHECK(digest_of(item->machine, after));
+    T64_CHECK(same_digest(before, after));
+  }
+  (void)memcpy(where, saved, sizeof saved);
+}
+
+static void advance_span(const char *profile_id, bool admit) {
+  instance item;
+  size_t block;
+  size_t blocks;
+
+  if (!make_instance(&item, profile_id, admit ? hello_rom : NULL,
+                     admit ? hello_length : 0u)) {
+    return;
+  }
+  blocks = item.counts.live_count;
+  /* The machine storage, and with an image the admitted image; a profile with
+   * video or audio output also owns the packet storages. */
+  T64_CHECK(blocks >= (admit ? 2u : 1u));
+  for (block = 0u; block < blocks; block++) {
+    advance_span_block(&item, block, admit);
+  }
+  destroy_and_check(&item);
+}
+
 static void case_not_ready_table(void) {
   /* The legacy skeleton-class profile (no VI, AI or SI), the composite family
    * profile with the 4 KiB EEPROM, and the VI and AI profiles. */
@@ -744,6 +893,11 @@ static void case_not_ready_table(void) {
   table_for_profile("ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e4k");
   table_for_profile(VI_PROFILE);
   table_for_profile("ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-filter-v9-ai-v1");
+  /* The advance span rule: before the struct_size and the admission answers,
+   * with and without an image, with and without packet storages. */
+  advance_span(HELLO_PROFILE, true);
+  advance_span(HELLO_PROFILE, false);
+  advance_span("ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-filter-v9-ai-v1", true);
 }
 
 /* ---- output status ------------------------------------------------------ */
