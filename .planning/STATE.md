@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 11
 current_phase_name: Installed Consumer and Freeze Candidate
 status: executing
-stopped_at: Completed 11-26-PLAN.md (executed out of wave order after 11-15; next plan stays 11-16)
-last_updated: "2026-11-26T02:08:25.252Z"
+stopped_at: Completed 11-16-PLAN.md
+last_updated: "2026-11-26T02:40:40.991Z"
 last_activity: 2026-11-25
 last_activity_desc: Phase 11 execution started
-state_head: c7c75818c0bab8dfa32b004659c77238e16cc2b0
+state_head: 55194cc76fb3f890fbff4eeb80b945b7a46d17fc
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 47
-  completed_plans: 37
+  completed_plans: 38
   percent: 33
 ---
 
@@ -30,10 +30,10 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 ## Current Position
 
 Phase: 11 (Installed Consumer and Freeze Candidate) — EXECUTING
-Plan: 16 of 25
+Plan: 17 of 25
 Status: Ready to execute
 Last activity: 2026-11-25 — Phase 11 execution started
-Note: plan 11-26 (SHAPE defect fixes S-01 to S-03) was executed early, right after 11-15 and out of wave order; the next plan stays 11-16.
+Note: plan 11-16 (INSTALL tracer) is complete and pushed (origin/main e5a2e3c, hosted pair green, run 45742744889); the later local commits are documentation only. Gate-growth warning: warm gate-macos 496 s, two of three cold projections under the 120 s margin (none above 900 s); a measured cold run should precede the 11-21 ledger row.
 
 Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 
@@ -98,6 +98,7 @@ Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 | Phase 11 P11-14 | 22 min | 2 tasks | 13 files |
 | Phase 11 P15 | 27min | 3 tasks | 3 files |
 | Phase 11 P26 | 17min | 3 tasks | 7 files |
+| Phase 11 P16 | 28min | 4 tasks | 15 files |
 
 ## Accumulated Context
 
@@ -235,6 +236,7 @@ Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 - [Phase 11]: 11-15 SHAPE review: no blocking finding; warnings S-01 (header text), S-02 (masked inconsistency branches), S-03 (state-container NULL-machine wording) need a new numbered plan (placement before 11-23 is the orchestrator's call)
 - [Phase 11]: Install base 06e31ecab5b84c08996aba79cb3ab6e29bb021cc; first Phase 11 push 167a084..43b31e2, hosted run 45736981784 green (gate-macos 445 s warm, gate-linux 251 s); cold projections 757-810 s, margin warning under 120 s
 - [Phase 11]: 11-26: an output-observer inconsistency that state import already rejects (drain cursor or capture length, ring head or count out of range) is a defect site at the call that finds it: poison, INTERNAL_DEFECT, outputs untouched; T64_API header text promises no visibility attribute, the t64i_ prefix and the archive symbol check are the enforced property — SHAPE review S-01 and S-02, AMBIG-A/B; text and two defect branches only, sweep 0 differences, no sealed body moved
+- [Phase 11]: The sha256 rename of the folded core copy uses four private compile definitions (not the generator), so core/t64_prefix.h stays at 220 renames and the archive carries 35 public and 224 t64i_ names; package version is the literal 0.1.0 SameMinorVersion (project(VERSION) stays 0.0.0) — The installed.consumer preflight row counts the t64_install fixture closure (install.setup joins the two installed.consumer names), and the Linux undefined set of the act image is the input of plan 11-17; the warm gate-macos sample is 496 s with two of three cold projections under the 120 s margin warning
 
 ### Pending Todos
 
@@ -260,8 +262,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-26T02:08:24.973Z
-Stopped at: Completed 11-26-PLAN.md (executed out of wave order after 11-15; next plan stays 11-16)
+Last session: 2026-11-26T02:40:40.765Z
+Stopped at: Completed 11-16-PLAN.md
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
