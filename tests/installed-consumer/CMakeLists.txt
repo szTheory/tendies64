@@ -11,15 +11,25 @@ set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
-find_package(tendies64 0.1 REQUIRED CONFIG)
+# The version the consumer requests. Only the version-mismatch negative controls
+# of controls.tsv (plan 11-19) change it, to show that a package older or newer
+# than the request is refused by the package's own version file.
+set(T64C_REQUIRED_VERSION 0.1 CACHE STRING "tendies64 version the consumer requests")
+find_package(tendies64 ${T64C_REQUIRED_VERSION} REQUIRED CONFIG)
 
-add_executable(t64c main.c composite.c hostloop.c ops.c t64c_sha256.c)
+add_executable(t64c main.c smoke.c composite.c hostloop.c ops.c t64c_sha256.c)
 target_link_libraries(t64c PRIVATE tendies64::core)
-target_compile_options(t64c PRIVATE
-  -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wstrict-prototypes
-  -Wmissing-prototypes -Wundef -Wvla -Wcast-qual -Wformat=2 -Wwrite-strings
-  -Werror)
-# The build identity the installed package recorded, compared at run time with
-# t64_build_identity() of the linked archive.
-target_compile_definitions(t64c PRIVATE
-  "T64C_EXPECTED_BUILD_ID=\"${tendies64_BUILD_ID}\"")
+# The smoke case alone, built only on request (the negative controls of controls.tsv
+# build this target against a doctored or relocated copy of the prefix).
+add_executable(t64c_smoke EXCLUDE_FROM_ALL smoke_main.c smoke.c)
+target_link_libraries(t64c_smoke PRIVATE tendies64::core)
+foreach(t64c_target t64c t64c_smoke)
+  target_compile_options(${t64c_target} PRIVATE
+    -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wstrict-prototypes
+    -Wmissing-prototypes -Wundef -Wvla -Wcast-qual -Wformat=2 -Wwrite-strings
+    -Werror)
+  # The build identity the installed package recorded, compared at run time with
+  # t64_build_identity() of the linked archive.
+  target_compile_definitions(${t64c_target} PRIVATE
+    "T64C_EXPECTED_BUILD_ID=\"${tendies64_BUILD_ID}\"")
+endforeach()

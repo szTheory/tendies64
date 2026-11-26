@@ -91,6 +91,9 @@ bool t64c_run_to_completion(t64c_fixture *fixture, uint64_t slice,
 /* After completion: the machine digest and the exported SRAM save. */
 bool t64c_finish_run(t64c_fixture *fixture, t64c_run *run);
 
+/* The smoke case (smoke.c): header and archive agree, create and destroy balance. */
+int t64c_case_smoke(void);
+
 /* The composite case (composite.c). */
 int t64c_case_composite(const t64c_args *args);
 

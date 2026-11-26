@@ -430,3 +430,46 @@ set_tests_properties(installed.consumer.three-way PROPERTIES
   TIMEOUT 120
   COST 0.6
   FIXTURES_REQUIRED t64_consumer)
+
+# Negative controls of the installed package (plan 11-19, VER-05, T-11-38 to T-11-40):
+# one CTest name per row of tests/installed-consumer/controls.tsv, performed by
+# `check-install.sh control ID`. Each row fails loudly with a specific expected text or
+# status (missing package, version mismatch, visible source tree, doctored header,
+# relocated prefix with spaces, symbol collision, plain cc line). A control needs only
+# the moved prefix of install.setup (FIXTURES_REQUIRED t64_install) and works in its
+# own directory below BUILD/install-check/controls, so the names may run in parallel.
+# COST is the measured native seconds of the name (W-11): a row without a recorded cost
+# is a configure error. TIMEOUT follows F-108.
+set(T64_CONTROLS_TSV "${CMAKE_SOURCE_DIR}/tests/installed-consumer/controls.tsv")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${T64_CONTROLS_TSV}")
+file(STRINGS "${T64_CONTROLS_TSV}" T64_CONTROL_LINES)
+set(T64_CONTROL_COST_missing-package 0.43)
+set(T64_CONTROL_COST_version-mismatch-minor 0.41)
+set(T64_CONTROL_COST_version-mismatch-patch 0.44)
+set(T64_CONTROL_COST_visible-source-tree 0.44)
+set(T64_CONTROL_COST_visible-source-tree-seed 0.44)
+set(T64_CONTROL_COST_doctored-header-abi 0.55)
+set(T64_CONTROL_COST_doctored-header-size 0.62)
+set(T64_CONTROL_COST_relocated-spaces 0.67)
+foreach(T64_CONTROL_LINE IN LISTS T64_CONTROL_LINES)
+  if(T64_CONTROL_LINE STREQUAL "" OR T64_CONTROL_LINE MATCHES "^#")
+    continue()
+  endif()
+  string(REPLACE "\t" ";" T64_CONTROL_COLS "${T64_CONTROL_LINE}")
+  list(GET T64_CONTROL_COLS 0 T64_CONTROL_ID)
+  if(NOT DEFINED T64_CONTROL_COST_${T64_CONTROL_ID})
+    message(FATAL_ERROR
+      "tests/installed-consumer/controls.tsv lists '${T64_CONTROL_ID}' with no "
+      "measured COST (set T64_CONTROL_COST_${T64_CONTROL_ID} in tools/abi/CMakeLists.txt)")
+  endif()
+  add_test(NAME installed.controls.${T64_CONTROL_ID}
+    COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/check-install.sh
+            --build ${CMAKE_BINARY_DIR} control ${T64_CONTROL_ID}
+            --rom "${T64_CONSUMER_ROM}"
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+  set_tests_properties(installed.controls.${T64_CONTROL_ID} PROPERTIES
+    LABELS "installed;controls;phase11"
+    TIMEOUT 120
+    COST ${T64_CONTROL_COST_${T64_CONTROL_ID}}
+    FIXTURES_REQUIRED t64_install)
+endforeach()

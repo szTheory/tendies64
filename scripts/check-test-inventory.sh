@@ -324,6 +324,14 @@ installed.consumer.hostloop
 installed.consumer.hostloop-cadence
 installed.consumer.hostloop-delay
 installed.consumer.two-instance
+installed.controls.missing-package
+installed.controls.version-mismatch-minor
+installed.controls.version-mismatch-patch
+installed.controls.visible-source-tree
+installed.controls.visible-source-tree-seed
+installed.controls.doctored-header-abi
+installed.controls.doctored-header-size
+installed.controls.relocated-spaces
 repo.consumer-include-guard
 repo.consumer-include-guard-selftest
 repo.abi-layout

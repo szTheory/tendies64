@@ -16,6 +16,14 @@
 #                  WORK/consumer, build it, and assert that neither the moved
 #                  prefix nor the consumer tree mentions the original install path
 #   run CASE ...   run WORK/consumer/t64c --case CASE with the remaining arguments
+#   control ID [--rom PATH]
+#                  perform one negative control of tests/installed-consumer/controls.tsv
+#                  in its own directory below WORK/controls (plan 11-19, VER-05): the row
+#                  names the action (a failing configure, a source-tree scan, a doctored
+#                  copy of the installed header, a relocated copy of the prefix, the
+#                  symbol-collision consumer, a plain cc line) and the exact text or create
+#                  status that must be observed; exit 0 only when it is observed, with the
+#                  expected and the observed value in the log, exit 1 otherwise
 #   three-way [--rom PATH] [--supervisor PATH]
 #                  run the in-tree runner (the two supervised runs of the authored
 #                  composite ROM that composite.expected.json was proved against:
@@ -41,7 +49,7 @@ BUILD=$ROOT/build/gate
 WORK=
 
 usage() {
-  echo "usage: sh scripts/check-install.sh [--build DIR] [--work DIR] setup|build|run CASE [ARGS]|three-way [--rom PATH] [--supervisor PATH]" >&2
+  echo "usage: sh scripts/check-install.sh [--build DIR] [--work DIR] setup|build|run CASE [ARGS]|control ID [--rom PATH]|three-way [--rom PATH] [--supervisor PATH]" >&2
   exit 2
 }
 
@@ -142,19 +150,32 @@ cmd_setup() {
   echo "check-install: setup ok: 6 files in the moved prefix"
 }
 
-cmd_build() {
-  [ -d "$MOVED" ] || die "no moved prefix: run setup first"
+# consumer_configure DIR PREFIX LOG [CMAKE_ARGS...]: configure tests/installed-consumer
+# into DIR (Ninja, Release, the compiler of the build tree, a compile database) with
+# CMAKE_PREFIX_PATH=PREFIX and nothing else but the extra arguments; the output goes to
+# LOG and the status is cmake's. The environment's CMAKE_PREFIX_PATH is unset, so only
+# PREFIX can supply the package.
+consumer_configure() {
+  _cdir=$1
+  _cprefix=$2
+  _clog=$3
+  shift 3
   CC_PATH=$(cache_value CMAKE_C_COMPILER)
   [ -n "$CC_PATH" ] || die "the build tree records no C compiler"
   NINJA=$(cache_value CMAKE_MAKE_PROGRAM)
-  rm -rf "$CONSUMER_BUILD"
-  set -- -S "$ROOT/tests/installed-consumer" -B "$CONSUMER_BUILD" -G Ninja \
+  rm -rf "$_cdir"
+  set -- -S "$ROOT/tests/installed-consumer" -B "$_cdir" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-    "-DCMAKE_PREFIX_PATH=$MOVED" "-DCMAKE_C_COMPILER=$CC_PATH"
+    "-DCMAKE_PREFIX_PATH=$_cprefix" "-DCMAKE_C_COMPILER=$CC_PATH" "$@"
   if [ -n "$NINJA" ] && [ -x "$NINJA" ]; then
     set -- "$@" "-DCMAKE_MAKE_PROGRAM=$NINJA"
   fi
-  if ! "$CMAKE" "$@" >"$WORK/consumer-configure.log" 2>&1; then
+  env -u CMAKE_PREFIX_PATH "$CMAKE" "$@" >"$_clog" 2>&1
+}
+
+cmd_build() {
+  [ -d "$MOVED" ] || die "no moved prefix: run setup first"
+  if ! consumer_configure "$CONSUMER_BUILD" "$MOVED" "$WORK/consumer-configure.log"; then
     cat "$WORK/consumer-configure.log" >&2
     fail "consumer configure failed (find_package(tendies64 0.1 REQUIRED CONFIG))"
   fi
@@ -325,10 +346,247 @@ cmd_three_way() {
   echo "three-way: ok: installed consumer, in-tree runner and independent literals agree"
 }
 
+# ---- negative controls (plan 11-19, VER-05) ------------------------------------
+# One row of tests/installed-consumer/controls.tsv per control: id, action, argument,
+# kind (text or status), expected, detail. The action runs in WORK/controls/ID, appends
+# everything it observes to the log, and the judge compares the log (text) or the create
+# status the smoke case printed (status) with the expected value. A control that passes
+# removes its directory, a failing one keeps it.
+
+CTL_TSV=$ROOT/tests/installed-consumer/controls.tsv
+
+ctl_say() {
+  echo "control $CTL_ID: $*"
+}
+
+# ctl_repo_paths DIR: the lines of DIR/compile_commands.json and DIR/build.ninja that
+# still name the repository root after the consumer's own source directory and the work
+# directory (the build trees and prefixes of this driver) are removed from every line.
+ctl_repo_paths() {
+  [ -f "$1/compile_commands.json" ] || fail "control $CTL_ID: no compile_commands.json in the consumer tree"
+  [ -f "$1/build.ninja" ] || fail "control $CTL_ID: no build.ninja in the consumer tree"
+  cat "$1/compile_commands.json" "$1/build.ninja" |
+    awk -v root="$ROOT" -v a1="$ROOT/tests/installed-consumer" -v a2="$WORK" '
+      function strip(line, lit,   out, i) {
+        out = ""
+        while ((i = index(line, lit)) > 0) {
+          out = out substr(line, 1, i - 1)
+          line = substr(line, i + length(lit))
+        }
+        return out line
+      }
+      { rest = strip(strip($0, a1), a2); if (index(rest, root) > 0) print rest }'
+}
+
+# ctl_smoke DIR: run t64c_smoke (the smoke case alone) of the consumer tree DIR, output
+# to CTL_DIR/smoke.txt and the log; CTL_SMOKE_RC is its exit status.
+ctl_smoke() {
+  if "$1/t64c_smoke" >"$CTL_DIR/smoke.txt" 2>&1; then
+    CTL_SMOKE_RC=0
+  else
+    CTL_SMOKE_RC=$?
+  fi
+  cat "$CTL_DIR/smoke.txt" >>"$CTL_LOG"
+}
+
+# ctl_build_smoke PREFIX: configure the consumer against PREFIX in CTL_BUILD, build its
+# t64c_smoke target (the smoke case alone, so a header that no longer fits the other
+# cases still builds) and run it.
+ctl_build_smoke() {
+  if ! consumer_configure "$CTL_BUILD" "$1" "$CTL_DIR/configure.log"; then
+    cat "$CTL_DIR/configure.log" >&2
+    fail "control $CTL_ID: the consumer does not configure against the copied prefix"
+  fi
+  if ! "$CMAKE" --build "$CTL_BUILD" --target t64c_smoke >"$CTL_DIR/build.log" 2>&1; then
+    cat "$CTL_DIR/build.log" >&2
+    fail "control $CTL_ID: the consumer does not build against the copied prefix"
+  fi
+  [ -x "$CTL_BUILD/t64c_smoke" ] || fail "control $CTL_ID: the smoke executable was not produced"
+  ctl_smoke "$CTL_BUILD"
+}
+
+ctl_configure_missing() {
+  if consumer_configure "$CTL_BUILD" "" "$CTL_LOG"; then
+    fail "control $CTL_ID: the configure succeeded with an empty CMAKE_PREFIX_PATH"
+  fi
+}
+
+ctl_configure_version() {
+  if consumer_configure "$CTL_BUILD" "$MOVED" "$CTL_LOG" "-DT64C_REQUIRED_VERSION=$CTL_ARG"; then
+    fail "control $CTL_ID: the configure succeeded although version $CTL_ARG is not compatible with the package"
+  fi
+}
+
+ctl_source_tree() {
+  _seed=
+  [ "$CTL_ARG" != seed ] || _seed="-DCMAKE_C_FLAGS=-I$ROOT/core/include"
+  if ! consumer_configure "$CTL_BUILD" "$MOVED" "$CTL_DIR/configure.log" ${_seed:+"$_seed"}; then
+    cat "$CTL_DIR/configure.log" >&2
+    fail "control $CTL_ID: the consumer does not configure against the moved prefix"
+  fi
+  ctl_repo_paths "$CTL_BUILD" >"$CTL_DIR/findings.txt"
+  _n=$(wc -l <"$CTL_DIR/findings.txt" | tr -d ' ')
+  if [ "$CTL_ARG" = seed ]; then
+    if [ "$_n" -ge 1 ] && grep -qF "$ROOT/core/include" "$CTL_DIR/findings.txt"; then
+      echo "seed detected: $_n line(s) of compile_commands.json and build.ninja name the source include directory" >>"$CTL_LOG"
+    else
+      echo "seed NOT detected: the scan found $_n line(s) and none names the source include directory" >>"$CTL_LOG"
+    fi
+  else
+    if [ "$_n" -eq 0 ]; then
+      echo "no repository path: compile_commands.json and build.ninja name nothing of the repository outside the consumer's own sources and build tree" >>"$CTL_LOG"
+    else
+      echo "$_n line(s) still name the repository root:" >>"$CTL_LOG"
+      cat "$CTL_DIR/findings.txt" >>"$CTL_LOG"
+    fi
+  fi
+}
+
+# ctl_doctor_header ARG IN OUT: write IN to OUT with the doctoring named by ARG.
+ctl_doctor_header() {
+  case $1 in
+    abi)
+      awk '
+        /^#define T64_ABI_VERSION_MINOR UINT32_C\([0-9]+\)$/ {
+          n = $3
+          gsub(/[^0-9]/, "", n)
+          print "#define T64_ABI_VERSION_MINOR UINT32_C(" (n + 1) ")"
+          found = 1
+          next
+        }
+        { print }
+        END { if (!found) exit 3 }' "$2" >"$3"
+      ;;
+    size)
+      awk '
+        { line[NR] = $0 }
+        END {
+          for (i = 1; i <= NR; i++) {
+            if (line[i] == "} t64_machine_create_info;") drop = i - 1
+            if (line[i] ~ /^ +\(allocator_ptr\), \(profile_ptr\)\}$/) fix = i
+          }
+          if (!drop || line[drop] !~ /const t64_profile_descriptor \*profile;/ || !fix) exit 3
+          for (i = 1; i <= NR; i++) {
+            if (i == drop) continue
+            if (i == fix) sub(/\(allocator_ptr\), \(profile_ptr\)\}/, "(allocator_ptr)}", line[i])
+            print line[i]
+          }
+        }' "$2" >"$3"
+      ;;
+    *) die "unknown doctoring: $1" ;;
+  esac
+}
+
+ctl_doctored() {
+  _prefix="$CTL_DIR/doctored prefix"
+  cp -R "$MOVED" "$_prefix"
+  chmod -R u+w "$_prefix"
+  _hdr="$_prefix/include/tendies64/t64_machine.h"
+  [ -f "$_hdr" ] || fail "control $CTL_ID: the copied prefix has no installed header"
+  cp "$_hdr" "$CTL_DIR/header.orig"
+  if ! ctl_doctor_header "$CTL_ARG" "$CTL_DIR/header.orig" "$_hdr"; then
+    fail "control $CTL_ID: the text this doctoring edits is not in the installed header any more"
+  fi
+  if cmp -s "$CTL_DIR/header.orig" "$_hdr"; then
+    fail "control $CTL_ID: the doctoring changed nothing"
+  fi
+  echo "doctored copy of the installed header (diff of the copy, never the source header):" >>"$CTL_LOG"
+  diff "$CTL_DIR/header.orig" "$_hdr" >>"$CTL_LOG" || true
+  ctl_build_smoke "$_prefix"
+  if [ "$CTL_SMOKE_RC" -eq 0 ]; then
+    fail "control $CTL_ID: the smoke case passed against a doctored header"
+  fi
+  CTL_OBSERVED_STATUS=$(sed -n 's/^smoke: create status=\([0-9][0-9]*\) machine=NULL$/\1/p' "$CTL_DIR/smoke.txt" | head -n 1)
+}
+
+ctl_relocate() {
+  cp -R "$MOVED" "$CTL_DIR/first prefix"
+  mv "$CTL_DIR/first prefix" "$CTL_DIR/another moved prefix"
+  _prefix="$CTL_DIR/another moved prefix"
+  [ ! -e "$CTL_DIR/first prefix" ] || fail "control $CTL_ID: the first prefix still exists after the move"
+  ctl_build_smoke "$_prefix"
+  if [ "$CTL_SMOKE_RC" -ne 0 ]; then
+    fail "control $CTL_ID: the smoke case failed against the relocated prefix"
+  fi
+  if grep -rlF -e "$CTL_DIR/first prefix" -e "first prefix" -e "$MOVED" -e "$PREFIX" \
+    "$_prefix" "$CTL_BUILD" >"$CTL_DIR/leak.list" 2>/dev/null; then
+    cat "$CTL_DIR/leak.list" >&2
+    fail "control $CTL_ID: the relocated prefix or its build tree names an earlier prefix"
+  fi
+  echo "relocation: the prefix was copied, moved to another path with spaces, and neither it nor the new build tree names an earlier prefix" >>"$CTL_LOG"
+}
+
+# ctl_judge: compare what the action observed with the row.
+ctl_judge() {
+  case $CTL_KIND in
+    text)
+      ctl_say "expected text: $CTL_EXPECTED"
+      if grep -qF -- "$CTL_EXPECTED" "$CTL_LOG"; then
+        ctl_say "observed text: $CTL_EXPECTED"
+      else
+        ctl_say "observed text: not found; the log ends with:"
+        tail -n 20 "$CTL_LOG" >&2
+        fail "control $CTL_ID: the expected text did not occur"
+      fi
+      ;;
+    status)
+      ctl_say "expected create status: $CTL_EXPECTED, machine NULL"
+      ctl_say "observed create status: ${CTL_OBSERVED_STATUS:-none}"
+      if [ "$CTL_OBSERVED_STATUS" != "$CTL_EXPECTED" ]; then
+        tail -n 20 "$CTL_LOG" >&2
+        fail "control $CTL_ID: the create status is not the expected one"
+      fi
+      ;;
+    *) die "unknown expected kind $CTL_KIND in controls.tsv" ;;
+  esac
+}
+
+cmd_control() {
+  [ "$#" -ge 1 ] || usage
+  CTL_ID=$1
+  shift
+  CTL_ROM="$ROOT/build/fixtures/phase10-composite-s32k.z64"
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      --rom) [ "$#" -ge 2 ] || usage; CTL_ROM=$2; shift 2 ;;
+      *) usage ;;
+    esac
+  done
+  [ -f "$CTL_TSV" ] || die "missing $CTL_TSV"
+  _row=$(awk -F '\t' -v id="$CTL_ID" '$0 !~ /^#/ && $1 == id { print; exit }' "$CTL_TSV")
+  [ -n "$_row" ] || die "no row $CTL_ID in controls.tsv"
+  CTL_ACTION=$(printf '%s\n' "$_row" | cut -f 2)
+  CTL_ARG=$(printf '%s\n' "$_row" | cut -f 3)
+  CTL_KIND=$(printf '%s\n' "$_row" | cut -f 4)
+  CTL_EXPECTED=$(printf '%s\n' "$_row" | cut -f 5)
+  [ -d "$MOVED" ] || die "no moved prefix: run setup first"
+  CTL_DIR="$WORK/controls/$CTL_ID"
+  CTL_BUILD="$CTL_DIR/build"
+  CTL_LOG="$CTL_DIR/log.txt"
+  CTL_OBSERVED_STATUS=
+  CTL_SMOKE_RC=
+  rm -rf "$CTL_DIR"
+  mkdir -p "$CTL_DIR"
+  : >"$CTL_LOG"
+  ctl_say "action $CTL_ACTION ${CTL_ARG}"
+  case $CTL_ACTION in
+    configure-missing) ctl_configure_missing ;;
+    configure-version) ctl_configure_version ;;
+    source-tree) ctl_source_tree ;;
+    doctored) ctl_doctored ;;
+    relocate) ctl_relocate ;;
+    *) die "unknown control action $CTL_ACTION in controls.tsv" ;;
+  esac
+  ctl_judge
+  rm -rf "$CTL_DIR"
+  ctl_say "ok"
+}
+
 case $SUB in
   setup) [ "$#" -eq 0 ] || usage; cmd_setup ;;
   build) [ "$#" -eq 0 ] || usage; cmd_build ;;
   run) cmd_run "$@" ;;
+  control) cmd_control "$@" ;;
   three-way) cmd_three_way "$@" ;;
-  *) usage ;;
+  *) echo "check-install: unknown subcommand: $SUB" >&2; usage ;;
 esac

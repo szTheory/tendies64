@@ -1,0 +1,21 @@
+# Negative controls of the installed package (Phase 11, plan 11-19, VER-05).
+# One row, one CTest name: tools/abi/CMakeLists.txt registers installed.controls.<id>
+# for every row, and `sh scripts/check-install.sh control <id>` performs it.
+# Columns are separated by one TAB: id, action, argument, kind, expected, detail.
+#   action    what the driver does (configure-missing, configure-version,
+#             source-tree, doctored, relocate, collision, plain-cc)
+#   kind      text: the combined output of the action contains the expected text
+#             status: the create status the smoke case printed equals the number
+#   expected  the exact text or status number, a control passes only when it is
+#             observed, and its log states the expected and the observed value
+# The doctored rows change a copy of the installed header, never the source header.
+# No semicolons or brackets in a row: CMake reads this file as a list of lines.
+#id	action	argument	kind	expected	detail
+missing-package	configure-missing	-	text	Could not find a package configuration file provided by "tendies64"	configure with an empty CMAKE_PREFIX_PATH: no package, no consumer
+version-mismatch-minor	configure-version	0.2	text	The version found is not compatible with the version requested	find_package(tendies64 0.2) against the 0.1.0 package: SameMinorVersion refuses another minor
+version-mismatch-patch	configure-version	0.1.5	text	The version found is not compatible with the version requested	find_package(tendies64 0.1.5) against the 0.1.0 package: SameMinorVersion refuses a higher patch
+visible-source-tree	source-tree	clean	text	no repository path	compile_commands.json and build.ninja name nothing of the source tree but the consumer's own sources, build tree and the moved prefix
+visible-source-tree-seed	source-tree	seed	text	seed detected	the same scan finds an extra -I of the source include directory, so the clean row can fail
+doctored-header-abi	doctored	abi	status	34	a copied prefix whose header has T64_ABI_VERSION_MINOR plus one: create answers ABI_MISMATCH and machine_out stays NULL
+doctored-header-size	doctored	size	status	35	a copied prefix whose create-info lacks its last member: create answers STRUCT_TOO_SMALL before reading past the caller's size
+relocated-spaces	relocate	-	text	failures=0	a copy of the prefix moved a second time to another path with spaces builds and runs the smoke case and the new build tree names no earlier prefix
