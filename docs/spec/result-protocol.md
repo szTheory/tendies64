@@ -543,20 +543,19 @@ further restrict those pairs:
   malformed report cannot become a guest outcome. `host-error` accepts host,
   wall-backstop, supervisor and runner process details. `report-error` accepts
   report, no-result and capture-invalid details.
-- The artifact publisher details (plan 09-05, provisional until the Phase 11
-  freeze candidate (final ABI bind at the end of Phase 12)) are
-  the closed list `artifact-cap`, `artifact-dir-unsafe`, `artifact-exists`,
-  `artifact-leaf-name`, `artifact-no-replace-unsupported`, `artifact-rename`,
-  `artifact-stage`, `artifact-substitution` and `artifact-write`. Each maps to
+- The artifact publisher details (plan 09-05; runner-internal, outside the ABI
+  promise) are the closed list `artifact-cap`, `artifact-dir-unsafe`,
+  `artifact-exists`, `artifact-leaf-name`, `artifact-no-replace-unsupported`,
+  `artifact-rename`, `artifact-stage`, `artifact-substitution` and
+  `artifact-write`. Each maps to
   `harness-error` and is accepted only for a `host-error` stop (the longest is
   31 characters). A save export records no key, count or format in the closed
   record: nothing but the publisher error name can appear, and save bytes never
   appear in the record or in any log.
-- The state export details (plan 09-08, provisional until the Phase 11 freeze
-  candidate (final ABI bind at the end of Phase 12)) are the
-  closed list `state-export-alloc`, `state-export-cap`, `state-export-core`,
-  `state-export-incomplete-terminal`, `state-export-open` and
-  `state-export-publish`. Each maps to `harness-error` and is accepted only for
+- The state export details (plan 09-08; runner-internal, outside the ABI
+  promise) are the closed list `state-export-alloc`, `state-export-cap`,
+  `state-export-core`, `state-export-incomplete-terminal`, `state-export-open`
+  and `state-export-publish`. Each maps to `harness-error` and is accepted only for
   a `host-error` stop. The guest record is kept and only the outcome, the stop
   kind and the detail are replaced; the longest name is 32 characters, so the
   detail field of the runner's result holds 47. No key is added and no state

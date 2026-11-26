@@ -6,10 +6,9 @@ This document specifies the host-side operation log that records the input calls
 a run made, the player that replays them, the identity binding, the closed
 report record and the runner flags that drive them (plan 09-07, D-34 and D-35).
 Everything here is runner-side: the core knows nothing of replays and no core
-source, public header or result record key is added. No API or ABI freeze is
-implied; format keys, flag names, the module API and fixture row fields are
-provisional until the Phase 11 freeze candidate (final ABI bind at the end of
-Phase 12).
+source, public header or result record key is added. None of it is part of the
+ABI promise; format keys, flag names, the module API and fixture row fields are
+runner-internal and format-versioned.
 
 What the evidence is. The behavior is regression-pinned and unit-tested: an
 authored ROM, driven by an independently authored input script, is recorded

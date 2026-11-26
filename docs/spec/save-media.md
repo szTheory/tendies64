@@ -24,12 +24,11 @@ Import and export of save bytes, their byte formats and the runner flags that
 carry them are specified under Host import and export below. Not part of this
 slice: any automatic load or flush, any file container other than the headerless
 byte images named there, autodetection of a format, and persistence by the core.
-Nothing here is an API or ABI freeze; the status values, the kind and format
-constants, `t64_save_info`, `t64_machine_save_info`, `t64_machine_save_import`,
-`t64_machine_save_export`, the flag names and the detail names are provisional
-until the Phase 11 freeze candidate (final ABI bind at the end of Phase 12), and
-only the kind numbering above and the `save_policy` label stay fixed for the rest
-of Phase 9.
+The status values, the kind and format constants, `t64_save_info`,
+`t64_machine_save_info`, `t64_machine_save_import` and `t64_machine_save_export`
+are bound by ABI 1.0 (`docs/abi/FREEZE-CANDIDATE.md`); the flag names and the
+detail names are runner-internal and outside the ABI promise. The kind numbering
+above and the `save_policy` label stayed fixed for the rest of Phase 9.
 
 ## Profile selection
 
