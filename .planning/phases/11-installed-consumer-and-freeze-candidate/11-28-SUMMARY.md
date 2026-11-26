@@ -185,6 +185,7 @@ None. The version rows are matched against refusal text only; T-11-68 is mitigat
 
 - **Gate growth (for the cold measurement at 11-25).** No name was added, yet the warm gate-macos job is 538 s against 487 s in F-130 (ctest 282 s against 291 s, test-inventory-selftest 69 s against 59 s). The F-130 projection that adds the F-123 to F-124 cold delta (346 s) to the warm job now reads 884 s (margin 16 s); the other three projections do not use the warm sample. Recorded in F-131 and PIN-IMPACT; no limit widened.
 - **Order.** This plan ran before the rest of 11-21's Task 3. STATE keeps 11-21 (the INSTALL ledger row, the Freeze base SHA and the 11-21 SUMMARY) as the next plan; 11-29 (I-02, I-03, I-04 text fixes) is next after that per the review order. Local unpushed docs commits: `c69b6c5` and this plan's closeout commits (they go out at the next push a plan names).
+- **Requirement.** VER-05 (declared by this plan and by the other INSTALL plans) is not marked complete: this plan repairs two of its controls and the hosted proof, and the requirement closes with the INSTALL review plan, not here.
 - **Preflight head-ci.** A future plan that repairs a red head will meet the same by-design failure; see `deferred-items.md`.
 
 ## Self-Check: PASSED

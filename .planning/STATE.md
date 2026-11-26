@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 11
 current_phase_name: Installed Consumer and Freeze Candidate
 status: executing
-stopped_at: "11-21 Task 3 stopped: hosted gate-linux red (I-11, F-130); no Freeze base"
-last_updated: "2026-11-26T06:17:36.794Z"
+stopped_at: Completed 11-28-PLAN.md (ran out of wave order; origin/main 0e6b96d green; next plan stays the 11-21 remainder)
+last_updated: "2026-11-26T07:03:12.803Z"
 last_activity: 2026-11-25
 last_activity_desc: Phase 11 execution started
-state_head: 463bd09d472c1f4fc097a6941118f6f903230869
+state_head: 376110f916ccb194ff518e23a3ed8e5a29b23a90
 progress:
   total_phases: 3
   completed_phases: 1
-  total_plans: 48
-  completed_plans: 43
+  total_plans: 50
+  completed_plans: 44
   percent: 33
 ---
 
@@ -33,7 +33,7 @@ Phase: 11 (Installed Consumer and Freeze Candidate) — EXECUTING
 Plan: 21 of 25
 Status: Ready to execute
 Last activity: 2026-11-25 — Phase 11 execution started
-Note: plan 11-20 (the call-sequence generator through the installed package, the local ASan and UBSan lanes against the shipped and an instrumented library, the two-thread TSan lane and the shared API test header S-09) is complete locally and unpushed (origin/main is c6f28f6; the local commits after it, 11-19 and 11-20, go out with the next push a plan names, 11-21); one new CTest name, `installed.consumer.sequence` (COST 1.10, 1.0 to 1.2 s native), full gate 324 of 324 (ctest 91 s, total 157 s). `ctest -N -R '^installed\.consumer\.'` is 28 with the fixture closure. Plan 11-27 (finding F-20-A: `t64_machine_advance` now judges the spans of its request and result before `struct_size` and admission, review candidate (g) closed, in-tree, consumer and generator aliasing rows, the bus read `value_out` span documented as the caller's responsibility, two hand-built white-box tests given storage records, the generator's drain-all fixed for NOT_READY) ran EARLY, out of wave order, after 11-20 and before the 11-21 review, and is complete locally and unpushed: full gate 324 of 324 (ctest 98 s, total 165 s), sweep 0 differences, `installed.consumer.ops-advance` COST 0.65 and `installed.consumer.sequence` COST 1.20. The next plan stays 11-21, which must verify 11-27 (the span order, the rows, the bus statement and whether the bus read should get the uniform span rule). API-02 is not marked complete. The hosted run at 11-21 is the first Linux ELF run of the sequence, the controls and the Linux undefined set; a measured cold gate-macos run should precede the 11-21 ledger row.
+Note: plan 11-20 (the call-sequence generator through the installed package, the local ASan and UBSan lanes against the shipped and an instrumented library, the two-thread TSan lane and the shared API test header S-09) is complete locally and unpushed (origin/main is c6f28f6; the local commits after it, 11-19 and 11-20, go out with the next push a plan names, 11-21); one new CTest name, `installed.consumer.sequence` (COST 1.10, 1.0 to 1.2 s native), full gate 324 of 324 (ctest 91 s, total 157 s). `ctest -N -R '^installed\.consumer\.'` is 28 with the fixture closure. Plan 11-27 (finding F-20-A: `t64_machine_advance` now judges the spans of its request and result before `struct_size` and admission, review candidate (g) closed, in-tree, consumer and generator aliasing rows, the bus read `value_out` span documented as the caller's responsibility, two hand-built white-box tests given storage records, the generator's drain-all fixed for NOT_READY) ran EARLY, out of wave order, after 11-20 and before the 11-21 review, and is complete locally and unpushed: full gate 324 of 324 (ctest 98 s, total 165 s), sweep 0 differences, `installed.consumer.ops-advance` COST 0.65 and `installed.consumer.sequence` COST 1.20. The next plan stays 11-21, which must verify 11-27 (the span order, the rows, the bus statement and whether the bus read should get the uniform span rule). API-02 is not marked complete. The hosted run at 11-21 is the first Linux ELF run of the sequence, the controls and the Linux undefined set; a measured cold gate-macos run should precede the 11-21 ledger row. UPDATE after the red hosted pair of 11-21: plan 11-28 (version-mismatch controls on cmake 3.31 and 4, doctored ABI minor exactly one higher, the F-129 readiness clock in `test_rsp_run.py`) ran EARLY, out of wave order, and is PUSHED: origin/main is `0e6b96d` with a green hosted pair (run 45770631197, gate-linux 362 s, gate-macos 538 s warm, 324 of 324 names on both; F-130 and F-129 resolved by F-131 and F-132). The next plan stays the 11-21 remainder (INSTALL ledger row, Freeze base SHA, 11-21 SUMMARY), then 11-29, then 11-22 onward. Warm gate-macos was 538 s against 487 s with no name added: one cold-projection reads 884 s (margin 16 s) for the cold measurement at 11-25. Local unpushed docs commits sit after `0e6b96d`.
 
 Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 
@@ -104,6 +104,7 @@ Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 | Phase 11 P19 | 36min | 3 tasks | 15 files |
 | Phase 11 P20 | 52min | 4 tasks | 19 files |
 | Phase 11 P27 | 38min | 3 tasks | 11 files |
+| Phase 11 P28 | 45min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -248,6 +249,9 @@ Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 - [Phase 11]: 11-20: the machine digest (22 ms) is compared over a refusal burst and the cheap snapshot after every refused call; the gate verifies every second burst (1.1 s), the local shipped sanitizer lane every burst; the black-box defect trigger (the stored profile digest flipped in the consumer's own allocator storage) held, so no test-only symbol; the two-thread case is built only with T64C_THREADS and is in no CTest name; S-09 is one static-inline test header; finding F-20-A: t64_machine_advance has no span check on its request and result (deferred-items.md), API-02 not marked complete
 - [Phase 11]: 11-27: t64_machine_advance judges the spans of its request and result before either struct_size and before the admission answer (F-20-A, candidate g); the bus read value_out span is NOT checked and the header says it is the caller's responsibility (the RSP data path uses that entry; reversible in a plan that names core/t64_rsp.c)
 - [Phase 11]: 11-27: a public entry that gains a span check breaks hand-built white-box machines (no recorded storage): run the full gate, not only unit.core.api, and give such machines their storage blocks (test_cpu_time, test_sched_matrix)
+- [Phase 11]: 11-28: a control that matches tool output expects the headline every supported CMake major prints on one line, tied to its own argument (compatible with requested version "0.2"), and is checked against the hosted log of the runner that failed plus an absence check against the missing-package log; the CMake-4-only reason line is not an expectation
+- [Phase 11]: 11-28: F-129 is removed by measuring the 0.1 s outer deadline from guest readiness (a clock patch inside the one test, guest closes pipes then publishes its batch), reproduced with a 0.3 s interpreter start-up delay; no sleep lengthened, supervisor untouched, no rerun used
+- [Phase 11]: 11-28: preflight head-ci fails by design on a red origin/main, so a plan that repairs a red head runs the other preflight steps from an unedited-source copy without that line and records it; the real script passes after the push (deferred-items.md)
 
 ### Pending Todos
 
@@ -273,8 +277,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-26T06:17:36.630Z
-Stopped at: 11-21 Task 3 stopped: hosted gate-linux red (I-11, F-130); no Freeze base
+Last session: 2026-11-26T07:03:12.656Z
+Stopped at: Completed 11-28-PLAN.md (ran out of wave order; origin/main 0e6b96d green; next plan stays the 11-21 remainder)
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
