@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 11
 current_phase_name: Installed Consumer and Freeze Candidate
 status: executing
-stopped_at: Completed 11-19-PLAN.md
-last_updated: "2026-11-26T04:17:57.655Z"
+stopped_at: Completed 11-20-PLAN.md
+last_updated: "2026-11-26T05:10:46.261Z"
 last_activity: 2026-11-25
 last_activity_desc: Phase 11 execution started
-state_head: 070ef82e094d11518156c0cafec4f5a1c12adb90
+state_head: a1bf29be756de5be5114dc65519e10a41b21aa99
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 47
-  completed_plans: 41
+  completed_plans: 42
   percent: 33
 ---
 
@@ -30,10 +30,10 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 ## Current Position
 
 Phase: 11 (Installed Consumer and Freeze Candidate) — EXECUTING
-Plan: 20 of 25
+Plan: 21 of 25
 Status: Ready to execute
 Last activity: 2026-11-25 — Phase 11 execution started
-Note: plan 11-19 (host-shaped loop, drain cadences, host delay, two instances, ten negative controls, symbol collision and the plain cc line through the installed package) is complete locally and unpushed (origin/main is c6f28f6, pushed by the orchestrator after 11-18; the local commits after it go out with the next push a plan names); fourteen new CTest names, full gate 323 of 323 (ctest 105 s). installed.consumer. counts 27 and installed.controls. 11 with the install.setup closure. The Linux rows of docs/abi/installed-undefined.txt are still act-image measurements until the hosted gate-linux run of 11-21 confirms them. Gate-growth warning stands: a measured cold gate-macos run should precede the 11-21 ledger row.
+Note: plan 11-20 (the call-sequence generator through the installed package, the local ASan and UBSan lanes against the shipped and an instrumented library, the two-thread TSan lane and the shared API test header S-09) is complete locally and unpushed (origin/main is c6f28f6; the local commits after it, 11-19 and 11-20, go out with the next push a plan names, 11-21); one new CTest name, `installed.consumer.sequence` (COST 1.10, 1.0 to 1.2 s native), full gate 324 of 324 (ctest 91 s, total 157 s). `ctest -N -R '^installed\.consumer\.'` is 28 with the fixture closure. Open for the orchestrator: finding F-20-A (`t64_machine_advance` has no span check on its request and result; deferred-items.md in the phase directory) needs a decision (a numbered defect-fix plan); API-02 is not marked complete until then. The hosted run at 11-21 is the first Linux ELF run of the sequence, the controls and the Linux undefined set; a measured cold gate-macos run should precede the 11-21 ledger row.
 
 Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 
@@ -102,6 +102,7 @@ Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 | Phase 11 P17 | 25min | 4 tasks | 14 files |
 | Phase 11 P18 | 35min | 3 tasks | 18 files |
 | Phase 11 P19 | 36min | 3 tasks | 15 files |
+| Phase 11 P20 | 52min | 4 tasks | 19 files |
 
 ## Accumulated Context
 
@@ -243,6 +244,7 @@ Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 - [Phase 11]: 11-17: layout pins use one macro with a C++ static_assert, a C11 _Static_assert and a C99 negative-array typedef (_Static_assert is a diagnosed extension under -std=c99 -pedantic -Werror), compiled against the source and the installed header and regenerated and diffed; docs/abi/installed-undefined.txt records the whole archive-level undefined set per OS (allowlisted names included, compared in both directions), the Linux rows are act-image measurements still unconfirmed by a hosted run; Q6 spaced-prefix ar x works (in place, 86 members, GNU and BSD ar)
 - [Phase 11]: 11-18: runner-recorded pins are a committed, sourced, labeled fixture and never called independent; the consumer's class table t64c_classes.h was written here (pulled forward from 11-20) so every refusal asserts its class
 - [Phase 11]: 11-19: only a RESOURCE_LIMIT stop that moved nothing is backpressure (drain, resume, next advance must move or fail with 'stall without progress'); controls are one TSV row, one CTest name and one driver action each; the smoke case has its own small target so doctored headers still build; the consumer allocator aligns over malloc so the plain cc row compiles as C99; the unprefixed archive fails the collision control by a duplicate t64_sha256_init and by changed results for f32_add
+- [Phase 11]: 11-20: the machine digest (22 ms) is compared over a refusal burst and the cheap snapshot after every refused call; the gate verifies every second burst (1.1 s), the local shipped sanitizer lane every burst; the black-box defect trigger (the stored profile digest flipped in the consumer's own allocator storage) held, so no test-only symbol; the two-thread case is built only with T64C_THREADS and is in no CTest name; S-09 is one static-inline test header; finding F-20-A: t64_machine_advance has no span check on its request and result (deferred-items.md), API-02 not marked complete
 
 ### Pending Todos
 
@@ -268,8 +270,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-26T04:17:57.509Z
-Stopped at: Completed 11-19-PLAN.md
+Last session: 2026-11-26T05:10:46.112Z
+Stopped at: Completed 11-20-PLAN.md
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
