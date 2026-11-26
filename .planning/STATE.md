@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 11
 current_phase_name: Installed Consumer and Freeze Candidate
 status: executing
-stopped_at: Completed 11-29-PLAN.md (ran out of wave order; header and spec text fixes I-02, I-03, I-04; next plan stays the 11-21 remainder; nothing pushed)
-last_updated: "2026-11-26T07:10:30.140Z"
+stopped_at: Completed 11-21-PLAN.md (INSTALL review finished; origin/main 4b13a90 green; Freeze base 189afa8; next plan 11-22)
+last_updated: "2026-11-26T07:39:10.854Z"
 last_activity: 2026-11-25
 last_activity_desc: Phase 11 execution started
-state_head: 19c27d0ddd9b9259821c03f43cd84b48057abe94
+state_head: 0d17d6f2c52c8d998dfbd951314f2023fb8018cf
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 50
-  completed_plans: 45
+  completed_plans: 46
   percent: 33
 ---
 
@@ -30,10 +30,10 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 ## Current Position
 
 Phase: 11 (Installed Consumer and Freeze Candidate) — EXECUTING
-Plan: 21 of 25
+Plan: 22 of 25
 Status: Ready to execute
 Last activity: 2026-11-25 — Phase 11 execution started
-Note: plan 11-20 (the call-sequence generator through the installed package, the local ASan and UBSan lanes against the shipped and an instrumented library, the two-thread TSan lane and the shared API test header S-09) is complete locally and unpushed (origin/main is c6f28f6; the local commits after it, 11-19 and 11-20, go out with the next push a plan names, 11-21); one new CTest name, `installed.consumer.sequence` (COST 1.10, 1.0 to 1.2 s native), full gate 324 of 324 (ctest 91 s, total 157 s). `ctest -N -R '^installed\.consumer\.'` is 28 with the fixture closure. Plan 11-27 (finding F-20-A: `t64_machine_advance` now judges the spans of its request and result before `struct_size` and admission, review candidate (g) closed, in-tree, consumer and generator aliasing rows, the bus read `value_out` span documented as the caller's responsibility, two hand-built white-box tests given storage records, the generator's drain-all fixed for NOT_READY) ran EARLY, out of wave order, after 11-20 and before the 11-21 review, and is complete locally and unpushed: full gate 324 of 324 (ctest 98 s, total 165 s), sweep 0 differences, `installed.consumer.ops-advance` COST 0.65 and `installed.consumer.sequence` COST 1.20. The next plan stays 11-21, which must verify 11-27 (the span order, the rows, the bus statement and whether the bus read should get the uniform span rule). API-02 is not marked complete. The hosted run at 11-21 is the first Linux ELF run of the sequence, the controls and the Linux undefined set; a measured cold gate-macos run should precede the 11-21 ledger row. UPDATE after the red hosted pair of 11-21: plan 11-28 (version-mismatch controls on cmake 3.31 and 4, doctored ABI minor exactly one higher, the F-129 readiness clock in `test_rsp_run.py`) ran EARLY, out of wave order, and is PUSHED: origin/main is `0e6b96d` with a green hosted pair (run 45770631197, gate-linux 362 s, gate-macos 538 s warm, 324 of 324 names on both; F-130 and F-129 resolved by F-131 and F-132). The next plan stays the 11-21 remainder (INSTALL ledger row, Freeze base SHA, 11-21 SUMMARY), then 11-22 onward. Plan 11-29 (header and spec text fixes I-02, I-03, I-04: raw ROM admission of a pinned Open IPL3 profile, the frame-event counter and `T64_STOP_FRAME_EVENT_COUNT`, the NULL write of `t64_profile_lookup`; header diff comment lines only, no CTest name added, sweep 0 differences, preflight no-replay PASS) already ran EARLY, out of wave order, and is complete locally and unpushed (`21ca1d9`, `69122de`, summary `19c27d0`); 11-21's ledger row records I-02 to I-04 as resolved by it, and 11-23 binds the header at a head that contains `21ca1d9`. Warm gate-macos was 538 s against 487 s with no name added: one cold-projection reads 884 s (margin 16 s) for the cold measurement at 11-25. Local unpushed docs commits sit after `0e6b96d`.
+Note: plan 11-21 (the INSTALL review) is complete: origin/main is 4b13a90 with a green hosted pair (run 45775107983, gate-linux 240 s, gate-macos 592 s, 324 of 324); cold gate-macos measured 731 s (margin 169 s, F-133); Freeze base 189afa8ff454415870b5a703e9f728e4ae3dc5ea. The commits after 4b13a90 are docs only and go out with the next push a plan names. Next: 11-22
 
 Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 
@@ -106,6 +106,7 @@ Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 | Phase 11 P27 | 38min | 3 tasks | 11 files |
 | Phase 11 P28 | 45min | 3 tasks | 6 files |
 | Phase 11 P29 | 25min | 2 tasks | 3 files |
+| Phase 11 P21 | 50min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -254,6 +255,9 @@ Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 - [Phase 11]: 11-28: F-129 is removed by measuring the 0.1 s outer deadline from guest readiness (a clock patch inside the one test, guest closes pipes then publishes its batch), reproduced with a 0.3 s interpreter start-up delay; no sleep lengthened, supervisor untouched, no rerun used
 - [Phase 11]: 11-28: preflight head-ci fails by design on a red origin/main, so a plan that repairs a red head runs the other preflight steps from an unedited-source copy without that line and records it; the real script passes after the push (deferred-items.md)
 - [Phase 11]: 11-29: the frame-event stop kind is documented as unreachable through the public API (a larger target never reports the frame-event reason, an equal target returns at once, the counter keeps its create, reset or state-import value and is not a video-frame count); a pinned Open IPL3 profile is documented as accepting only the exact pinned asset or an authored big-endian z64 cartridge; t64_profile_lookup documents the NULL write; header diff comment lines only, no CTest name added
+- [Phase 11]: 11-21: INSTALL wave reviewed and finished after the 11-28 and 11-29 repairs; origin/main 4b13a90 (fast-forward from 0e6b96d, no tag) has a green hosted pair (run 45775107983: gate-linux 240 s, gate-macos 592 s, 324 of 324); Linux undefined rows confirmed by api04.members on gate-linux; I-01, I-07, I-11 resolved by 11-28, I-02 to I-04 by 11-29, I-05, I-06, I-08 to I-10 accepted
+- [Phase 11]: 11-21: cold gate-macos MEASURED 731 s (run 45772586364, margin 169 s, F-133) replaces every cold projection in the Gate-growth ledger; slowest warm sample 592 s plus the 193 s cold cost is 785 s (margin 115 s), a sensitivity warning for 11-25's own cold run (no CTest name added since; keep new names cheap)
+- [Phase 11]: 11-21: Freeze base is 189afa8ff454415870b5a703e9f728e4ae3dc5ea, the head of the records commit (docs-only descendant of the pushed green head 4b13a90), recorded by a commit that changes only PIN-IMPACT.md; no requirement marked complete (11-25 closes VER-05 and API-01 to API-04)
 
 ### Pending Todos
 
@@ -279,8 +283,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-26T07:10:29.980Z
-Stopped at: Completed 11-29-PLAN.md (ran out of wave order; header and spec text fixes I-02, I-03, I-04; next plan stays the 11-21 remainder; nothing pushed)
+Last session: 2026-11-26T07:39:10.701Z
+Stopped at: Completed 11-21-PLAN.md (INSTALL review finished; origin/main 4b13a90 green; Freeze base 189afa8; next plan 11-22)
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
@@ -304,4 +308,3 @@ pass. This approval applies to that specific repair, not future private values.
   - Planner note 2026-11-25 (plan check item I-1; not owner text, the approval above is unchanged): the approval says "nine" and lists ten paths. Phase 11 reads it as nine API-using files edited (the seven test_rdp files, test_vi.c, test_video_output.c) and runner/tests/test_rdp_video.c listed but not edited (it needs no call-site change and keeps its hash); recorded as DR-27 in plan 11-01 and applied by plan 11-14.
 - Owner approval 2026-11-25 (answer "A: Extend approval to this initializer", Phase 11 execution, plan 11-01 checkpoint): the 2026-11-25 call-site-only rebind approval also covers the single value-neutral initializer update core/tests/test_rdp.c:486 (t64_host_storage image = {NULL, 0u, 0u} becomes {0}), same identity-only, orchestrator-only, one-isolated-commit, local_decision-blocked terms; no expected value, check, case name, sizeof pin or control-flow edit in any bound file is covered. t64_host_storage keeps its leading struct_size.
 - RESOLVED 2026-11-25 (orchestrator): the two P-PRIVATE-PATH hits in the unpublished commit that added 11-26-PLAN.md were repaired by rebuilding the unpublished range 517fe00..HEAD without the path (final tree byte-identical, no pushed commit touched; AUTONOMY section 2 local-repair rule); no waiver needed. The old SHAs quoted in the 11-26 records were re-pointed.
-- Plan 11-21 stopped at Task 3: hosted run 45766004142 (head 463bd09, pushed) is red on gate-linux, finding I-11 / F-130: installed.controls.version-mismatch-minor and -patch expect a reason line only CMake 4 prints (hosted Linux has cmake 3.31.6). Needs a new numbered plan (CMake-version-independent expected text, with I-01) and a green hosted pair before the INSTALL ledger row and the Freeze base.
