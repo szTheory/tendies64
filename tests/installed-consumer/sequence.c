@@ -714,6 +714,11 @@ static bool seq_drain_all(seq *g) {
     t64_output_drain_result result = T64_OUTPUT_DRAIN_RESULT_INIT;
     t64_status status = t64_machine_output_drain(seq_m(g), block, sizeof block, &result);
 
+    if (status == T64_STATUS_NOT_READY) {
+      /* no image is admitted (after an unload): there is nothing to drain, as
+       * for the video and audio loops above */
+      break;
+    }
     if (status != T64_STATUS_OK) {
       return false;
     }
