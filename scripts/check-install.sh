@@ -24,6 +24,17 @@
 #                  symbol-collision consumer, a plain cc line) and the exact text or create
 #                  status that must be observed; exit 0 only when it is observed, with the
 #                  expected and the observed value in the log, exit 1 otherwise
+#   sanitize shipped|instrumented [--steps N] [--digest-stride N] [--rom PATH]
+#                  LOCAL lane, never in the gate (plan 11-20, API-02, T-11-43): build the
+#                  consumer with -fsanitize=address,undefined -fno-sanitize-recover=all
+#                  against a fresh install and run every case of cases.txt, the call-
+#                  sequence generator with --steps N (default 20000). `shipped` installs
+#                  the Release archive of BUILD (the library as shipped, an instrumented
+#                  consumer); `instrumented` configures and builds the asan preset
+#                  (build/asan), installs its Development component and runs the same
+#                  consumer (library and consumer instrumented). The scratch trees are
+#                  BUILD/sanitize-lane/MODE (not WORK, which the CTest fixture
+#                  install.setup clears); a sanitizer report or a failing case is exit 1
 #   three-way [--rom PATH] [--supervisor PATH]
 #                  run the in-tree runner (the two supervised runs of the authored
 #                  composite ROM that composite.expected.json was proved against:
@@ -49,7 +60,7 @@ BUILD=$ROOT/build/gate
 WORK=
 
 usage() {
-  echo "usage: sh scripts/check-install.sh [--build DIR] [--work DIR] setup|build|run CASE [ARGS]|control ID [--rom PATH]|three-way [--rom PATH] [--supervisor PATH]" >&2
+  echo "usage: sh scripts/check-install.sh [--build DIR] [--work DIR] setup|build|run CASE [ARGS]|control ID [--rom PATH]|sanitize shipped|instrumented [--steps N] [--digest-stride N] [--rom PATH]|three-way [--rom PATH] [--supervisor PATH]" >&2
   exit 2
 }
 
@@ -661,11 +672,131 @@ cmd_control() {
   ctl_say "ok"
 }
 
+# ---- local sanitizer lanes (plan 11-20): never run by CTest or the hosted gate ----
+
+SAN_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer"
+SAN_ROM="$ROOT/build/fixtures/phase10-composite-s32k.z64"
+
+# san_scan LOG...: no sanitizer report in the logs.
+san_scan() {
+  if grep -l -e "ERROR: AddressSanitizer" -e "runtime error:" -e "WARNING: ThreadSanitizer" \
+    -e "ERROR: LeakSanitizer" "$@" >"$BUILD/sanitize-lane/hits.list" 2>/dev/null; then
+    echo "check-install: a sanitizer report is in:" >&2
+    cat "$BUILD/sanitize-lane/hits.list" >&2
+    fail "sanitizer report (a defect: record it and stop for a new numbered plan)"
+  fi
+}
+
+# san_runtime_refs FILE RUNTIME: how many undefined symbols of FILE (an archive or an
+# executable) name the sanitizer runtime (RUNTIME is "asan" or "tsan"): the lane proves
+# which side is instrumented instead of trusting its flags.
+san_runtime_refs() {
+  nm -P -u "$1" 2>/dev/null | grep -c "_$2_" || true
+}
+
+# san_build_consumer BASE PREFIX [CMAKE_ARGS...]: configure and build the consumer with the
+# sanitizer flags against PREFIX into BASE/consumer.
+san_build_consumer() {
+  _sb=$1
+  _sp=$2
+  shift 2
+  if ! consumer_configure "$_sb/consumer" "$_sp" "$_sb/configure.log" "-DCMAKE_C_FLAGS=$SAN_FLAGS" "$@"; then
+    cat "$_sb/configure.log" >&2
+    fail "sanitizer consumer configure failed"
+  fi
+  if ! "$CMAKE" --build "$_sb/consumer" >"$_sb/build.log" 2>&1; then
+    cat "$_sb/build.log" >&2
+    fail "sanitizer consumer build failed"
+  fi
+  [ -x "$_sb/consumer/t64c" ] || fail "the sanitizer consumer executable was not produced"
+}
+
+cmd_sanitize() {
+  [ "$#" -ge 1 ] || usage
+  SAN_MODE=$1
+  shift
+  SAN_STEPS=20000
+  SAN_STRIDE=
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      --steps) [ "$#" -ge 2 ] || usage; SAN_STEPS=$2; shift 2 ;;
+      --digest-stride) [ "$#" -ge 2 ] || usage; SAN_STRIDE=$2; shift 2 ;;
+      --rom) [ "$#" -ge 2 ] || usage; SAN_ROM=$2; shift 2 ;;
+      *) usage ;;
+    esac
+  done
+  [ -f "$SAN_ROM" ] || die "the composite ROM is not built: $SAN_ROM"
+  _base="$BUILD/sanitize-lane/$SAN_MODE"
+  rm -rf "$_base"
+  mkdir -p "$_base"
+  _t_start=$(date +%s)
+  case $SAN_MODE in
+    shipped)
+      [ -f "$BUILD/core/libt64_core.a" ] || die "the core archive is not built in $BUILD (build the gate first)"
+      _src=$BUILD
+      [ -n "$SAN_STRIDE" ] || SAN_STRIDE=1
+      ;;
+    instrumented)
+      _src=$ROOT/build/asan
+      (cd "$ROOT" && "$CMAKE" --preset asan) >"$_base/asan-configure.log" 2>&1 \
+        || { cat "$_base/asan-configure.log" >&2; fail "cmake --preset asan failed"; }
+      (cd "$ROOT" && "$CMAKE" --build --preset asan --target t64_core) >"$_base/asan-build.log" 2>&1 \
+        || { tail -n 30 "$_base/asan-build.log" >&2; fail "building t64_core with the asan preset failed"; }
+      [ -n "$SAN_STRIDE" ] || SAN_STRIDE=8
+      ;;
+    *) usage ;;
+  esac
+  _t_built=$(date +%s)
+  if ! "$CMAKE" --install "$_src" --component Development --prefix "$_base/prefix with space" \
+    >"$_base/install.log" 2>&1; then
+    cat "$_base/install.log" >&2
+    fail "cmake --install of the Development component failed"
+  fi
+  san_build_consumer "$_base" "$_base/prefix with space"
+  _t_consumer=$(date +%s)
+  _lib_refs=$(san_runtime_refs "$_base/prefix with space/lib/libt64_core.a" asan)
+  _exe_refs=$(san_runtime_refs "$_base/consumer/t64c" asan)
+  [ "$_exe_refs" -gt 0 ] || fail "sanitize $SAN_MODE: the consumer executable references no AddressSanitizer runtime symbol"
+  if [ "$SAN_MODE" = shipped ]; then
+    [ "$_lib_refs" -eq 0 ] || fail "sanitize shipped: the installed archive is instrumented ($_lib_refs references), it is not the library as shipped"
+  else
+    [ "$_lib_refs" -gt 0 ] || fail "sanitize instrumented: the installed archive references no AddressSanitizer runtime symbol"
+  fi
+  _id=$(sed -n 's/^set(tendies64_BUILD_ID "\(.*\)")$/\1/p' "$_base/prefix with space/lib/cmake/tendies64/tendies64Config.cmake")
+  echo "check-install: sanitize $SAN_MODE: AddressSanitizer runtime references: archive $_lib_refs, consumer $_exe_refs"
+  echo "check-install: sanitize $SAN_MODE: library tree ${_src#"$ROOT"/} (build id $_id), consumer flags: $SAN_FLAGS"
+  echo "check-install: sanitize $SAN_MODE: library build and install $((_t_built - _t_start)) s, consumer build $((_t_consumer - _t_built)) s"
+  _failed=0
+  for _case in $(grep '^[a-z]' "$ROOT/tests/installed-consumer/cases.txt"); do
+    _c0=$(date +%s)
+    if [ "$_case" = sequence ]; then
+      "$_base/consumer/t64c" --case sequence --rom "$SAN_ROM" --steps "$SAN_STEPS" \
+        --digest-stride "$SAN_STRIDE" >"$_base/$_case.log" 2>&1 && _rc=0 || _rc=$?
+    else
+      "$_base/consumer/t64c" --case "$_case" --rom "$SAN_ROM" >"$_base/$_case.log" 2>&1 && _rc=0 || _rc=$?
+    fi
+    _c1=$(date +%s)
+    if [ "$_rc" -eq 0 ]; then
+      echo "check-install: sanitize $SAN_MODE: case $_case ok, $((_c1 - _c0)) s ($(grep -h 'checks=' "$_base/$_case.log" | tail -n 1))"
+    else
+      echo "check-install: sanitize $SAN_MODE: case $_case FAILED (exit $_rc), log $_base/$_case.log" >&2
+      tail -n 20 "$_base/$_case.log" >&2
+      _failed=$((_failed + 1))
+    fi
+  done
+  san_scan "$_base"/*.log
+  [ "$_failed" -eq 0 ] || fail "sanitize $SAN_MODE: $_failed case(s) failed"
+  _t_end=$(date +%s)
+  echo "check-install: sanitize $SAN_MODE ok: every case of cases.txt, sequence with --steps $SAN_STEPS --digest-stride $SAN_STRIDE, $((_t_end - _t_start)) s in all"
+  grep -h '^sequence: ' "$_base/sequence.log" | sed 's/^/check-install: /' | cut -c1-240
+}
+
 case $SUB in
   setup) [ "$#" -eq 0 ] || usage; cmd_setup ;;
   build) [ "$#" -eq 0 ] || usage; cmd_build ;;
   run) cmd_run "$@" ;;
   control) cmd_control "$@" ;;
+  sanitize) cmd_sanitize "$@" ;;
   three-way) cmd_three_way "$@" ;;
   *) echo "check-install: unknown subcommand: $SUB" >&2; usage ;;
 esac

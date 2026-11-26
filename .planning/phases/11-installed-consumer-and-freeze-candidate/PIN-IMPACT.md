@@ -1363,3 +1363,21 @@ numbered plan (a span check for the advance request and result in `core/t64_mach
 read, one aliasing row each in the generator and `ops-advance`); it is not added to the gate generator here because it
 would fail, and 11-20's files do not include `core/`.
 
+
+**Task 2: ASan and UBSan against the shipped library and against an instrumented library (local lane, never in the gate).**
+
+`sh scripts/check-install.sh sanitize shipped|instrumented [--steps N] [--digest-stride N]` builds the consumer with
+`-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer` against a fresh install in a prefix
+whose path has a space (below the ignored `build/gate/sanitize-lane/`, not under the install-check directory that the
+CTest fixture clears) and runs every case of `cases.txt` (24: smoke, composite, 17 ops cases, the three host-loop
+cases, two-instance and sequence) with the sequence at 20,000 steps. The lane proves which side is instrumented by the
+undefined AddressSanitizer symbols of the archive and of the executable instead of trusting its flags, and fails on a
+non-zero exit, a failing case, or any `ERROR: AddressSanitizer`, `runtime error:` or `ERROR: LeakSanitizer` line.
+
+| Item | Result |
+|------|--------|
+| `shipped` | the Release archive of `build/gate` as shipped (build id `t64-build-v1-02b2ce1080322de84f2f6d1676432debc16dadf26ff9f1eef05fcbdd01cc7029`: 0 AddressSanitizer symbols in the archive, 34 in the consumer), an instrumented consumer; all 24 cases passed, no sanitizer report; the sequence at `--steps 20000 --digest-stride 1` ran 21,481 classified calls (2,469 ok, 14,480 refused, 1,904 guest-stop, 1 defect, then 2,627 on the poisoned instance), 860 refusal bursts, 867 machine digests verified, 22 PI/SI device latches seen, 99,281 checks, 0 failures; wall 54 s in all (the sequence 45 s) at host load 5 to 9 |
+| `instrumented` | `cmake --preset asan` (Debug, ASan and UBSan, build id `t64-build-v1-2d35333166a66295a0150080f962ada519a6ae249a61554eec5bedee1412e090`: 733 AddressSanitizer symbols in the archive), `cmake --build --preset asan --target t64_core`, the Development component installed, the same consumer; all 24 cases passed, no sanitizer report; the sequence at `--steps 20000 --digest-stride 8` ran the same 21,481 calls, 860 bursts of which 108 were verified against the machine digest (9,482 refusals were checked on the cheap snapshot only), 98,522 checks, 0 failures; wall 288 s in all (the sequence 177 s: a machine digest costs about 0.35 s with the instrumented Debug library, so stride 8 keeps the lane near five minutes; stride 1 would be about 15 times that) |
+| Both modes | the milestones at steps 5,000 and 15,000 both ended at tick 599357 with digest `97f270274d456e883ceaa11f100f92c7fbf3150e89031fa51164e79991f1267c`; the defect at step 17,500 found the profile digest once (slot 0, offset 2400) and poisoned the instance; the poison sweep made 128 calls that all answered POISONED or the poison query with their outputs untouched; destroy left nothing outstanding; guest-stop reasons seen: BOUND 186, INSTRUCTION_COUNT 4, FRAME_EVENT_COUNT 2, QUIESCENT 6, RESOURCE_LIMIT 1,700, GUEST_COMPLETION 6; statuses seen: 0, 1, 3, 5, 7, 8, 9, 11, 15, 17 to 24, 26, 27, 34, 35, 37, 38 |
+| First attempt of the instrumented lane | the same 20,000-step run passed (289 s) but its exit status was 2: the script had been edited by this plan while it ran, and the shell read the changed tail. It was run again unedited (`exit=0`, 288 s). Lesson: never edit `check-install.sh` while a lane runs |
+| No sanitizer report | no AddressSanitizer or UBSan report in either mode, so no defect to record for a new numbered plan from this task |
