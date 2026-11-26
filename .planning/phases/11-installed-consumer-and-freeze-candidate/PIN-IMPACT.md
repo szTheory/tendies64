@@ -1399,3 +1399,17 @@ a case list that names it fails (`the consumer case list is not closed`, shown o
 | TSan run | library and consumer both instrumented (ThreadSanitizer symbols: 564 in the archive, 21 in the consumer; build id `t64-build-v1-c26a7ea4448cda047355370b9af9874baed55506ef865efad1ea0a9e72a5cfbf`): no ThreadSanitizer report; both digests `97f270274d456e883ceaa11f100f92c7fbf3150e89031fa51164e79991f1267c`; library build 2 s, consumer build 1 s, run 2 s, 5.4 s in all. RESEARCH A9 (the lint forbids writable globals, so the result is expected clean) held |
 | The lane can fail (`tsan --seed-race`) | `-DT64C_THREADS_SEED_RACE=ON` makes both threads advance the one same instance with nothing serializing them, the use the header forbids; ThreadSanitizer reported it (9 reports, a read and a write of the same 8 bytes in `t64i_scheduler_advance`, reached from `t64_machine_advance` on both threads) and the process then aborted (exit 134 from the corrupted instance); the lane passes only when a report appears |
 | Statement supported | distinct instances are independent (no data race between two threads running two instances) and one instance needs external serialization (the seeded race). It is a local check of this build on this host: it is not a promise about other compilers or targets |
+
+**Task 4 (review item S-09, ordered by the orchestrator, outside the plan's file list): one shared test header.**
+
+`core/tests/api_test_support.h` (new, public header and system headers only) holds what `test_api_poison.c`,
+`test_api_lifecycle.c` and `test_api_struct_size.c` each carried: the counting allocator (live blocks and sizes, an
+optional hook that runs first in every callback), the fixture readers (`read_file`, `read_fixture` of
+`T64_BOOT_FIXTURES_DIR`) and the eight poison helpers (one per in/out record) with their `POISON_*` constants.
+Everything is `static inline`, so a test that uses some of it compiles clean.
+
+| Item | Result |
+|------|--------|
+| Copies removed | the counting allocator and its release (three copies, two with live tracking and one counters-only), the fixture reader (two copies, plus the IPL3 asset reader of `test_api_poison.c`, now a three-line wrapper of `read_file` with an exact-length check) and the eight `poison_*` helpers (two copies); the reentrancy probe of `test_api_poison.c` is its own struct and rides on the allocator's hook (`counts.hook`, `counts.hook_context`), so its 25 probe accesses read `probe.` instead of `counts.` and nothing else of that test changed. 495 lines out, 47 in, the shared header is new |
+| Same checks | `ctest -R '^unit\.core\.api\.'` (13 names) before and after: every name has the same `checks=` count (poison 113, refusals-never-poison 341, reentrant 39, null-machine 55, defect-sites 556, bus-carve-out 426, reset 384, unload 257, not-ready-table 2324, output-status 1390, handshake 379, struct-size 1591, abi-version 7) and 0 failures |
+| Still separate | `poison_import_report` in `core/tests/state_import_helpers.h`, `poison_save_info` in the save tests and `poison_drain_result` in `core/tests/test_isviewer.c` stay as they are: those files are shared with oracle-bound or runner tests outside this fold; a later plan may point them at the shared header. The guard now has one place to extend when a public struct gains a member |

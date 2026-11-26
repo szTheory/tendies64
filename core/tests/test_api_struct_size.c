@@ -31,6 +31,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "api_test_support.h"
 #include "t64_test.h"
 #include "tendies64/t64_machine.h"
 
@@ -48,44 +49,6 @@
 #define TAIL_BYTES 16u
 #define SENTINEL_BYTE 0xa5u
 
-typedef struct {
-  unsigned allocations;
-  unsigned releases;
-} counting_context;
-
-static bool counting_allocate(void *context, size_t size, size_t alignment,
-                              t64_host_storage *storage_out) {
-  counting_context *counts = (counting_context *)context;
-  void *memory;
-
-  if (counts == NULL || storage_out == NULL || size == 0u || alignment == 0u ||
-      (alignment & (alignment - 1u)) != 0u) {
-    return false;
-  }
-  if (alignment <= _Alignof(max_align_t)) {
-    memory = malloc(size);
-  } else {
-    memory = aligned_alloc(alignment,
-                           (size + alignment - 1u) / alignment * alignment);
-  }
-  if (memory == NULL || (uintptr_t)memory % alignment != 0u) {
-    free(memory);
-    return false;
-  }
-  counts->allocations++;
-  storage_out->data = memory;
-  storage_out->capacity = size;
-  storage_out->alignment = alignment;
-  return true;
-}
-
-static void counting_release(void *context, t64_host_storage storage) {
-  counting_context *counts = (counting_context *)context;
-
-  if (counts != NULL) counts->releases++;
-  free(storage.data);
-}
-
 /* A machine pointer the refused create must overwrite with NULL. */
 static t64_machine *sentinel_machine(void) {
   static uint8_t not_a_machine;
@@ -96,9 +59,9 @@ static t64_machine *sentinel_machine(void) {
 /* create with info must be refused with want, write NULL to *machine_out and
  * call the allocator never. */
 static void check_refused(const t64_machine_create_info *info,
-                          counting_context *counts, t64_status want) {
+                          counting_allocator *counts, t64_status want) {
   t64_machine *machine = sentinel_machine();
-  unsigned before = counts->allocations;
+  size_t before = counts->allocations;
 
   T64_CHECK_INT(t64_machine_create(info, &machine), want);
   T64_CHECK(machine == NULL);
@@ -107,7 +70,7 @@ static void check_refused(const t64_machine_create_info *info,
 }
 
 static void case_handshake(void) {
-  counting_context counts = {0u, 0u};
+  counting_allocator counts = {0};
   t64_host_allocator allocator = T64_HOST_ALLOCATOR_INIT(
       counting_allocate, counting_release, &counts);
   const t64_profile_descriptor *registered = NULL;
@@ -353,7 +316,7 @@ static t64_machine *traced_machine(const t64_host_allocator *allocator) {
 }
 
 static void case_trace_record_size(void) {
-  counting_context counts = {0u, 0u};
+  counting_allocator counts = {0};
   t64_host_allocator allocator = T64_HOST_ALLOCATOR_INIT(
       counting_allocate, counting_release, &counts);
   t64_trace_record reference[TRACE_SLOTS];
@@ -469,40 +432,8 @@ static uint8_t audio_rom[MAX_FIXTURE_BYTES];
 static size_t audio_length;
 static uint8_t ipl3_asset[IPL3_ASSET_BYTES];
 
-/* Read a whole file of at most capacity bytes; false on any error. */
-static bool read_file(const char *path, uint8_t *bytes, size_t capacity,
-                      size_t *length_out) {
-  FILE *file;
-  size_t length;
-  int extra;
-
-  file = fopen(path, "rb");
-  if (file == NULL) return false;
-  length = fread(bytes, 1u, capacity, file);
-  extra = fgetc(file);
-  if (ferror(file) != 0 || extra != EOF || length == 0u) {
-    (void)fclose(file);
-    return false;
-  }
-  if (fclose(file) != 0) return false;
-  *length_out = length;
-  return true;
-}
-
-static bool read_fixture(const char *name, uint8_t *bytes, size_t capacity,
-                         size_t *length_out) {
-  const char *directory = getenv("T64_BOOT_FIXTURES_DIR");
-  char path[512];
-  int written;
-
-  if (directory == NULL || directory[0] == '\0') return false;
-  written = snprintf(path, sizeof path, "%s/%s", directory, name);
-  if (written < 0 || (size_t)written >= sizeof path) return false;
-  return read_file(path, bytes, capacity, length_out);
-}
-
 typedef struct {
-  counting_context counts;
+  counting_allocator counts;
   t64_host_allocator allocator;
   t64_machine *machine;
 } machine_item;

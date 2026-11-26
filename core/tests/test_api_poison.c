@@ -38,6 +38,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "api_test_support.h"
 #include "t64_internal.h"
 #include "t64_sha256.h"
 #include "t64_test.h"
@@ -48,19 +49,11 @@
 #define LEGACY_PROFILE_ID \
   "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-filter-v9-ai-v1"
 #define ENTRY_COUNT 26u
-#define MAX_LIVE 16u
 #define MIN_REFUSED_SHAPES 40u
 
-/* A counting allocator that remembers every live block, so a test can state
- * "allocation count equals release count, zero outstanding" exactly. */
+/* The reentrancy probe: while hook_machine is set, every allocator callback
+ * calls all 26 guarded entries on that instance and records what came back. */
 typedef struct {
-  size_t allocations;
-  size_t releases;
-  size_t unknown_releases;
-  void *live[MAX_LIVE];
-  size_t live_count;
-  /* Reentrancy hook: while hook_machine is set, every callback calls all 26
-   * guarded entries on that instance and records what came back. */
   t64_machine *hook_machine;
   bool in_hook;
   unsigned hook_calls;
@@ -70,77 +63,23 @@ typedef struct {
   unsigned hook_reentrant;
   unsigned hook_untouched;
   bool hook_saw_rom_size;
-} counting_allocator;
+} reentrancy_probe;
 
-static void run_reentrancy_hook(counting_allocator *state, bool is_allocate,
-                                size_t size);
-
-static bool counting_allocate(void *context, size_t size, size_t alignment,
-                              t64_host_storage *storage_out) {
-  counting_allocator *state = (counting_allocator *)context;
-  void *memory;
-
-  if (state == NULL || storage_out == NULL || size == 0u || alignment == 0u ||
-      state->live_count >= MAX_LIVE) {
-    return false;
-  }
-  run_reentrancy_hook(state, true, size);
-  memory = malloc(size);
-  if (memory == NULL || (uintptr_t)memory % alignment != 0u) {
-    free(memory);
-    return false;
-  }
-  state->allocations++;
-  state->live[state->live_count++] = memory;
-  storage_out->data = memory;
-  storage_out->capacity = size;
-  storage_out->alignment = alignment;
-  return true;
-}
-
-static void counting_release(void *context, t64_host_storage storage) {
-  counting_allocator *state = (counting_allocator *)context;
-  size_t index;
-
-  if (state == NULL) {
-    return;
-  }
-  run_reentrancy_hook(state, false, storage.capacity);
-  state->releases++;
-  for (index = 0u; index < state->live_count; index++) {
-    if (state->live[index] == storage.data) {
-      state->live[index] = state->live[state->live_count - 1u];
-      state->live_count--;
-      free(storage.data);
-      return;
-    }
-  }
-  state->unknown_releases++;
-}
+static void run_reentrancy_hook(void *context, bool is_allocate, size_t size);
 
 typedef struct {
   counting_allocator counts;
+  reentrancy_probe probe;
   t64_host_allocator allocator;
   t64_machine *machine;
 } instance;
 
 static bool read_openipl3_asset(uint8_t bytes[IPL3_ASSET_BYTES]) {
   const char *path = getenv("T64_TEST_IPL3_PATH");
-  FILE *file;
-  size_t length;
-  int extra;
-  int read_error;
-  int close_error;
+  size_t length = 0u;
 
   if (path == NULL || path[0] == '\0') return false;
-  file = fopen(path, "rb");
-  if (file == NULL) return false;
-  length = fread(bytes, 1u, IPL3_ASSET_BYTES, file);
-  extra = fgetc(file);
-  read_error = ferror(file);
-  close_error = fclose(file);
-  return read_error == 0 && close_error == 0 && length == IPL3_ASSET_BYTES &&
-         extra == EOF;
+  return read_file(path, bytes, IPL3_ASSET_BYTES, &length) && length == IPL3_ASSET_BYTES;
 }
 
 static uint8_t asset_bytes[IPL3_ASSET_BYTES];
@@ -153,6 +92,8 @@ static bool make_instance(instance *item, const char *profile_id,
   (void)memset(item, 0, sizeof *item);
   item->allocator = (t64_host_allocator)T64_HOST_ALLOCATOR_INIT(
       counting_allocate, counting_release, &item->counts);
+  item->counts.hook = run_reentrancy_hook;
+  item->counts.hook_context = &item->probe;
   T64_CHECK_INT(t64_profile_lookup(profile_id, &profile), T64_STATUS_OK);
   if (profile == NULL) return false;
   T64_CHECK_INT(t64_machine_create(
@@ -243,125 +184,6 @@ typedef struct {
   bool trace_saturated;
   t64_output_status output_status;
 } scratch;
-
-/* ---- sentinels for the in/out records ----------------------------------
- * A poisoned record is the INIT form of its type first, so a leading
- * struct_size stays valid, and then a non-zero value in every other member by
- * name (the values a byte fill of 0xA5 gave). A byte fill would also clobber a
- * leading struct_size, and a plain INIT assignment would let a callee that
- * writes zeros, or leaves a member alone, pass the checks of the fields it must
- * overwrite. */
-#define POISON_U32 UINT32_C(0xa5a5a5a5)
-#define POISON_U64 UINT64_C(0xa5a5a5a5a5a5a5a5)
-#define POISON_SIZE ((size_t)POISON_U64)
-
-static void poison_stop_result(t64_stop_result *value) {
-  *value = (t64_stop_result)T64_STOP_RESULT_INIT_WITH(POISON_U32, POISON_U64);
-}
-
-static void poison_cpu_stop_detail(t64_cpu_stop_detail *value) {
-  *value = (t64_cpu_stop_detail)T64_CPU_STOP_DETAIL_INIT;
-  value->retired_instructions = POISON_U64;
-  value->pc = POISON_U32;
-  value->opcode = POISON_U32;
-}
-
-static void poison_drain_result(t64_output_drain_result *value) {
-  *value = (t64_output_drain_result)T64_OUTPUT_DRAIN_RESULT_INIT;
-  value->copied_bytes = POISON_SIZE;
-  value->required_bytes = POISON_SIZE;
-  value->total_attempted_bytes = POISON_U64;
-  (void)memset(value->captured_sha256, 0xa5, sizeof value->captured_sha256);
-  value->lost_output = true;
-  value->total_attempted_bytes_exact = true;
-}
-
-static void poison_import_report(t64_state_import_report *value) {
-  *value = (t64_state_import_report)T64_STATE_IMPORT_REPORT_INIT;
-  value->status = POISON_U32;
-  value->reason = POISON_U32;
-  value->section_id = POISON_U32;
-  value->rule = POISON_U32;
-  value->position = POISON_U64;
-}
-
-static void poison_save_info(t64_save_info *value) {
-  *value = (t64_save_info)T64_SAVE_INFO_INIT;
-  value->kind = POISON_U32;
-  value->size_bytes = POISON_U32;
-  value->flags = POISON_U32;
-  value->write_generation = POISON_U64;
-}
-
-static void poison_output_status(t64_output_status *value) {
-  *value = (t64_output_status)T64_OUTPUT_STATUS_INIT;
-  value->video_queued = POISON_U32;
-  value->video_free = POISON_U32;
-  value->reserved0 = POISON_U32;
-  value->video_next_bytes = POISON_U64;
-  value->audio_queued = POISON_U32;
-  value->audio_free = POISON_U32;
-  value->audio_next_bytes = POISON_U64;
-  value->text_pending_bytes = POISON_U64;
-}
-
-static void poison_audio_info(t64_audio_packet_info *value) {
-  *value = (t64_audio_packet_info)T64_AUDIO_PACKET_INFO_INIT;
-  value->sequence = POISON_U64;
-  value->first_sample_index = POISON_U64;
-  value->first_tick = POISON_U64;
-  value->last_tick = POISON_U64;
-  value->frame_count = POISON_U32;
-  value->rate_numerator = POISON_U64;
-  value->rate_denominator = POISON_U64;
-  value->channels = POISON_U32;
-  value->bits_per_sample = POISON_U32;
-  value->encoding = POISON_U32;
-  value->byte_length = POISON_SIZE;
-  (void)memset(value->profile_id, 0xa5, sizeof value->profile_id);
-  (void)memset(value->build_id, 0xa5, sizeof value->build_id);
-}
-
-static void poison_video_info(t64_video_packet_info *value) {
-  *value = (t64_video_packet_info)T64_VIDEO_PACKET_INFO_INIT;
-  value->width = POISON_U32;
-  value->height = POISON_U32;
-  value->stride_bytes = POISON_U32;
-  value->source_address = POISON_U32;
-  value->source_format = POISON_U32;
-  value->output_encoding = POISON_U32;
-  value->field = POISON_U32;
-  value->parity = POISON_U32;
-  value->control = POISON_U32;
-  value->burst = POISON_U32;
-  value->h_sync = POISON_U32;
-  value->v_sync = POISON_U32;
-  value->h_start = POISON_U32;
-  value->h_end = POISON_U32;
-  value->v_start = POISON_U32;
-  value->v_end = POISON_U32;
-  value->source_width = POISON_U32;
-  value->source_pitch_bytes = POISON_U32;
-  value->source_x_offset = POISON_U32;
-  value->source_y_offset = POISON_U32;
-  value->x_scale = POISON_U32;
-  value->y_scale = POISON_U32;
-  value->filter = POISON_U32;
-  value->start_tick = POISON_U64;
-  value->end_tick = POISON_U64;
-  value->sequence = POISON_U64;
-  value->commands_completed = POISON_U64;
-  value->fullsync_completed = POISON_U64;
-  value->last_command_word = POISON_U64;
-  value->last_command_byte = POISON_U32;
-  value->last_opcode_field = POISON_U32;
-  value->source_bytes = POISON_SIZE;
-  value->packet_bytes = POISON_SIZE;
-  (void)memset(value->profile_id, 0xa5, sizeof value->profile_id);
-  (void)memset(value->build_id, 0xa5, sizeof value->build_id);
-  (void)memset(value->vi_clock_policy, 0xa5, sizeof value->vi_clock_policy);
-  (void)memset(value->vi_output_policy, 0xa5, sizeof value->vi_output_policy);
-}
 
 /* The whole record at 0xA5, then every in/out member of a public struct type
  * re-poisoned from its INIT form, so a leading struct_size stays valid and the
@@ -473,8 +295,8 @@ static t64_status call_entry(unsigned entry, t64_machine *machine,
   }
 }
 
-static void run_reentrancy_hook(counting_allocator *state, bool is_allocate,
-                                size_t size) {
+static void run_reentrancy_hook(void *context, bool is_allocate, size_t size) {
+  reentrancy_probe *state = (reentrancy_probe *)context;
   unsigned entry;
 
   if (state->hook_machine == NULL || state->in_hook) {
@@ -802,7 +624,7 @@ static void case_reentrant(void) {
 
   if (!make_instance(&hooked, SAVE_PROFILE_ID, false)) return;
   entry_save_kind = hooked.machine->profile.save_kind;
-  hooked.counts.hook_machine = hooked.machine;
+  hooked.probe.hook_machine = hooked.machine;
   /* Admission: the ROM candidate allocation of core/t64_rom.c (an allocator
    * call that receives the allocator, not the instance) and the replacement
    * that releases the previous image are both reached from inside the host
@@ -810,21 +632,21 @@ static void case_reentrant(void) {
   T64_CHECK_INT(t64_machine_admit_rom(hooked.machine, asset_bytes,
                                       sizeof asset_bytes),
                 T64_STATUS_OK);
-  T64_CHECK(hooked.counts.hook_allocate_calls >= 1u);
-  T64_CHECK(hooked.counts.hook_saw_rom_size);
+  T64_CHECK(hooked.probe.hook_allocate_calls >= 1u);
+  T64_CHECK(hooked.probe.hook_saw_rom_size);
   T64_CHECK_INT(t64_machine_admit_rom(hooked.machine, asset_bytes,
                                       sizeof asset_bytes),
                 T64_STATUS_OK);
-  T64_CHECK(hooked.counts.hook_allocate_calls >= 2u);
-  T64_CHECK(hooked.counts.hook_release_calls >= 1u);
-  T64_CHECK_INT(hooked.counts.hook_entries,
-                hooked.counts.hook_calls * ENTRY_COUNT);
-  T64_CHECK_INT(hooked.counts.hook_reentrant, hooked.counts.hook_entries);
-  T64_CHECK_INT(hooked.counts.hook_untouched, hooked.counts.hook_entries);
+  T64_CHECK(hooked.probe.hook_allocate_calls >= 2u);
+  T64_CHECK(hooked.probe.hook_release_calls >= 1u);
+  T64_CHECK_INT(hooked.probe.hook_entries,
+                hooked.probe.hook_calls * ENTRY_COUNT);
+  T64_CHECK_INT(hooked.probe.hook_reentrant, hooked.probe.hook_entries);
+  T64_CHECK_INT(hooked.probe.hook_untouched, hooked.probe.hook_entries);
   T64_CHECK(not_poisoned(hooked.machine));
   /* The calls made from the callbacks changed nothing: the digest equals the
    * digest of an instance that never had a callback calling in. */
-  hooked.counts.hook_machine = NULL;
+  hooked.probe.hook_machine = NULL;
   T64_CHECK_INT(t64_machine_digest(hooked.machine, hooked_digest),
                 T64_STATUS_OK);
   if (make_instance(&control, SAVE_PROFILE_ID, true)) {
@@ -835,42 +657,42 @@ static void case_reentrant(void) {
                   T64_STATUS_OK);
     T64_CHECK(memcmp(hooked_digest, control_digest, sizeof hooked_digest) ==
               0);
-    T64_CHECK_INT(control.counts.hook_calls, 0);
+    T64_CHECK_INT(control.probe.hook_calls, 0);
     destroy_and_check(&control);
   }
   /* Unload returns the image through the host allocator: the release
    * callback sees REENTRANT on every entry, including unload itself. */
-  hooked.counts.hook_machine = hooked.machine;
+  hooked.probe.hook_machine = hooked.machine;
   {
-    const unsigned release_calls_before = hooked.counts.hook_release_calls;
-    const unsigned calls_before = hooked.counts.hook_calls;
-    const unsigned entries_before = hooked.counts.hook_entries;
+    const unsigned release_calls_before = hooked.probe.hook_release_calls;
+    const unsigned calls_before = hooked.probe.hook_calls;
+    const unsigned entries_before = hooked.probe.hook_entries;
 
     T64_CHECK_INT(t64_machine_unload(hooked.machine), T64_STATUS_OK);
-    T64_CHECK_INT(hooked.counts.hook_release_calls - release_calls_before, 1);
-    T64_CHECK_INT(hooked.counts.hook_entries - entries_before,
-                  (hooked.counts.hook_calls - calls_before) * ENTRY_COUNT);
+    T64_CHECK_INT(hooked.probe.hook_release_calls - release_calls_before, 1);
+    T64_CHECK_INT(hooked.probe.hook_entries - entries_before,
+                  (hooked.probe.hook_calls - calls_before) * ENTRY_COUNT);
   }
-  T64_CHECK_INT(hooked.counts.hook_reentrant, hooked.counts.hook_entries);
-  T64_CHECK_INT(hooked.counts.hook_untouched, hooked.counts.hook_entries);
+  T64_CHECK_INT(hooked.probe.hook_reentrant, hooked.probe.hook_entries);
+  T64_CHECK_INT(hooked.probe.hook_untouched, hooked.probe.hook_entries);
   T64_CHECK(not_poisoned(hooked.machine));
-  hooked.counts.hook_machine = NULL;
+  hooked.probe.hook_machine = NULL;
   T64_CHECK_INT(t64_machine_admit_rom(hooked.machine, asset_bytes,
                                       sizeof asset_bytes),
                 T64_STATUS_OK);
   /* Destruction calls the host too: the release callbacks see REENTRANT. */
-  hooked.counts.hook_machine = hooked.machine;
+  hooked.probe.hook_machine = hooked.machine;
   {
-    const unsigned calls_before = hooked.counts.hook_calls;
-    const unsigned entries_before = hooked.counts.hook_entries;
+    const unsigned calls_before = hooked.probe.hook_calls;
+    const unsigned entries_before = hooked.probe.hook_entries;
 
     destroy_and_check(&hooked);
-    T64_CHECK(hooked.counts.hook_calls > calls_before);
-    T64_CHECK_INT(hooked.counts.hook_entries - entries_before,
-                  (hooked.counts.hook_calls - calls_before) * ENTRY_COUNT);
+    T64_CHECK(hooked.probe.hook_calls > calls_before);
+    T64_CHECK_INT(hooked.probe.hook_entries - entries_before,
+                  (hooked.probe.hook_calls - calls_before) * ENTRY_COUNT);
   }
-  T64_CHECK_INT(hooked.counts.hook_reentrant, hooked.counts.hook_entries);
-  T64_CHECK_INT(hooked.counts.hook_untouched, hooked.counts.hook_entries);
+  T64_CHECK_INT(hooked.probe.hook_reentrant, hooked.probe.hook_entries);
+  T64_CHECK_INT(hooked.probe.hook_untouched, hooked.probe.hook_entries);
 }
 
 /* A NULL machine: INVALID_ARGUMENT and untouched outputs on every entry. */
