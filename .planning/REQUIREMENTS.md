@@ -25,11 +25,11 @@ Scope refined 2026-11-23 by a five-lens fan-out ([synthesis](research/v1.2-fanou
 
 ### Installed consumer and frozen API
 
-- [ ] **VER-05**: Maintainer can see a clean installed package (relocated, no source tree visible) run the same permitted headless fixture through an independent consumer that agrees with the in-tree runner and with independent expected literals, with relocation, missing-package, version-mismatch, doctored-header and symbol-collision negative controls
-- [ ] **API-01**: A C-ABI instance API defines lifetime, an ABI-version handshake at create, `struct_size` on every in/out struct, profile selection, transactional content admission, timed input, bounded advance, output ring buffers with backpressure, reset and unload; the facade is installable (relocatable CMake package) with internal symbols prefixed
-- [ ] **API-02**: Errors fall into three classes: refused (state unchanged), guest-stop (not an error, resumable) and defect (instance poisoned, only destroy and a poison query succeed), each with tested postconditions and a status-class table that lists every status and stop reason once; a refusal-is-a-no-op harness runs under ASan and UBSan against the shipped library
-- [ ] **API-03**: The API reaches a freeze candidate (0.x ABI, documented postconditions, a bound ABI-identity record of header hash, public symbol list, struct-layout table and status-class table) only after the postconditions pass through the installed consumer, including a host-shaped loop; the final bind happens after the host and homebrew run on it, and between the two only defect-driven amendments with evidence and a re-run of the installed-consumer suite are allowed
-- [ ] **API-04**: The core owns no files, clocks, entropy or threads; the host supplies them. A mechanical check on the members of the installed archive fails if one appears, and a seeded `clock_gettime`/`fopen`/`getentropy`/`pthread_create` object proves the check can fail
+- [x] **VER-05**: Maintainer can see a clean installed package (relocated, no source tree visible) run the same permitted headless fixture through an independent consumer that agrees with the in-tree runner and with independent expected literals, with relocation, missing-package, version-mismatch, doctored-header and symbol-collision negative controls
+- [x] **API-01**: A C-ABI instance API defines lifetime, an ABI-version handshake at create, `struct_size` on every in/out struct, profile selection, transactional content admission, timed input, bounded advance, output ring buffers with backpressure, reset and unload; the facade is installable (relocatable CMake package) with internal symbols prefixed
+- [x] **API-02**: Errors fall into three classes: refused (state unchanged), guest-stop (not an error, resumable) and defect (instance poisoned, only destroy and a poison query succeed), each with tested postconditions and a status-class table that lists every status and stop reason once; a refusal-is-a-no-op harness runs under ASan and UBSan against the shipped library
+- [x] **API-03**: The API reaches a freeze candidate (0.x ABI, documented postconditions, a bound ABI-identity record of header hash, public symbol list, struct-layout table and status-class table) only after the postconditions pass through the installed consumer, including a host-shaped loop; the final bind happens after the host and homebrew run on it, and between the two only defect-driven amendments with evidence and a re-run of the installed-consumer suite are allowed
+- [x] **API-04**: The core owns no files, clocks, entropy or threads; the host supplies them. A mechanical check on the members of the installed archive fails if one appears, and a seeded `clock_gettime`/`fopen`/`getentropy`/`pthread_create` object proves the check can fail
 
 ### Minimal host and playable homebrew
 
@@ -68,11 +68,11 @@ Filled by the roadmapper on 2026-11-23. Carry-ins close in Phase 10, before the 
 | VER-06 | Phase 10 | Complete |
 | RUN-07 | Phase 10 | Complete |
 | GATE-01 | Phase 10 | Complete |
-| VER-05 | Phase 11 | Pending |
-| API-01 | Phase 11 | Pending |
-| API-02 | Phase 11 | Pending |
-| API-03 | Phase 11 | Pending |
-| API-04 | Phase 11 | Pending |
+| VER-05 | Phase 11 | Complete |
+| API-01 | Phase 11 | Complete |
+| API-02 | Phase 11 | Complete |
+| API-03 | Phase 11 | Complete |
+| API-04 | Phase 11 | Complete |
 | API-05 | Phase 12 | Pending |
 | API-06 | Phase 12 | Pending |
 | API-07 | Phase 12 | Pending |

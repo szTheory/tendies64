@@ -2,20 +2,20 @@
 gsd_state_version: "1.0"
 milestone: v1.2
 milestone_name: Embeddable and Playable
-current_phase: 11
-current_phase_name: Installed Consumer and Freeze Candidate
-status: verifying
-stopped_at: Completed 11-25-PLAN.md (final audit, qualification record 20261126T091014977323Z-aa393c22, claims and evidence, origin/main dc247fa green; cold gate-macos run and Phase 11 verification are orchestrator steps)
-last_updated: "2026-11-26T09:45:24.322Z"
-last_activity: 2026-11-25
-last_activity_desc: Phase 11 execution started
-state_head: 519352d32bf5a1453dc652b063bc77e3422ae237
+current_phase: 12
+current_phase_name: Minimal Host, Playable Homebrew and Final Bind
+status: planning
+stopped_at: Phase 11 complete, ready to plan Phase 12
+last_updated: "2026-11-26T14:09:53.422Z"
+last_activity: 2026-11-26
+last_activity_desc: Phase 11 complete, transitioned to Phase 12
+state_head: abce0e3c0366359cccda6a1d9a23bc710752b9ab
 progress:
   total_phases: 3
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 50
   completed_plans: 50
-  percent: 33
+  percent: 67
 ---
 
 # Project State
@@ -29,13 +29,13 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 
 ## Current Position
 
-Phase: 11 (Installed Consumer and Freeze Candidate) — EXECUTING
-Plan: 25 of 25
-Status: All Phase 11 plans executed — the cold gate-macos run with the final 329-name set (orchestrator-only) and the Phase 11 verification are pending; the phase is not marked complete
-Last activity: 2026-11-25 — Phase 11 execution started
+Phase: 12 — Minimal Host, Playable Homebrew and Final Bind
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-11-26 — Phase 11 complete, transitioned to Phase 12
 Note: plan 11-25 is complete: final independent audit in a scratch clone (11-REVIEW.md FINAL, zero blocking findings), Qualification base 9b17d8106ce6d1479fd29587931c06136bae66c4, final native record 20261126T091014977323Z-aa393c22 (first attempt, verified), docs/claims/phase11.md and docs/evidence/phase11-qualification.md; origin/main is dc247faaa3f5ceda17870c5e66b7ec181c767637 with a green warm hosted pair (run 45792136442, gate-macos 539 s, gate-linux 271 s, 329 of 329), no tag. Pending (orchestrator): the cold gate-macos run of the final set and the Phase 11 verification; the local commits after dc247fa are records only.
 
-Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
+Progress: [███████░░░] 67% (0 of 3 v1.2 phases complete)
 
 
 ## Performance Metrics
@@ -292,7 +292,7 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 ## Session Continuity
 
 Last session: 2026-11-26T09:45:24.166Z
-Stopped at: Completed 11-25-PLAN.md (final audit, qualification record 20261126T091014977323Z-aa393c22, claims and evidence, origin/main dc247fa green; cold gate-macos run and Phase 11 verification are orchestrator steps)
+Stopped at: Phase 11 complete, ready to plan Phase 12
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
