@@ -27,11 +27,32 @@
 #                them against title.expected.json and title.runner-pins.json (its
 #                own seeded selftest runs first)
 #
+#   sh scripts/check-host.sh [--build DIR] [--host-build DIR] sdl [--rom PATH]
+#
+#   sdl          the LOCAL lane of the optional SDL3 shell (plan 12-09, decision DR-17), never a
+#                CTest name, a workflow step or part of scripts/gate.sh: it installs nothing. When
+#                no system SDL3 of version 3.2.0 or newer is found (a scratch find_package probe)
+#                it prints the recorded skip line "[host-sdl] SKIP: SDL3 >= 3.2.0 not found ..." and
+#                exits 0: a skip is NOT a pass, it leaves the SC2 virtual-joystick clause not
+#                closed. Otherwise it configures host/ with -DT64H_SDL=ON into build/host-sdl (never
+#                under the gate tree; --host-build DIR names another directory, which must be
+#                empty or a CMake tree), builds the shell and its smoke, exports
+#                SDL_VIDEO_DRIVER=dummy and SDL_AUDIO_DRIVER=dummy, runs t64h_sdl_smoke (a virtual
+#                gamepad through the mapping table, the title through the pump into a window and an
+#                audio stream) and prints only its sanitized "[host-sdl] ..." lines, ending in
+#                "[host-sdl] PASS". The raw logs stay under build/host-sdl and are never committed
+#                (SDL can print local paths). A found SDL3 with a failing smoke is a failure
+#                (exit 1), never a skip. The pass is self-checking host glue only: no rendering,
+#                timing or audio claim. To play the title in a real window (a display is needed):
+#                build/host-sdl/t64h_sdl --rom build/fixtures/phase12-title-s32k.z64 [--scale N]
+#
 # --build DIR   the configured and built tree whose install-check prefix is used
 #               (default build/gate); nothing is rebuilt
-# --host-build DIR  where the host project is built and run (default BUILD/host-check);
-#               scripts/p12-mutants.py builds a mutated copy of host/ beside the gate tree
-# Exit codes: 0 pass, 1 a finding, 2 usage error or a missing tool, tree or file.
+# --host-build DIR  where the host project is built and run (default BUILD/host-check, or
+#               build/host-sdl for the sdl lane); scripts/p12-mutants.py builds a mutated copy of
+#               host/ beside the gate tree
+# Exit codes: 0 pass (or the recorded sdl skip), 1 a finding, 2 usage error or a missing tool,
+# tree or file.
 set -eu
 LC_ALL=C
 export LC_ALL
@@ -41,7 +62,7 @@ BUILD=$ROOT/build/gate
 HOST_BUILD_ARG=
 
 usage() {
-  echo "usage: sh scripts/check-host.sh [--build DIR] [--host-build DIR] build|run CASE [--rom PATH]" >&2
+  echo "usage: sh scripts/check-host.sh [--build DIR] [--host-build DIR] build|run CASE [--rom PATH]|sdl [--rom PATH]" >&2
   exit 2
 }
 
@@ -221,7 +242,93 @@ print(" ".join(out))
   fail "host case $_case failed"
 }
 
+# sdl_probe: 0 when a system SDL3 of version 3.2.0 or newer is found by CMake (the usual search:
+# system prefixes, SDL3_DIR, CMAKE_PREFIX_PATH), without installing or building anything.
+sdl_probe() {
+  _probe=$(mktemp -d "${TMPDIR:-/tmp}/t64h-sdl-probe.XXXXXX") || die "cannot create a scratch directory"
+  printf '%s\n' 'cmake_minimum_required(VERSION 3.25)' 'project(t64h_sdl_probe LANGUAGES NONE)' \
+    'find_package(SDL3 3.2.0 CONFIG QUIET)' 'if(SDL3_FOUND)' \
+    '  message(STATUS "t64h-sdl-probe found")' 'endif()' > "$_probe/CMakeLists.txt"
+  _found=1
+  if "$CMAKE" -S "$_probe" -B "$_probe/b" > "$_probe/out.log" 2>&1 && grep -q 't64h-sdl-probe found' "$_probe/out.log"; then
+    _found=0
+  fi
+  rm -rf "$_probe"
+  return "$_found"
+}
+
+cmd_sdl() {
+  _rom=$ROOT/build/fixtures/phase12-title-s32k.z64
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      --rom)
+        [ "$#" -ge 2 ] || usage
+        _rom=$2
+        shift 2
+        ;;
+      *) usage ;;
+    esac
+  done
+  if ! sdl_probe; then
+    echo "[host-sdl] SKIP: SDL3 >= 3.2.0 not found (link-only system package; this lane installs nothing)"
+    return 0
+  fi
+  [ -d "$MOVED" ] || die "no moved prefix: run the install setup first (CTest fixture install.setup)"
+  [ -f "$_rom" ] || die "the title ROM is missing (build the target t64-phase12-title-fixture)"
+  _cc=$(cache_value CMAKE_C_COMPILER)
+  [ -n "$_cc" ] || die "the build tree records no C compiler"
+  _ninja=$(cache_value CMAKE_MAKE_PROGRAM)
+  _sdl_build=$ROOT/build/host-sdl
+  if [ -n "$HOST_BUILD_ARG" ]; then
+    _sdl_build=$HOST_BUILD
+  fi
+  if [ -e "$_sdl_build" ]; then
+    if [ ! -f "$_sdl_build/CMakeCache.txt" ] && [ -n "$(ls -A "$_sdl_build")" ]; then
+      die "the SDL lane directory is neither empty nor a CMake tree"
+    fi
+    rm -rf "$_sdl_build"
+  fi
+  mkdir -p "$_sdl_build" || die "cannot create the SDL lane directory"
+  set -- -S "$ROOT/host" -B "$_sdl_build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DT64H_SDL=ON \
+    "-DCMAKE_PREFIX_PATH=$MOVED" "-DCMAKE_C_COMPILER=$_cc"
+  if [ -n "$_ninja" ] && [ -x "$_ninja" ]; then
+    set -- "$@" "-DCMAKE_MAKE_PROGRAM=$_ninja"
+  fi
+  # The raw logs of this lane can hold local paths: they stay under the ignored build directory
+  # and are never printed, only named.
+  if ! "$CMAKE" "$@" > "$_sdl_build/lane-configure.log" 2>&1; then
+    echo "[host-sdl] FAIL: configure (raw log: build/host-sdl/lane-configure.log)"
+    return 1
+  fi
+  if ! "$CMAKE" --build "$_sdl_build" > "$_sdl_build/lane-build.log" 2>&1; then
+    echo "[host-sdl] FAIL: build (raw log: build/host-sdl/lane-build.log)"
+    return 1
+  fi
+  [ -x "$_sdl_build/t64h_sdl_smoke" ] && [ -x "$_sdl_build/t64h_sdl" ] || {
+    echo "[host-sdl] FAIL: the shell or its smoke was not produced"
+    return 1
+  }
+  _rc=0
+  SDL_VIDEO_DRIVER=dummy SDL_AUDIO_DRIVER=dummy "$_sdl_build/t64h_sdl_smoke" --rom "$_rom" \
+    > "$_sdl_build/lane.out" 2> "$_sdl_build/lane.err" || _rc=$?
+  # Only the smoke's fixed lines are shown; anything else (and the whole of stderr) stays in the
+  # raw logs.
+  grep -E '^\[host-sdl\] [A-Za-z0-9 ./:_-]{1,60}$' "$_sdl_build/lane.out" || true
+  if [ "$_rc" -ne 0 ]; then
+    if ! grep -q '^\[host-sdl\] FAIL: ' "$_sdl_build/lane.out"; then
+      echo "[host-sdl] FAIL: the smoke ended with exit $_rc (raw log: build/host-sdl/lane.err)"
+    fi
+    return 1
+  fi
+  if ! grep -qx '\[host-sdl\] PASS' "$_sdl_build/lane.out"; then
+    echo "[host-sdl] FAIL: the smoke printed no PASS line"
+    return 1
+  fi
+  return 0
+}
+
 case $SUB in
+  sdl) cmd_sdl "$@" ;;
   build)
     [ "$#" -eq 0 ] || usage
     cmd_build

@@ -37,5 +37,29 @@ foreach(t64h_target t64h_pump t64h_tests)
 endforeach()
 
 if(T64H_SDL)
-  # Filled by plan 12-09 (the SDL3 shell and its smoke).
+  # The optional SDL3 shell (plan 12-09, decisions DR-17 and DR-18): link-only against a system
+  # SDL3 (never vendored, fetched or copied; docs/evidence/sdl3-host-dependency-audit.md), built
+  # only by the local lane `sh scripts/check-host.sh sdl`, never by the gate, and without an
+  # install rule.
+  find_package(SDL3 3.2.0 CONFIG REQUIRED)
+
+  # The shell's code as a static library for the executable and the smoke.
+  add_library(t64h_sdl_shell STATIC sdl/t64h_sdl.c)
+  target_include_directories(t64h_sdl_shell PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/sdl")
+  target_link_libraries(t64h_sdl_shell PUBLIC t64h_pump SDL3::SDL3)
+
+  # The shell itself: t64h_sdl --rom PATH [--scale N].
+  add_executable(t64h_sdl sdl/t64h_sdl_main.c)
+  target_link_libraries(t64h_sdl PRIVATE t64h_sdl_shell)
+
+  # The headless self-check of the lane (dummy drivers and a virtual gamepad).
+  add_executable(t64h_sdl_smoke sdl/t64h_sdl_smoke.c)
+  target_link_libraries(t64h_sdl_smoke PRIVATE t64h_sdl_shell)
+
+  foreach(t64h_target t64h_sdl_shell t64h_sdl t64h_sdl_smoke)
+    target_compile_options(${t64h_target} PRIVATE
+      -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wstrict-prototypes
+      -Wmissing-prototypes -Wundef -Wvla -Wcast-qual -Wformat=2 -Wwrite-strings
+      -Werror)
+  endforeach()
 endif()
