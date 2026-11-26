@@ -302,6 +302,16 @@ installed.consumer.build
 installed.consumer.smoke
 installed.consumer.composite
 installed.consumer.literals
+installed.consumer.three-way
+installed.consumer.ops-lifetime
+installed.consumer.ops-handshake
+installed.consumer.ops-struct-size
+installed.consumer.ops-profile
+installed.consumer.ops-admission
+installed.consumer.ops-input
+installed.consumer.ops-advance
+installed.consumer.ops-reset
+installed.consumer.ops-unload
 repo.consumer-include-guard
 repo.consumer-include-guard-selftest
 repo.abi-layout

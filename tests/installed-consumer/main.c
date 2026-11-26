@@ -122,6 +122,7 @@ int main(int argc, char **argv) {
     for (k = 0u; k < sizeof t64c_cases / sizeof t64c_cases[0]; k++) {
       (void)puts(t64c_cases[k].name);
     }
+    t64c_ops_list();
     return 0;
   }
   if (argc >= 3 && strcmp(argv[1], "--case") == 0) {
@@ -147,6 +148,9 @@ int main(int argc, char **argv) {
       if (strcmp(name, t64c_cases[k].name) == 0) {
         return t64c_cases[k].run(&args);
       }
+    }
+    if (t64c_ops_known(name)) {
+      return t64c_ops_run(name, &args);
     }
     (void)fprintf(stderr, "t64c: unknown case: %s\n", name);
     return 2;

@@ -342,7 +342,8 @@ set_tests_properties(api04.seeded PROPERTIES
 # targets are not part of "all" by themselves, so an ALL custom target makes the
 # consumer cases independent of which test executables happen to depend on the ROM.
 add_custom_target(t64-installed-consumer-fixtures ALL)
-add_dependencies(t64-installed-consumer-fixtures t64-phase10-composite-fixture)
+add_dependencies(t64-installed-consumer-fixtures t64-phase10-composite-fixture
+  t64-supervisor t64-runner-real)
 set(T64_CONSUMER_ROM "${CMAKE_SOURCE_DIR}/build/fixtures/phase10-composite-s32k.z64")
 
 # installed.consumer.literals: the constants of the consumer's t64c_composite.h
@@ -370,6 +371,15 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
 file(STRINGS "${CMAKE_SOURCE_DIR}/tests/installed-consumer/cases.txt"
   T64_CONSUMER_CASES REGEX "^[a-z]")
 set(T64_CONSUMER_COST_composite 0.13)
+set(T64_CONSUMER_COST_ops-lifetime 0.03)
+set(T64_CONSUMER_COST_ops-handshake 0.02)
+set(T64_CONSUMER_COST_ops-struct-size 0.33)
+set(T64_CONSUMER_COST_ops-profile 0.26)
+set(T64_CONSUMER_COST_ops-admission 0.37)
+set(T64_CONSUMER_COST_ops-input 0.30)
+set(T64_CONSUMER_COST_ops-advance 0.37)
+set(T64_CONSUMER_COST_ops-reset 0.28)
+set(T64_CONSUMER_COST_ops-unload 0.07)
 foreach(T64_CONSUMER_CASE IN LISTS T64_CONSUMER_CASES)
   if(T64_CONSUMER_CASE STREQUAL "smoke")
     continue()
@@ -390,3 +400,21 @@ foreach(T64_CONSUMER_CASE IN LISTS T64_CONSUMER_CASES)
     COST ${T64_CONSUMER_COST_${T64_CONSUMER_CASE}}
     FIXTURES_REQUIRED t64_consumer)
 endforeach()
+
+# installed.consumer.three-way (plan 11-18, G6): the in-tree runner (the two
+# supervised runs of the authored composite ROM of runner.composite-two-run) and
+# the installed consumer's composite case agree on every compared value: the final
+# state digest, the completion tick, the stop reason and the video packet count
+# (runner-recorded pins, labeled so, never independent) and the video, audio, save
+# and transcript bytes (which the consumer separately matches to the independent
+# literals in the same run). The runner is not re-pointed at the installed package:
+# it is the in-tree binary of this build tree. COST is the measured native seconds.
+add_test(NAME installed.consumer.three-way
+  COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/check-install.sh
+          --build ${CMAKE_BINARY_DIR} three-way --rom "${T64_CONSUMER_ROM}"
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(installed.consumer.three-way PROPERTIES
+  LABELS "installed;phase11"
+  TIMEOUT 120
+  COST 0.6
+  FIXTURES_REQUIRED t64_consumer)

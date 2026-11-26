@@ -10,3 +10,12 @@
 # build tree); no case reads any other file.
 smoke
 composite
+ops-lifetime
+ops-handshake
+ops-struct-size
+ops-profile
+ops-admission
+ops-input
+ops-advance
+ops-reset
+ops-unload

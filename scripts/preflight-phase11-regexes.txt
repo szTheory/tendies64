@@ -20,8 +20,8 @@
 5	^install\.
 # CTest adds the required fixture setup test of every matched test, so the two installed.consumer
 # names count three here (install.setup joins them through the t64_install fixture; plan 11-16);
-# plan 11-18 adds composite and literals (5 after Task 1, then three-way and the ops cases).
-5	^installed\.consumer\.
+# plan 11-18 adds composite and literals (5 after Task 1; 15 after Task 2: three-way and nine ops cases; 23 after Task 3).
+15	^installed\.consumer\.
 0	^installed\.controls\.
 # api04.* requires the t64_install fixture: install.setup joins the api04 names (plan 11-16 lesson), so the count is the api04 names plus one.
 5	^api04\.

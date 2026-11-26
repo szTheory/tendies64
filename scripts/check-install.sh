@@ -16,9 +16,13 @@
 #                  WORK/consumer, build it, and assert that neither the moved
 #                  prefix nor the consumer tree mentions the original install path
 #   run CASE ...   run WORK/consumer/t64c --case CASE with the remaining arguments
-#   three-way      run the in-tree runner (two supervised runs of the authored
-#                  composite ROM) and the installed consumer's composite case,
-#                  and compare every value both sides report (plan 11-18)
+#   three-way [--rom PATH] [--supervisor PATH]
+#                  run the in-tree runner (the two supervised runs of the authored
+#                  composite ROM that composite.expected.json was proved against:
+#                  a raw-capture run and a save-out run) and the installed
+#                  consumer's composite case (which itself checks the independent
+#                  literals), then compare every value both sides report and print
+#                  one line per value naming its source class (plan 11-18, G6)
 #
 # --build DIR   the configured and built tree to install from (default
 #               build/gate); nothing is rebuilt
@@ -37,7 +41,7 @@ BUILD=$ROOT/build/gate
 WORK=
 
 usage() {
-  echo "usage: sh scripts/check-install.sh [--build DIR] [--work DIR] setup|build|run CASE [ARGS]" >&2
+  echo "usage: sh scripts/check-install.sh [--build DIR] [--work DIR] setup|build|run CASE [ARGS]|three-way [--rom PATH] [--supervisor PATH]" >&2
   exit 2
 }
 
@@ -183,9 +187,148 @@ cmd_run() {
   fail "consumer case $_case failed"
 }
 
+# sha256_of FILE: the lower-case SHA-256 of a file (sha256sum, else shasum).
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | cut -d ' ' -f 1
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | cut -d ' ' -f 1
+  else
+    die "no sha256sum or shasum"
+  fi
+}
+
+# json_fields RESULT_JSON: "outcome", "guest_tick", "state_digest" and the
+# guest_stop kind of a supervisor result record, one "key value" line each.
+json_fields() {
+  python3 -I -B -c '
+import json, sys
+d = json.load(open(sys.argv[1], encoding="utf-8"))
+print("outcome", d["outcome"])
+print("detail", d["detail"])
+print("guest_tick", d["guest_tick"])
+print("state_digest", d["state_digest"])
+print("stop_kind", d["guest_stop"]["kind"])
+' "$1"
+}
+
+# field KEY LINES: the value of KEY in "key value" lines.
+field() {
+  printf '%s\n' "$2" | sed -n "s/^$1 //p" | head -n 1
+}
+
+# same SOURCE_CLASS LABEL RUNNER CONSUMER: print one comparison line and fail on a difference.
+same() {
+  if [ "$3" = "$4" ]; then
+    echo "three-way: $2: runner=$3 consumer=$4 equal ($1)"
+  else
+    echo "three-way: $2: runner=$3 consumer=$4 DIFFERENT ($1)" >&2
+    fail "three-way: $2 differs between the in-tree runner and the installed consumer"
+  fi
+}
+
+# same_file SOURCE_CLASS LABEL RUNNER_FILE CONSUMER_FILE: byte-for-byte comparison.
+same_file() {
+  [ -f "$3" ] || fail "three-way: the runner produced no $2 ($3)"
+  [ -f "$4" ] || fail "three-way: the consumer produced no $2 ($4)"
+  if cmp -s "$3" "$4"; then
+    echo "three-way: $2: runner and consumer bytes equal, $(wc -c <"$3" | tr -d ' ') bytes ($1)"
+  else
+    echo "three-way: $2: runner and consumer bytes DIFFER ($1)" >&2
+    fail "three-way: $2 differs between the in-tree runner and the installed consumer"
+  fi
+}
+
+cmd_three_way() {
+  _rom="$ROOT/build/fixtures/phase10-composite-s32k.z64"
+  _supervisor="$BUILD/runner/t64-supervisor"
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      --rom) [ "$#" -ge 2 ] || usage; _rom=$2; shift 2 ;;
+      --supervisor) [ "$#" -ge 2 ] || usage; _supervisor=$2; shift 2 ;;
+      *) usage ;;
+    esac
+  done
+  [ -x "$CONSUMER_BUILD/t64c" ] || die "no consumer executable: run build first"
+  [ -f "$_rom" ] || die "the authored composite ROM is not built: $_rom"
+  [ -x "$_supervisor" ] || die "the in-tree supervisor is not built: $_supervisor"
+  _input="$ROOT/fixtures/composite/composite.input.json"
+  [ -f "$_input" ] || die "missing $_input"
+  _size=$(wc -c <"$_input" | tr -d ' ')
+  _sha=$(sha256_of "$_input")
+  _run="$WORK/three-way"
+  rm -rf "$_run"
+  mkdir -p "$_run"
+  for _d in raw-work raw-aux save-work save-aux consumer-out; do
+    mkdir -m 700 "$_run/$_d"
+  done
+
+  # The in-tree runner: the same two supervised runs as runner.composite-two-run.
+  if ! "$_supervisor" --real --result "$_run/raw-work/result.json" --meta "$_run/raw-work/meta.json" \
+    --work-dir "$_run/raw-work" --wall-ms 30000 --bound 600000 --fixture "$_rom" \
+    --input "$_input" --input-size "$_size" --input-sha256 "$_sha" \
+    --raw-capture-dir "$_run/raw-aux/raw" >"$_run/raw-work/supervisor.out" 2>"$_run/raw-work/supervisor.err"; then
+    cat "$_run/raw-work/supervisor.err" >&2
+    fail "three-way: the in-tree raw-capture run failed"
+  fi
+  if ! "$_supervisor" --real --result "$_run/save-work/result.json" --meta "$_run/save-work/meta.json" \
+    --work-dir "$_run/save-work" --wall-ms 30000 --bound 600000 --fixture "$_rom" \
+    --input "$_input" --input-size "$_size" --input-sha256 "$_sha" \
+    --capture-out "$_run/save-work/capture.bin" --artifact-dir "$_run/save-aux" \
+    --artifact-max-bytes 32768 --save-kind sram32k --save-format raw-v1 \
+    --save-export-leaf composite.sra >"$_run/save-work/supervisor.out" 2>"$_run/save-work/supervisor.err"; then
+    cat "$_run/save-work/supervisor.err" >&2
+    fail "three-way: the in-tree save-out run failed"
+  fi
+  _raw=$(json_fields "$_run/raw-work/result.json")
+  _save=$(json_fields "$_run/save-work/result.json")
+
+  # The installed consumer, stepping like the runner (16 ticks per advance). Its
+  # exit status carries the independent-literal leg: it fails on any literal.
+  if ! "$CONSUMER_BUILD/t64c" --case composite --rom "$_rom" --slice 16 --print \
+    --out "$_run/consumer-out" >"$_run/consumer.txt" 2>"$_run/consumer.err"; then
+    cat "$_run/consumer.txt" "$_run/consumer.err" >&2
+    fail "three-way: the installed consumer's composite case failed its independent literals"
+  fi
+  echo "three-way: the installed consumer matched every independent literal ($(grep -c '^independent literal:' "$_run/consumer.txt") comparisons)"
+  _c() { sed -n "s/^print $1 //p" "$_run/consumer.txt" | head -n 1; }
+
+  _pin="runner-recorded pin, not independent"
+  _lit="independent literal checked by the consumer, runner equals consumer"
+  [ "$(field outcome "$_raw")" = pass ] && [ "$(field outcome "$_save")" = pass ] ||
+    fail "three-way: a supervised run of the in-tree runner did not pass"
+  same "$_pin" "final state digest (raw-capture run vs save-out run)" "$(field state_digest "$_raw")" "$(field state_digest "$_save")"
+  same "$_pin" "final state digest" "$(field state_digest "$_raw")" "$(_c final_digest)"
+  same "$_pin" "completion tick" "$(field guest_tick "$_raw")" "$(_c completion_tick)"
+  # The runner's qualified completion of the authored ROM is the library's
+  # GUEST_COMPLETION stop; the mapping is the only translation in this script.
+  [ "$(field stop_kind "$_raw")" = authored-completion ] || fail "three-way: the runner did not stop with its authored completion"
+  same "$_pin" "stop reason (runner authored-completion = GUEST_COMPLETION)" GUEST_COMPLETION "$(_c stop_reason)"
+  _video=$(ls "$_run/raw-aux/raw/video" | wc -l | tr -d ' ')
+  same "$_pin" "video packet count" "$_video" "$(_c video_packet_count)"
+  _i=0
+  while [ "$_i" -lt "$_video" ]; do
+    _n=$(printf '%06d' "$_i")
+    same_file "$_lit" "video packet $_i" "$_run/raw-aux/raw/video/frame-$_n.rgba8" "$_run/consumer-out/video-$_i"
+    _i=$((_i + 1))
+  done
+  _audio=$(ls "$_run/raw-aux/raw/audio" | wc -l | tr -d ' ')
+  same "$_lit" "audio packet count" "$_audio" "$(_c audio_packet_count)"
+  _i=0
+  while [ "$_i" -lt "$_audio" ]; do
+    _n=$(printf '%06d' "$_i")
+    same_file "$_lit" "audio packet $_i" "$_run/raw-aux/raw/audio/packet-$_n.s16be" "$_run/consumer-out/audio-$_i"
+    _i=$((_i + 1))
+  done
+  same_file "$_lit" "SRAM save" "$_run/save-aux/composite.sra" "$_run/consumer-out/save"
+  same_file "$_lit" "ISViewer transcript" "$_run/save-work/capture.bin" "$_run/consumer-out/transcript"
+  echo "three-way: ok: installed consumer, in-tree runner and independent literals agree"
+}
+
 case $SUB in
   setup) [ "$#" -eq 0 ] || usage; cmd_setup ;;
   build) [ "$#" -eq 0 ] || usage; cmd_build ;;
   run) cmd_run "$@" ;;
+  three-way) cmd_three_way "$@" ;;
   *) usage ;;
 esac
