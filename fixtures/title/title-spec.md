@@ -242,7 +242,7 @@ above it.
 - Two A press edges are at least 3 polls apart, and the last A press edge is at least 2 polls before
   the Start poll, so every burst has finished (TS-8).
 - A script run to completion must press Start; a script that never presses Start, or presses it at
-  poll 1, is refused.
+  poll 1, is refused. A run models at most 64 polls.
 
 ## TS-16 Not specified here
 
