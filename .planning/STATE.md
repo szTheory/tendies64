@@ -5,11 +5,11 @@ milestone_name: Embeddable and Playable
 current_phase: 11
 current_phase_name: Installed Consumer and Freeze Candidate
 status: executing
-stopped_at: Completed 11-27-PLAN.md (ran out of wave order; next plan stays 11-21)
-last_updated: "2026-11-26T05:46:54.116Z"
+stopped_at: "11-21 Task 3 stopped: hosted gate-linux red (I-11, F-130); no Freeze base"
+last_updated: "2026-11-26T06:17:36.794Z"
 last_activity: 2026-11-25
 last_activity_desc: Phase 11 execution started
-state_head: 40ba6d9922dbb1d94f9e684546020d9669b4644f
+state_head: 463bd09d472c1f4fc097a6941118f6f903230869
 progress:
   total_phases: 3
   completed_phases: 1
@@ -273,8 +273,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-26T05:46:53.961Z
-Stopped at: Completed 11-27-PLAN.md (ran out of wave order; next plan stays 11-21)
+Last session: 2026-11-26T06:17:36.630Z
+Stopped at: 11-21 Task 3 stopped: hosted gate-linux red (I-11, F-130); no Freeze base
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
@@ -298,3 +298,4 @@ pass. This approval applies to that specific repair, not future private values.
   - Planner note 2026-11-25 (plan check item I-1; not owner text, the approval above is unchanged): the approval says "nine" and lists ten paths. Phase 11 reads it as nine API-using files edited (the seven test_rdp files, test_vi.c, test_video_output.c) and runner/tests/test_rdp_video.c listed but not edited (it needs no call-site change and keeps its hash); recorded as DR-27 in plan 11-01 and applied by plan 11-14.
 - Owner approval 2026-11-25 (answer "A: Extend approval to this initializer", Phase 11 execution, plan 11-01 checkpoint): the 2026-11-25 call-site-only rebind approval also covers the single value-neutral initializer update core/tests/test_rdp.c:486 (t64_host_storage image = {NULL, 0u, 0u} becomes {0}), same identity-only, orchestrator-only, one-isolated-commit, local_decision-blocked terms; no expected value, check, case name, sizeof pin or control-flow edit in any bound file is covered. t64_host_storage keeps its leading struct_size.
 - RESOLVED 2026-11-25 (orchestrator): the two P-PRIVATE-PATH hits in the unpublished commit that added 11-26-PLAN.md were repaired by rebuilding the unpublished range 517fe00..HEAD without the path (final tree byte-identical, no pushed commit touched; AUTONOMY section 2 local-repair rule); no waiver needed. The old SHAs quoted in the 11-26 records were re-pointed.
+- Plan 11-21 stopped at Task 3: hosted run 45766004142 (head 463bd09, pushed) is red on gate-linux, finding I-11 / F-130: installed.controls.version-mismatch-minor and -patch expect a reason line only CMake 4 prints (hosted Linux has cmake 3.31.6). Needs a new numbered plan (CMake-version-independent expected text, with I-01) and a green hosted pair before the INSTALL ledger row and the Freeze base.
