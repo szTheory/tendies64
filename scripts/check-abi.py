@@ -917,14 +917,18 @@ def read_golden_text(data):
     return [line for line in data.decode("utf-8").split("\n") if line]
 
 
-def block_values(measured, golden, amendments):
-    """The (key, value) lines of the machine-read block for the measured tree."""
+def block_values(measured, golden, amendments, bound=()):
+    """The (key, value) lines of the machine-read block for the measured tree.
+
+    BOUND is the (key, value) pairs of a bound record, kept as they are.
+    """
     names = read_golden_text(golden["public_symbols"])
     structs, members, constants = measured["layout_counts"]
     pairs = [
         ("abi_version", measured["abi_version"]),
         ("package_version", measured["package_version"]),
         ("amendments", str(amendments)),
+        *bound,
         ("header_sha256", sha256_hex(golden["header"])),
         ("public_symbols_sha256", sha256_hex(golden["public_symbols"])),
         ("layout_sha256", sha256_hex(golden["layout"])),
@@ -941,6 +945,26 @@ def block_values(measured, golden, amendments):
     return pairs
 
 
+def bound_numbers(values):
+    """((bound_minor, candidate_amendments) or None for a candidate record, findings).
+
+    Both keys are present or both are absent, and each is a decimal number.
+    """
+    present = [key for key in BOUND_KEYS if key in values]
+    if not present:
+        return None, []
+    if len(present) != len(BOUND_KEYS):
+        absent = [key for key in BOUND_KEYS if key not in values]
+        return None, [f"freeze-record: bound keys differ: the block holds {present[0]} but not "
+                      f"{absent[0]} ({BOUND_KEYS[0]} and {BOUND_KEYS[1]} are both present or "
+                      f"both absent)"]
+    findings = [f"freeze-record: {key} differs: {values[key][0]!r} is not a decimal number"
+                for key in BOUND_KEYS if not re.fullmatch(r"[0-9]+", values[key][0])]
+    if findings:
+        return None, findings
+    return tuple(int(values[key][0]) for key in BOUND_KEYS), []
+
+
 def minor_findings(values, rows, minor):
     """Findings of the rule that ties the ABI minor of the header to the amendment log.
 
@@ -949,24 +973,25 @@ def minor_findings(values, rows, minor):
     minor == bound_minor + (rows - candidate_amendments); the rows made before
     the bind do not pay for a minor raised after it.
     """
-    if not all(key in values for key in BOUND_KEYS):
+    bound, findings = bound_numbers(values)
+    if findings:
+        return findings
+    if bound is None:
         if minor != FREEZE_CANDIDATE_MINOR + rows:
             return [f"freeze-record: amendments differs: ABI minor {minor} of the installed "
                     f"header needs {minor - FREEZE_CANDIDATE_MINOR} amendment row(s) (the "
                     f"candidate is minor {FREEZE_CANDIDATE_MINOR}), the log has {rows}"]
         return []
-    numbers = {}
-    for key in BOUND_KEYS:
-        if not re.fullmatch(r"[0-9]+", values[key][0]):
-            return [f"freeze-record: {key} differs: {values[key][0]!r} is not a decimal number"]
-        numbers[key] = int(values[key][0])
-    bound, before = numbers["bound_minor"], numbers["candidate_amendments"]
+    bound_minor, before = bound
+    if rows < before:
+        return [f"freeze-record: candidate_amendments differs: the block counts {before} "
+                f"amendment row(s) made before the bind, the log has {rows}"]
     after = rows - before
-    if minor != bound + after:
+    if minor != bound_minor + after:
         return [f"freeze-record: amendments differs: ABI minor {minor} of the installed header "
-                f"needs {minor - bound} amendment row(s) after the bind (the bound minor is "
-                f"{bound}), the log has {after} after the bind ({rows} in all, {before} of them "
-                f"made before it)"]
+                f"needs {minor - bound_minor} amendment row(s) after the bind (the bound minor "
+                f"is {bound_minor}), the log has {after} after the bind ({rows} in all, "
+                f"{before} of them made before it)"]
     return []
 
 
@@ -1034,7 +1059,15 @@ def write_freeze(record, goldens, measured):
     if not closes:
         raise UsageError(f"check-abi: the freeze-record block of {record} is not closed")
     rows = len(AMENDMENT_ROW_RE.findall(text))
-    block = render_block(block_values(measured, golden, rows)).split("\n")
+    values, _block_findings = parse_record(text)
+    _bound, bound_findings = bound_numbers(values)
+    for finding in bound_findings:
+        print(finding)
+    if bound_findings:
+        print("freeze-record: not written: fix the bound keys of the block first")
+        return 1
+    bound = [(key, values[key][0]) for key in BOUND_KEYS if key in values]
+    block = render_block(block_values(measured, golden, rows, bound)).split("\n")
     lines[opens[0]:closes[0] + 1] = block
     (pathlib.Path(goldens) / "header.sha256").write_bytes(golden["header"])
     record_path.write_text("\n".join(lines), encoding="utf-8")
@@ -1391,6 +1424,7 @@ class FreezeScratch:
         self.tree = base / "prefix"
         self.record = self.docs / "FREEZE-CANDIDATE.md"
         self.header = self.tree / "include" / DEFAULT_HEADER
+        self.facts = {}  # {name: text} a seed fills in for "{name}" in the wanted texts
         self.docs.mkdir()
         for name in [name for _element, name in GOLDEN_FILES] + [REAL_RECORD.name]:
             shutil.copy(REAL_ABI_DIR / name, self.docs / name)
@@ -1583,7 +1617,24 @@ def seed_rebound(major, minor, bound=(), rows=0):
     return seed
 
 
+def seed_minor_raised(ctx):
+    """Raise the ABI minor the scratch header holds by one (it holds minor 1 or 0)."""
+    found = dict(VERSION_PART_RE.findall(ctx.header.read_text(encoding="utf-8")))
+    raised = int(found["MINOR"]) + 1
+    ctx.edit_header(lambda text: header_with_version(text, None, raised))
+    ctx.facts["raised"] = str(raised)
+
+
+def seed_then(*seeds):
+    def seed(ctx):
+        for each in seeds:
+            each(ctx)
+    return seed
+
+
 BOUND_ZERO = ("bound_minor: 0", "candidate_amendments: 0")
+BOUND_ONE_BEFORE = ("bound_minor: 0", "candidate_amendments: 1")
+BOUND_KEYS_TEXT = "bound_minor and candidate_amendments are both present or both absent"
 
 
 STOP_RESULT_TAIL = "  uint64_t tick;\n} t64_stop_result;"
@@ -1665,10 +1716,9 @@ FREEZE_CASES = {
         "one digit of layout_sha256 in the record changed", seed_record_hash_digit("layout_sha256"),
         ("freeze-record: layout_sha256 differs",), ("layout differs",), 1),
     "freeze-amendment-missing": (
-        "the ABI minor of the installed header raised with no amendment row",
-        seed_header_edit("#define T64_ABI_VERSION_MINOR UINT32_C(1)",
-                         "#define T64_ABI_VERSION_MINOR UINT32_C(2)"),
-        ("freeze-record: amendments differs: ABI minor 2 of the installed header needs 1 "
+        "the ABI minor of the installed header raised by one with no amendment row",
+        seed_minor_raised,
+        ("freeze-record: amendments differs: ABI minor {raised} of the installed header needs",
          "amendment row(s)", "freeze-record: abi_version differs"), (), 1),
     "freeze-padding-record-edited": (
         "one padding_hole row dropped from the record", seed_record_drop_hole,
@@ -1689,6 +1739,60 @@ FREEZE_CASES = {
         ("freeze-record: amendments differs: ABI minor 1 of the installed header needs 1 "
          "amendment row(s) after the bind (the bound minor is 0)",),
         ("abi_version differs", "header_sha256 differs"), 1),
+    "freeze-candidate-minor-raised": (
+        "a candidate record at ABI minor 2 with no amendment row",
+        seed_rebound(None, 2),
+        ("freeze-record: amendments differs: ABI minor 2 of the installed header needs 1 "
+         "amendment row(s) (the candidate is minor 1), the log has 0",),
+        ("abi_version differs", "bound minor"), 1),
+    "freeze-candidate-row-counted": (
+        "a candidate record at ABI minor 2 with one amendment row",
+        seed_rebound(None, 2, rows=1), ("check-abi: freeze findings=0",), ("differs",), 0),
+    "freeze-bound-post-bind-row": (
+        "a bound record at ABI 1.1 with one amendment row made after the bind",
+        seed_rebound(1, 1, BOUND_ZERO, rows=1),
+        ("check-abi: freeze findings=0",), ("differs",), 0),
+    "freeze-bound-row-without-minor": (
+        "a bound record at ABI 1.0 with one amendment row and the minor not raised",
+        seed_rebound(1, 0, BOUND_ZERO, rows=1),
+        ("freeze-record: amendments differs: ABI minor 0 of the installed header needs 0 "
+         "amendment row(s) after the bind (the bound minor is 0), the log has 1 after the "
+         "bind (1 in all, 0 of them made before it)",), ("abi_version differs",), 1),
+    "freeze-bound-candidate-row-not-counted": (
+        "a bound record at ABI 1.0 whose one log row was made before the bind",
+        seed_rebound(1, 0, BOUND_ONE_BEFORE, rows=1),
+        ("check-abi: freeze findings=0",), ("differs",), 0),
+    "freeze-bound-candidate-row-pays-nothing": (
+        "a bound record at ABI 1.1 whose only log row was made before the bind",
+        seed_rebound(1, 1, BOUND_ONE_BEFORE, rows=1),
+        ("freeze-record: amendments differs: ABI minor 1 of the installed header needs 1 "
+         "amendment row(s) after the bind (the bound minor is 0), the log has 0 after the "
+         "bind (1 in all, 1 of them made before it)",), ("abi_version differs",), 1),
+    "freeze-bound-rows-below-candidate": (
+        "a bound record that counts 2 rows made before the bind while the log has 1",
+        seed_rebound(1, 0, ("bound_minor: 0", "candidate_amendments: 2"), rows=1),
+        ("freeze-record: candidate_amendments differs: the block counts 2 amendment row(s) "
+         "made before the bind, the log has 1",), ("bound minor",), 1),
+    "freeze-bound-minor-alone": (
+        "bound_minor in the block without candidate_amendments",
+        seed_rebound(None, 1, ("bound_minor: 0",)),
+        (f"freeze-record: bound keys differ: the block holds bound_minor but not "
+         f"candidate_amendments ({BOUND_KEYS_TEXT})",), (), 1),
+    "freeze-bound-candidate-alone": (
+        "candidate_amendments in the block without bound_minor",
+        seed_rebound(None, 1, ("candidate_amendments: 0",)),
+        (f"freeze-record: bound keys differ: the block holds candidate_amendments but not "
+         f"bound_minor ({BOUND_KEYS_TEXT})",), (), 1),
+    "freeze-bound-not-decimal": (
+        "bound_minor edited to -1",
+        seed_rebound(1, 0, ("bound_minor: -1", "candidate_amendments: 0")),
+        ("freeze-record: bound_minor differs: '-1' is not a decimal number",), (), 1),
+    "freeze-amendment-missing-bound": (
+        "the ABI minor of a bound record's header raised by one with no amendment row",
+        seed_then(seed_rebound(1, 0, BOUND_ZERO), seed_minor_raised),
+        ("freeze-record: amendments differs: ABI minor 1 of the installed header needs 1 "
+         "amendment row(s) after the bind (the bound minor is 0)",
+         "freeze-record: abi_version differs"), (), 1),
 }
 
 
@@ -1736,12 +1840,62 @@ def case_freeze_write_refuses(prefix):
         shutil.rmtree(scratch, ignore_errors=True)
 
 
+def case_freeze_bound_write_keeps_keys(prefix):
+    """--write over a bound record keeps bound_minor and candidate_amendments byte for byte."""
+    scratch = scratch_dir("abi-freeze-selftest-")
+    try:
+        ctx = FreezeScratch(prefix, scratch)
+        seed_rebound(1, 0, BOUND_ONE_BEFORE, rows=1)(ctx)
+        before = ctx.record.read_bytes()
+        status, printed = ctx.run(write=True)
+        if status != 0:
+            return f"--write exited {status}: {printed.strip().splitlines()[-1:]}"
+        after = ctx.record.read_bytes()
+        for line in BOUND_ONE_BEFORE:
+            if line.encode("utf-8") + b"\n" not in after:
+                return f"--write dropped or changed the block line {line!r}"
+        if after != before:
+            return "--write changed a bound record that already matches the tree"
+        status, printed = ctx.run()
+        if status != 0:
+            return f"the check failed after --write: {printed.strip().splitlines()[-1:]}"
+        return None
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+
+def case_freeze_bound_write_refuses_partial(prefix):
+    """--write binds nothing while the block holds only one of the two bound keys."""
+    scratch = scratch_dir("abi-freeze-selftest-")
+    try:
+        ctx = FreezeScratch(prefix, scratch)
+        seed_rebound(None, 1, ("bound_minor: 0",))(ctx)
+        record_before = ctx.record.read_bytes()
+        manifest_before = (ctx.docs / "header.sha256").read_bytes()
+        status, printed = ctx.run(write=True)
+        if status != 1 or "freeze-record: bound keys differ" not in printed:
+            return f"--write over a lone bound_minor exited {status}: {printed.strip()[-120:]}"
+        if ctx.record.read_bytes() != record_before:
+            return "--write changed the record although it refused"
+        if (ctx.docs / "header.sha256").read_bytes() != manifest_before:
+            return "--write changed header.sha256 although it refused"
+        return None
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+
 FREEZE_SPECIAL = {
     "freeze-write-idempotent": (
         "--write over the committed bound tree changes nothing",
         case_freeze_write_idempotent),
     "freeze-write-refuses": (
         "--write with an unclassified status binds nothing", case_freeze_write_refuses),
+    "freeze-bound-write-keeps-keys": (
+        "--write over a bound record keeps both bound keys byte for byte",
+        case_freeze_bound_write_keeps_keys),
+    "freeze-bound-write-refuses-partial": (
+        "--write with only one bound key binds nothing",
+        case_freeze_bound_write_refuses_partial),
 }
 
 
@@ -1766,6 +1920,9 @@ def run_freeze_case(name, prefix):
         shutil.rmtree(scratch, ignore_errors=True)
     if status != want_exit:
         return f"freeze mode exited {status}, wanted {want_exit}: {printed.strip()[-200:]}"
+    for name, value in ctx.facts.items():
+        wanted = [text.replace("{" + name + "}", value) for text in wanted]
+        unwanted = [text.replace("{" + name + "}", value) for text in unwanted]
     missing = [text for text in wanted if text not in printed]
     present = [text for text in unwanted if text in printed]
     if missing:
