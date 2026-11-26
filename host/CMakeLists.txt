@@ -22,7 +22,7 @@ find_package(tendies64 0.1 CONFIG REQUIRED)
 
 option(T64H_SDL "Build the optional SDL3 shell" OFF)
 
-add_library(t64h_pump STATIC pump/t64h_pump.c)
+add_library(t64h_pump STATIC pump/t64h_pump.c pump/t64h_script.c)
 target_include_directories(t64h_pump PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/pump")
 target_link_libraries(t64h_pump PUBLIC tendies64::core)
 

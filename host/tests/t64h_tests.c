@@ -18,6 +18,16 @@
  *                 sink that refuses once lets the step finish; a step after the guest
  *                 completed is TERMINAL and advances and queues nothing; a video buffer
  *                 smaller than the packet is an API error and drops nothing
+ *   title-two-speeds  (plan 12-08) each --script PATH through the pump with the scripted
+ *                 source and a fake clock at each --slice-hz speed (the clock advances
+ *                 1e9 / hz ns per step): one JSON line per run with the per-packet video
+ *                 digests, the audio packet and stream digests, the transcript digest, the
+ *                 exported save digest, the completion tick, the stop reason and the final
+ *                 state digest. The case holds no expected value: scripts/check-host-title.py
+ *                 compares the lines with fixtures/title/title.expected.json and the pins
+ *
+ * A --event argument that follows a --script argument belongs to that script (the events
+ * the case expects the reader to find); before any --script it belongs to the case.
  *
  * The title ROM is the fixture of every case that runs a guest (build target
  * t64-phase12-title-fixture). The expected frame digest and the events come from
@@ -34,6 +44,7 @@
 #include <tendies64/t64_machine.h>
 
 #include "t64h_pump.h"
+#include "t64h_script.h"
 #include "t64h_sha256.h"
 
 #define TITLE_PROFILE_ID "ntsc-cart-4m-openipl3-rdram-b-t1-si-v2-s32k"
@@ -92,12 +103,25 @@ typedef struct {
   int32_t axis_y;
 } input_event;
 
+#define MAX_SCRIPTS 4u
+#define MAX_SPEEDS 4u
+
+typedef struct {
+  const char *path;
+  input_event events[MAX_EVENTS];
+  size_t event_count;
+} script_arg;
+
 typedef struct {
   const char *case_name;
   const char *rom_path;
   const char *expect_hex;
   input_event events[MAX_EVENTS];
   size_t event_count;
+  script_arg scripts[MAX_SCRIPTS];
+  size_t script_count;
+  unsigned slice_hz[MAX_SPEEDS];
+  size_t slice_count;
 } args;
 
 /* TICK:BUTTONS:X:Y, decimal, the whole string. */
@@ -134,6 +158,27 @@ static bool parse_event(const char *text, input_event *event) {
   return true;
 }
 
+/* HZ[,HZ]...: decimal speeds in 1..1000000 (the fake clock advances 1e9 / hz ns per step). */
+static bool parse_speeds(const char *text, args *out) {
+  out->slice_count = 0u;
+  for (;;) {
+    char *end = NULL;
+    unsigned long hz = strtoul(text, &end, 10);
+
+    if (end == text || hz < 1ul || hz > 1000000ul || out->slice_count >= MAX_SPEEDS) {
+      return false;
+    }
+    out->slice_hz[out->slice_count++] = (unsigned)hz;
+    if (*end == '\0') {
+      return true;
+    }
+    if (*end != ',') {
+      return false;
+    }
+    text = end + 1;
+  }
+}
+
 static bool parse_args(int argc, char **argv, args *out) {
   int i;
 
@@ -145,13 +190,27 @@ static bool parse_args(int argc, char **argv, args *out) {
       out->rom_path = argv[++i];
     } else if (strcmp(argv[i], "--expect") == 0 && i + 1 < argc) {
       out->expect_hex = argv[++i];
+    } else if (strcmp(argv[i], "--script") == 0 && i + 1 < argc) {
+      if (out->script_count >= MAX_SCRIPTS) {
+        (void)fprintf(stderr, "t64h_tests: too many --script arguments\n");
+        return false;
+      }
+      out->scripts[out->script_count++].path = argv[++i];
+    } else if (strcmp(argv[i], "--slice-hz") == 0 && i + 1 < argc) {
+      if (!parse_speeds(argv[++i], out)) {
+        (void)fprintf(stderr, "t64h_tests: bad --slice-hz list\n");
+        return false;
+      }
     } else if (strcmp(argv[i], "--event") == 0 && i + 1 < argc) {
-      if (out->event_count >= MAX_EVENTS ||
-          !parse_event(argv[++i], &out->events[out->event_count])) {
+      script_arg *owner = out->script_count > 0u ? &out->scripts[out->script_count - 1u] : NULL;
+      input_event *list = owner != NULL ? owner->events : out->events;
+      size_t *count = owner != NULL ? &owner->event_count : &out->event_count;
+
+      if (*count >= MAX_EVENTS || !parse_event(argv[++i], &list[*count])) {
         (void)fprintf(stderr, "t64h_tests: bad or too many --event arguments\n");
         return false;
       }
-      out->event_count++;
+      (*count)++;
     } else {
       (void)fprintf(stderr, "t64h_tests: unknown argument %s\n", argv[i]);
       return false;
@@ -428,7 +487,7 @@ typedef struct {
 /* The input hook of the bench only counts its calls: the events of a case are queued
  * before the machine runs, so the count shows whether the pump would have queued. */
 static int count_input(void *context, t64_machine *machine, uint64_t guest_tick,
-                       uint64_t bound) {
+                       uint64_t *bound) {
   (void)machine;
   (void)guest_tick;
   (void)bound;
@@ -831,6 +890,262 @@ static int case_stall(const args *a) {
   return report("stall", &t);
 }
 
+/* ---- title-two-speeds ---------------------------------------------------------- */
+
+#define CAPTURE_MAX_VIDEO 32u
+#define CAPTURE_MAX_AUDIO 16u
+#define CAPTURE_AUDIO_PACKET_BYTES 2048u
+#define CAPTURE_TEXT_BYTES 8192u
+#define SAVE_BYTES 32768u
+#define SPEED_MAX_STEPS 1000000u
+
+/* Everything one run delivered to its sinks, hashed with the host's own SHA-256. */
+typedef struct {
+  char video[CAPTURE_MAX_VIDEO][T64H_SHA256_HEX_SIZE];
+  unsigned video_count;
+  char audio[CAPTURE_MAX_AUDIO][T64H_SHA256_HEX_SIZE];
+  unsigned audio_count;
+  uint8_t audio_stream[CAPTURE_MAX_AUDIO * CAPTURE_AUDIO_PACKET_BYTES];
+  size_t audio_stream_length;
+  uint8_t text[CAPTURE_TEXT_BYTES];
+  size_t text_length;
+  bool overflow;
+  bool shape_ok;
+} capture;
+
+static int capture_video(void *context, const t64_video_packet_info *info, const uint8_t *bytes,
+                         size_t length) {
+  capture *cap = (capture *)context;
+
+  if (info->width != TITLE_FRAME_WIDTH || info->height != TITLE_FRAME_HEIGHT ||
+      info->stride_bytes != TITLE_FRAME_WIDTH * 4u || length != TITLE_FRAME_BYTES ||
+      info->packet_bytes != (uint64_t)length) {
+    cap->shape_ok = false;
+  }
+  if (cap->video_count >= CAPTURE_MAX_VIDEO) {
+    cap->overflow = true;
+    return 0;
+  }
+  t64h_sha256_hex_of(bytes, length, cap->video[cap->video_count++]);
+  return 0;
+}
+
+static int capture_audio(void *context, const t64_audio_packet_info *info, const uint8_t *bytes,
+                         size_t length) {
+  capture *cap = (capture *)context;
+
+  (void)info;
+  if (cap->audio_count >= CAPTURE_MAX_AUDIO || length != CAPTURE_AUDIO_PACKET_BYTES) {
+    cap->overflow = true;
+    return 0;
+  }
+  t64h_sha256_hex_of(bytes, length, cap->audio[cap->audio_count++]);
+  (void)memcpy(cap->audio_stream + cap->audio_stream_length, bytes, length);
+  cap->audio_stream_length += length;
+  return 0;
+}
+
+static int capture_text(void *context, const uint8_t *bytes, size_t length) {
+  capture *cap = (capture *)context;
+
+  if (length > sizeof cap->text - cap->text_length) {
+    cap->overflow = true;
+    return 0;
+  }
+  (void)memcpy(cap->text + cap->text_length, bytes, length);
+  cap->text_length += length;
+  return 0;
+}
+
+static const char *stop_reason_name(uint32_t reason) {
+  switch (reason) {
+    case T64_STOP_REASON_BOUND: return "BOUND";
+    case T64_STOP_REASON_INSTRUCTION_COUNT: return "INSTRUCTION_COUNT";
+    case T64_STOP_REASON_FRAME_EVENT_COUNT: return "FRAME_EVENT_COUNT";
+    case T64_STOP_REASON_HALT: return "HALT";
+    case T64_STOP_REASON_QUIESCENT: return "QUIESCENT";
+    case T64_STOP_REASON_RESOURCE_LIMIT: return "RESOURCE_LIMIT";
+    case T64_STOP_REASON_CPU_UNSUPPORTED: return "CPU_UNSUPPORTED";
+    case T64_STOP_REASON_GUEST_COMPLETION: return "GUEST_COMPLETION";
+    default: return "UNKNOWN";
+  }
+}
+
+static uint8_t script_bytes[T64H_SCRIPT_MAX_BYTES + 1u];
+static t64h_script script_buffer;
+static capture run_capture;
+static uint8_t save_buffer[SAVE_BYTES];
+
+/* Read at most limit + 1 bytes of a file into script_bytes, so a file over the limit is
+ * seen as such by the reader. False, with a message, when it cannot be read. */
+static bool load_script_bytes(const char *path, size_t *length_out) {
+  FILE *file = fopen(path, "rb");
+  size_t length;
+
+  if (file == NULL) {
+    (void)fprintf(stderr, "t64h_tests: cannot open a script file\n");
+    return false;
+  }
+  length = fread(script_bytes, 1u, sizeof script_bytes, file);
+  if (ferror(file) != 0) {
+    (void)fclose(file);
+    (void)fprintf(stderr, "t64h_tests: cannot read a script file\n");
+    return false;
+  }
+  (void)fclose(file);
+  *length_out = length;
+  return true;
+}
+
+/* The last path component, so no directory is printed. */
+static const char *base_name(const char *path) {
+  const char *slash = strrchr(path, '/');
+
+  return slash != NULL ? slash + 1 : path;
+}
+
+/* One run: the script through the pump at one speed, the fake clock advanced by 1e9 / hz
+ * ns per step until the guest completes; then one JSON line. */
+static void run_at_speed(const args *a, const char *script_name, const t64h_script *script,
+                         unsigned hz, tally *t) {
+  rig r;
+  fake_clock clock = {0u, 0u};
+  t64h_pump pump;
+  t64h_config config;
+  t64h_script_source source;
+  t64h_step_result result = {0u, 0u, T64_STATUS_OK, NULL};
+  t64_output_status ring = T64_OUTPUT_STATUS_INIT;
+  uint8_t digest[T64_DIGEST_SIZE];
+  char digest_hex[T64H_SHA256_HEX_SIZE];
+  char stream_hex[T64H_SHA256_HEX_SIZE];
+  char text_hex[T64H_SHA256_HEX_SIZE];
+  char save_hex[T64H_SHA256_HEX_SIZE];
+  size_t save_length = 0u;
+  bool completed = false;
+  unsigned steps = 0u;
+  unsigned i;
+
+  (void)memset(&run_capture, 0, sizeof run_capture);
+  run_capture.shape_ok = true;
+  if (!rig_open(&r, a, false)) {
+    t->checks++;
+    t->failures++;
+    rig_close(&r, t);
+    return;
+  }
+  t64h_script_source_init(&source, script, NULL, NULL);
+  (void)memset(&config, 0, sizeof config);
+  config.machine = r.machine;
+  config.clock = fake_clock_read;
+  config.clock_context = &clock;
+  config.sinks.context = &run_capture;
+  config.sinks.video = capture_video;
+  config.sinks.audio = capture_audio;
+  config.sinks.text = capture_text;
+  config.input = t64h_script_feed;
+  config.input_context = &source;
+  config.video_buffer = video_buffer;
+  config.video_capacity = sizeof video_buffer;
+  config.audio_buffer = audio_buffer;
+  config.audio_capacity = sizeof audio_buffer;
+  config.text_buffer = text_buffer;
+  config.text_capacity = sizeof text_buffer;
+  if (t64h_pump_init(&pump, &config) != T64H_OK) {
+    (void)fprintf(stderr, "t64h_tests: pump init refused\n");
+    t->checks++;
+    t->failures++;
+    rig_close(&r, t);
+    return;
+  }
+
+  while (!completed && steps < SPEED_MAX_STEPS) {
+    t64h_status status;
+
+    steps++;
+    clock.now = (uint64_t)steps * UINT64_C(1000000000) / (uint64_t)hz;
+    status = t64h_pump_step(&pump, UINT64_MAX, &result);
+    if (status != T64H_OK) {
+      (void)fprintf(stderr, "t64h_tests: %s at %u Hz: step %u answered %s (%s)\n", script_name, hz,
+                    steps, t64h_status_name(status), result.message != NULL ? result.message : "");
+      break;
+    }
+    completed = result.stop_reason == T64_STOP_REASON_GUEST_COMPLETION;
+  }
+  CHECK(t, completed);
+  CHECK(t, !run_capture.overflow);
+  CHECK(t, run_capture.shape_ok);
+  CHECK(t, t64_machine_output_status(r.machine, &ring) == T64_STATUS_OK);
+  CHECK_U64(t, ring.video_queued, 0u);
+  CHECK_U64(t, ring.audio_queued, 0u);
+  CHECK_U64(t, ring.text_pending_bytes, 0u);
+  CHECK_U64(t, source.refusal, T64_STATUS_OK);
+  CHECK(t, source.queued <= (uint64_t)script->count);
+  CHECK(t, t64_machine_save_export(r.machine, T64_SAVE_SRAM_32K, T64_SAVE_FORMAT_RAW, save_buffer,
+                                   sizeof save_buffer, &save_length) == T64_STATUS_OK);
+  CHECK_U64(t, save_length, SAVE_BYTES);
+  CHECK(t, t64_machine_digest(r.machine, digest) == T64_STATUS_OK);
+  t64h_sha256_hex(digest, digest_hex);
+  t64h_sha256_hex_of(run_capture.audio_stream, run_capture.audio_stream_length, stream_hex);
+  t64h_sha256_hex_of(run_capture.text, run_capture.text_length, text_hex);
+  t64h_sha256_hex_of(save_buffer, save_length, save_hex);
+
+  (void)printf("{\"schema\":\"t64.host-pump-run\",\"script\":\"%s\",\"speed_hz\":%u,"
+               "\"completed\":%s,\"stop_reason\":\"%s\",\"completion_tick\":%llu,"
+               "\"final_digest\":\"%s\",\"video_packets\":%u,\"video\":[",
+               script_name, hz, completed ? "true" : "false", stop_reason_name(result.stop_reason),
+               (unsigned long long)result.tick, digest_hex, run_capture.video_count);
+  for (i = 0u; i < run_capture.video_count; i++) {
+    (void)printf("%s\"%s\"", i == 0u ? "" : ",", run_capture.video[i]);
+  }
+  (void)printf("],\"audio_packets\":%u,\"audio\":[", run_capture.audio_count);
+  for (i = 0u; i < run_capture.audio_count; i++) {
+    (void)printf("%s\"%s\"", i == 0u ? "" : ",", run_capture.audio[i]);
+  }
+  (void)printf("],\"audio_stream\":\"%s\",\"transcript_bytes\":%llu,\"transcript\":\"%s\","
+               "\"save_bytes\":%llu,\"save\":\"%s\","
+               "\"info\":{\"steps\":%llu,\"advances\":%llu,\"drain_passes\":%llu,"
+               "\"backpressure_stops\":%llu,\"stall_retries\":%llu,\"events_queued\":%llu,"
+               "\"events_deferred\":%llu}}\n",
+               stream_hex, (unsigned long long)run_capture.text_length, text_hex,
+               (unsigned long long)save_length, save_hex,
+               (unsigned long long)pump.counters.steps, (unsigned long long)pump.counters.advances,
+               (unsigned long long)pump.counters.drain_passes,
+               (unsigned long long)pump.counters.backpressure_stops,
+               (unsigned long long)pump.counters.stall_retries, (unsigned long long)source.queued,
+               (unsigned long long)source.deferred);
+  rig_close(&r, t);
+}
+
+static int case_title_two_speeds(const args *a) {
+  tally t = {0ul, 0ul};
+  size_t s;
+  size_t k;
+
+  CHECK(&t, a->script_count > 0u && a->slice_count >= 2u);
+  for (s = 0u; s < a->script_count && t.failures == 0ul; s++) {
+    t64h_script_error error;
+    size_t length = 0u;
+
+    if (!load_script_bytes(a->scripts[s].path, &length)) {
+      t.checks++;
+      t.failures++;
+      break;
+    }
+    if (t64h_script_parse(script_bytes, length, NULL, &script_buffer, &error) != T64H_SCRIPT_OK) {
+      (void)fprintf(stderr, "t64h_tests: the script %s is refused: rule %s at byte %llu\n",
+                    base_name(a->scripts[s].path), t64h_script_status_name(error.status),
+                    (unsigned long long)error.offset);
+      t.checks++;
+      t.failures++;
+      break;
+    }
+    for (k = 0u; k < a->slice_count; k++) {
+      run_at_speed(a, base_name(a->scripts[s].path), &script_buffer, a->slice_hz[k], &t);
+    }
+  }
+  return report("title-two-speeds", &t);
+}
+
 /* ---- dispatch ----------------------------------------------------------------- */
 
 typedef struct {
@@ -842,6 +1157,7 @@ static const test_case cases[] = {
     {"drain-order", case_drain_order},
     {"clock", case_clock},
     {"stall", case_stall},
+    {"title-two-speeds", case_title_two_speeds},
 };
 
 int main(int argc, char **argv) {
@@ -861,6 +1177,7 @@ int main(int argc, char **argv) {
   if (!parse_args(argc, argv, &a) || a.case_name == NULL) {
     (void)fprintf(stderr,
                   "usage: t64h_tests --case NAME --rom PATH [--expect HEX] [--event TICK:BUTTONS:X:Y]...\n"
+                  "                  [--script PATH [--event ...]]... [--slice-hz HZ[,HZ]...]\n"
                   "       t64h_tests --list-cases\n");
     return 2;
   }

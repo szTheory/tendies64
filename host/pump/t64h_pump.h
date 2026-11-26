@@ -73,10 +73,15 @@ typedef uint64_t (*t64h_clock_fn)(void *context);
 
 /* Called once before every advance of a step with the guest tick reached and the
  * coming bound: the hook queues, through t64_machine_queue_input, every input event
- * whose tick is at most bound. It returns 0, or nonzero to end the step with
- * T64H_INPUT_ERROR. It is never called after a terminal stop of the guest. */
+ * whose tick is at most *bound. A hook that could not queue such an event (the core
+ * answered QUEUE_FULL) lowers *bound to that event's tick, so the guest never passes
+ * an event the machine does not hold yet (a late event would be TIME_REVERSED); the
+ * pump never raises the bound and keeps it at the guest tick or above. The step then
+ * ends at the lowered bound and the event is tried again by the next step. The hook
+ * returns 0, or nonzero to end the step with T64H_INPUT_ERROR. It is never called
+ * after a terminal stop of the guest. */
 typedef int (*t64h_input_fn)(void *context, t64_machine *machine,
-                             uint64_t guest_tick, uint64_t bound);
+                             uint64_t guest_tick, uint64_t *bound);
 
 /* The sinks take the drained output. A callback returns 0 when it consumed the
  * packet or the text. A nonzero return refuses it: the pump keeps the data (it is

@@ -7,8 +7,8 @@
 # Registered as the CTest fixture t64_host and the names host.pump.* by
 # tools/hostcheck/CMakeLists.txt, after the fixture t64_install.
 #
-#   sh scripts/check-host.sh [--build DIR] build
-#   sh scripts/check-host.sh [--build DIR] run CASE [--rom PATH]
+#   sh scripts/check-host.sh [--build DIR] [--host-build DIR] build
+#   sh scripts/check-host.sh [--build DIR] [--host-build DIR] run CASE [--rom PATH]
 #
 #   build        configure host/ (Ninja, Release, the compiler of the build tree)
 #                into BUILD/host-check with CMAKE_PREFIX_PATH set to the moved prefix
@@ -18,10 +18,17 @@
 #                (default build/fixtures/phase12-title-s32k.z64, produced by the
 #                gate build; --rom PATH names another), the expected neutral frame
 #                digest of fixtures/title/title.expected.json and the events of
-#                fixtures/title/title.short.input.json, both read by python3 -I -B
+#                fixtures/title/title.short.input.json, both read by python3 -I -B.
+#                The case title-two-speeds runs the committed scripts at 240 and 3
+#                fake-clock Hz and pipes the JSON lines into
+#                scripts/check-host-title.py, which judges them against
+#                title.expected.json and title.runner-pins.json (its own seeded
+#                selftest runs first)
 #
 # --build DIR   the configured and built tree whose install-check prefix is used
 #               (default build/gate); nothing is rebuilt
+# --host-build DIR  where the host project is built and run (default BUILD/host-check);
+#               scripts/p12-mutants.py builds a mutated copy of host/ beside the gate tree
 # Exit codes: 0 pass, 1 a finding, 2 usage error or a missing tool, tree or file.
 set -eu
 LC_ALL=C
@@ -29,9 +36,10 @@ export LC_ALL
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd -P)
 BUILD=$ROOT/build/gate
+HOST_BUILD_ARG=
 
 usage() {
-  echo "usage: sh scripts/check-host.sh [--build DIR] build|run CASE [--rom PATH]" >&2
+  echo "usage: sh scripts/check-host.sh [--build DIR] [--host-build DIR] build|run CASE [--rom PATH]" >&2
   exit 2
 }
 
@@ -52,6 +60,11 @@ while [ "$#" -gt 0 ]; do
       BUILD=$2
       shift 2
       ;;
+    --host-build)
+      [ "$#" -ge 2 ] || usage
+      HOST_BUILD_ARG=$2
+      shift 2
+      ;;
     --*) usage ;;
     *) break ;;
   esac
@@ -66,6 +79,10 @@ BUILD=$(cd "$BUILD" && pwd -P)
 
 MOVED="$BUILD/install-check/moved prefix"
 HOST_BUILD="$BUILD/host-check"
+if [ -n "$HOST_BUILD_ARG" ]; then
+  mkdir -p "$HOST_BUILD_ARG" || die "cannot create the host build directory"
+  HOST_BUILD=$(cd "$HOST_BUILD_ARG" && pwd -P)
+fi
 
 # cache_value NAME: the value of NAME:TYPE=value in the build tree cache.
 cache_value() {
@@ -127,8 +144,8 @@ cmd_run() {
     esac
   done
   [ -x "$HOST_BUILD/t64h_tests" ] || die "no host test executable: run build first"
-  [ -f "$_rom" ] || die "the title ROM is missing: $_rom (build the target t64-phase12-title-fixture)"
   command -v python3 >/dev/null 2>&1 || die "python3 not found"
+  [ -f "$_rom" ] || die "the title ROM is missing: $_rom (build the target t64-phase12-title-fixture)"
   # The expected values of the title scenario come from the committed fixtures: the
   # digest of the neutral first frame and the events of the short script. Every token
   # is a hex string, a decimal or a colon list: no space or glob character.
@@ -142,6 +159,25 @@ for e in inp["events"]:
     out += ["--event", "%d:%d:%d:%d" % (int(e["tick"]), e["buttons"], e["x"], e["y"])]
 print(" ".join(out))
 ' "$ROOT/fixtures/title") || die "cannot read the title fixtures"
+  case $_case in
+    title-two-speeds)
+      # The committed short script at 240 and 3 Hz of fake time; the binary prints one JSON
+      # line per run and the comparator judges the lines (oracle and recorded pins).
+      _runs="$BUILD/host-title-runs.jsonl"
+      python3 -I -B "$ROOT/scripts/check-host-title.py" --selftest || fail "the comparator selftest failed"
+      cd "$ROOT"
+      if ! "$HOST_BUILD/t64h_tests" --case title-two-speeds --rom "$_rom" \
+        --script fixtures/title/title.short.input.json --slice-hz 240,3 >"$_runs"; then
+        cat "$_runs"
+        fail "host case title-two-speeds failed"
+      fi
+      cat "$_runs"
+      if ! python3 -I -B "$ROOT/scripts/check-host-title.py" --runs "$_runs"; then
+        fail "the pump runs of the title differ from the oracle or the recorded pins"
+      fi
+      return 0
+      ;;
+  esac
   # shellcheck disable=SC2086 # tokens hold no space or glob character
   if "$HOST_BUILD/t64h_tests" --case "$_case" --rom "$_rom" $_extra; then
     return 0

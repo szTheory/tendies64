@@ -69,6 +69,26 @@ set_tests_properties(host.pump.stall PROPERTIES
   FIXTURES_REQUIRED t64_host
   REQUIRED_FILES "${T64_HOST_TITLE_ROM}")
 
+# host.pump.title-two-speeds (plan 12-08, SC2, decisions DR-11, DR-13 and DR-35): the title's
+# committed t64.input scripts through the pump's scripted source with a fake clock at two
+# speeds (240 and 3 Hz of fake time: the clock advances 1e9 / hz ns per step). The binary
+# prints one JSON line per script and speed (per-packet video digests, audio packet and
+# stream digests, the exported save digest, the transcript digest, the completion tick, the
+# stop reason and the final state digest); scripts/check-host-title.py, run by
+# check-host.sh, requires them byte-identical across the speeds and equal to
+# fixtures/title/title.expected.json and to the recorded pins of title.runner-pins.json.
+# No time figure appears in any line.
+add_test(NAME host.pump.title-two-speeds
+  COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/check-host.sh
+          --build ${CMAKE_BINARY_DIR} run title-two-speeds
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(host.pump.title-two-speeds PROPERTIES
+  LABELS "host;phase12"
+  TIMEOUT 60
+  COST 0.85
+  FIXTURES_REQUIRED t64_host
+  REQUIRED_FILES "${T64_HOST_TITLE_ROM}")
+
 # repo.host-include-guard (plan 12-07, T-12-22, decision DR-16): the pump and its tests
 # below host/ include only <tendies64/t64_machine.h>, C99 headers and local headers
 # (rule HOST-INCLUDE), no SDL3 include or SDL_ identifier outside host/sdl (rules

@@ -301,10 +301,21 @@ t64h_status t64h_pump_step(t64h_pump *pump, uint64_t max_ticks, t64h_step_result
     t64_status core;
     int moved;
 
-    if (pump->config.input != NULL &&
-        pump->config.input(pump->config.input_context, pump->machine, pump->tick, bound) != 0) {
-      result->message = "the input hook failed";
-      return T64H_INPUT_ERROR;
+    if (pump->config.input != NULL) {
+      const uint64_t offered = bound;
+
+      if (pump->config.input(pump->config.input_context, pump->machine, pump->tick, &bound) != 0) {
+        result->message = "the input hook failed";
+        return T64H_INPUT_ERROR;
+      }
+      /* The hook may only lower the bound (to an event it could not queue yet), never
+       * past the guest tick the machine already has. */
+      if (bound > offered) {
+        bound = offered;
+      }
+      if (bound < pump->tick) {
+        bound = pump->tick;
+      }
     }
     core = t64_machine_advance(
         pump->machine, &(t64_stop_request)T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, bound),

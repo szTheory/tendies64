@@ -367,6 +367,7 @@ host.pump.build
 host.pump.drain-order
 host.pump.clock
 host.pump.stall
+host.pump.title-two-speeds
 repo.host-include-guard
 repo.host-include-guard-selftest
 repo.host-isolation'
