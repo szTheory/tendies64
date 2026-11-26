@@ -781,16 +781,18 @@ static void advance_span_block(instance *item, size_t block, bool admitted) {
   uint8_t placed[SPAN_PLACED_BYTES];
   uint8_t before[T64_DIGEST_SIZE];
   uint8_t after[T64_DIGEST_SIZE];
-  t64_stop_request request_valid;
-  t64_stop_request request_zero;
-  t64_stop_result result_poisoned;
-  t64_stop_result result_zero;
+  t64_stop_request request_valid =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, 1000u);
+  t64_stop_request request_zero =
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, 1000u);
+  t64_stop_result result_poisoned = T64_STOP_RESULT_INIT;
+  t64_stop_result result_zero = T64_STOP_RESULT_INIT;
   t64_stop_request outside_request =
-      (t64_stop_request)T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, 1000u);
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, 1000u);
   t64_stop_request outside_zero_request =
-      (t64_stop_request)T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, 1000u);
-  t64_stop_result outside_result;
-  t64_stop_result outside_expected;
+      T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, 1000u);
+  t64_stop_result outside_result = T64_STOP_RESULT_INIT;
+  t64_stop_result outside_expected = T64_STOP_RESULT_INIT;
 
   T64_CHECK(base != NULL);
   T64_CHECK(size >= 2u * SPAN_PLACED_BYTES);
@@ -798,8 +800,6 @@ static void advance_span_block(instance *item, size_t block, bool admitted) {
   where = base + span_offset(size);
   (void)memcpy(saved, where, sizeof saved);
 
-  request_valid =
-      (t64_stop_request)T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, 1000u);
   request_zero = request_valid;
   request_zero.struct_size = 0u;
   poison_stop_result(&result_poisoned);
