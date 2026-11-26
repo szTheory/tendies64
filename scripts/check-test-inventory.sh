@@ -358,7 +358,8 @@ harness.phase11-qualification'
 # the names it registers.
 PHASE12_TESTS='harness.title-oracle
 runner.title-two-run
-controls.real.title-wrong-input'
+controls.real.title-wrong-input
+controls.real.title-refused-frame'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

@@ -35,9 +35,10 @@
 1	^runner\.title-two-run$
 # plan 12-04: controls.real.title-wrong-input and controls.real.title-refused-frame (two names,
 # no CTest fixture closure; the controls.real names follow controls.real.composite-wrong-rom).
-1	^controls\.real\.title-
-# plan 12-05: installed.consumer.title and installed.consumer.title-persist require the
-# t64_consumer fixture, so installed.consumer.build and install.setup join them (2 names plus 2 = 4).
+2	^controls\.real\.title-
+# plan 12-05: installed.consumer.title, installed.consumer.title-persist and installed.consumer.title-refused
+# (the last added by decision DR-34: the blank-frame assertion of the refused ROM) require the
+# t64_consumer fixture, so installed.consumer.build and install.setup join them (3 names plus 2 = 5).
 0	^installed\.consumer\.title
 # plan 12-07 to 12-08: host.pump.* requires the t64_host fixture (host.pump.build is the setup
 # test), so install.setup joins the host.pump names (12-07 adds build, clock, drain-order and stall;

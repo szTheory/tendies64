@@ -6,6 +6,18 @@
  * of 49,152 bytes compared by SHA-256 and the audio, transcript and save
  * comparators of the title oracle.
  *
+ * Scope of the runner (decision DR-34 of PIN-IMPACT, plan 12-04): the runner
+ * can observe the title only through its raw-capture run. A run without raw
+ * capture cannot drain a 49,152-byte video packet (result detail
+ * video-drain-error) and the supervisor refuses the artifact producers
+ * together with raw capture, so the runner produces no save image of the
+ * title; the raw capture finalizes only on a guest completion with audio, so
+ * the refused-frame ROM (no completion, no audio) leaves no frame to read.
+ * Case two-run therefore compares frames, audio and transcript of the one
+ * raw-capture run and records both exclusions as executable facts; the save
+ * image and the blank frames of the refused ROM are compared through the
+ * installed consumer (plan 12-05), and case refused-frame names its limit.
+ *
  * The expected values come only from fixtures/title/title.expected.json, which
  * the CTest name harness.title-oracle proves byte for byte equal to the output
  * of fixtures/title/title_oracle.py (a standard-library-only script derived
@@ -293,6 +305,9 @@ typedef struct {
                                  the empty default */
   bool raw;                   /* --raw-capture-dir <aux>/raw */
   bool capture;               /* --capture-out <work>/capture.bin */
+  bool save_out;              /* the artifact pair and the save-export options
+                                 (a producer the supervisor refuses together
+                                 with raw capture) */
 } run_spec;
 
 #define MAX_ARGS 64u
@@ -332,11 +347,12 @@ static bool run_supervised(const run_spec *spec, run_out *out) {
                  "capture.bin")) {
     return false;
   }
-  if (spec->raw) {
+  if (spec->raw || spec->save_out) {
     if (!make_private_dir(out->aux_dir)) return false;
-    if (!join_path(out->raw_dir, sizeof out->raw_dir, out->aux_dir, "raw")) {
-      return false;
-    }
+  }
+  if (spec->raw &&
+      !join_path(out->raw_dir, sizeof out->raw_dir, out->aux_dir, "raw")) {
+    return false;
   }
   (void)snprintf(out->result_path, sizeof out->result_path, "%s", result_path);
   arg_add(&list, g_supervisor);
@@ -356,6 +372,13 @@ static bool run_supervised(const run_spec *spec, run_out *out) {
   }
   if (spec->capture) arg_add_pair(&list, "--capture-out", out->capture_path);
   if (spec->raw) arg_add_pair(&list, "--raw-capture-dir", out->raw_dir);
+  if (spec->save_out) {
+    arg_add_pair(&list, "--artifact-dir", out->aux_dir);
+    arg_add_pair(&list, "--artifact-max-bytes", "32768");
+    arg_add_pair(&list, "--save-kind", "sram32k");
+    arg_add_pair(&list, "--save-format", "raw-v1");
+    arg_add_pair(&list, "--save-export-leaf", "title.sav");
+  }
   list.items[list.count] = NULL;
   pid = fork();
   if (pid < 0) return false;
@@ -423,6 +446,10 @@ typedef struct {
   char wrong_input_sha256[65];
   scenario_expect short_run;
   scenario_expect wrong_run;
+  /* The oracle's "refused" section: the refused-frame ROM never completes and
+   * prints no transcript. */
+  bool refused_completes;
+  size_t refused_transcript_len;
 } expectation;
 
 static const t64_json_node *array_item(const t64_json_node *array, size_t index) {
@@ -499,6 +526,20 @@ static bool load_scenario(const t64_json_node *scenario, scenario_expect *out) {
   return ok;
 }
 
+/* The refused section: "completes" (a boolean) and "transcript" (a string,
+ * empty for the refused ROM). */
+static bool load_refused(const t64_json_node *refused, expectation *exp) {
+  const t64_json_node *completes = t64_json_get(refused, "completes");
+  const t64_json_node *transcript = t64_json_get(refused, "transcript");
+  if (completes == NULL || completes->type != T64_JSON_BOOL ||
+      transcript == NULL || transcript->type != T64_JSON_STRING) {
+    return false;
+  }
+  exp->refused_completes = completes->num != 0;
+  exp->refused_transcript_len = transcript->len;
+  return true;
+}
+
 /* Reads the committed expectation named by T64_TITLE_EXPECTED. */
 static bool load_expectation(expectation *exp) {
   const char *path = getenv("T64_TITLE_EXPECTED");
@@ -524,7 +565,8 @@ static bool load_expectation(expectation *exp) {
        copy_hex64(t64_json_get(t64_json_get(inputs, "short-wrong"), "sha256"),
                   exp->wrong_input_sha256) &&
        load_scenario(t64_json_get(scenarios, "short"), &exp->short_run) &&
-       load_scenario(t64_json_get(scenarios, "short-wrong"), &exp->wrong_run);
+       load_scenario(t64_json_get(scenarios, "short-wrong"), &exp->wrong_run) &&
+       load_refused(t64_json_get(doc.root, "refused"), exp);
   t64_json_free(&doc);
   return ok;
 }
@@ -708,7 +750,7 @@ static bool load_bundle(const char *raw_dir, raw_out *out) {
 
 /* One raw-capture run of the title on the short scenario: the video frames and
  * the audio packets of the bundle and the transcript of --capture-out. The
- * save image is the save-out run's output and is not produced here. */
+ * runner produces no save image of the title (see check_exclusions). */
 static bool run_raw(const script_ident *script, raw_out *out, run_out *run) {
   run_spec spec = {0};
   char path[PATH_MAX];
@@ -881,6 +923,60 @@ static void compare_pins(const runner_pins *pins, const raw_out *raw,
                raw->digest_raw, raw->video_count);
 }
 
+/* ---- the recorded runner exclusions (DR-34) -------------------------------- */
+
+/* Two limits of the runner that decide what this test can compare, recorded as
+ * executable facts so a runner change that lifts either one fails here and
+ * names the comparison that can then return to the runner:
+ *   (a) a run without raw capture cannot drain a 49,152-byte video packet: it
+ *       ends harness-error with detail video-drain-error at the drain of the
+ *       first packet, so no non-raw run (and therefore no save-out run, which
+ *       is non-raw) can run the title;
+ *   (b) the artifact producers are refused together with raw capture (the
+ *       supervisor's existing usage refusal), so the two cannot be one run.
+ * Together they mean the runner produces no save image of the title; the save
+ * image is compared through the installed consumer (plan 12-05). */
+static void check_exclusions(const raw_out *first) {
+  run_spec spec = {0};
+  run_out run;
+  struct stat info;
+  spec.stem = TITLE_ROM;
+  spec.script = &g_short;
+  spec.capture = true;
+  CHECK(run_supervised(&spec, &run));
+  CHECK(run.parsed);
+  CHECK(strcmp(run.outcome, "harness-error") == 0);
+  CHECK(strcmp(run.detail, "video-drain-error") == 0);
+  CHECK(strcmp(run.stop_kind, "host-error") == 0);
+  CHECK(first->video_count >= 2u);
+  /* the stop is the drain of the first packet, not a later field */
+  CHECK(run.guest_tick >= first->video_end_tick[0]);
+  CHECK(first->video_count < 2u || run.guest_tick < first->video_end_tick[1]);
+  (void)printf("exclusion: a run without raw capture ends %s/%s (stop %s) at "
+               "tick %llu, the drain of the first %u-byte video packet\n",
+               run.outcome, run.detail, run.stop_kind,
+               (unsigned long long)run.guest_tick, FRAME_BYTES);
+
+  memset(&spec, 0, sizeof spec);
+  spec.stem = TITLE_ROM;
+  spec.script = &g_short;
+  spec.raw = true;
+  spec.save_out = true;
+  CHECK(run_supervised(&spec, &run));
+  CHECK(run.parsed);
+  CHECK(strcmp(run.outcome, "harness-error") == 0);
+  CHECK(strcmp(run.detail, "usage") == 0);
+  CHECK(strcmp(run.stop_kind, "not-started") == 0);
+  CHECK(run.guest_tick == 0u);
+  CHECK(run.supervisor_exit == 2);
+  CHECK(lstat(run.raw_dir, &info) != 0);
+  (void)printf("exclusion: raw capture with the save-out producer is refused "
+               "as %s/%s at tick %llu; the runner produces no save image of "
+               "the title (compared through the installed consumer, plan "
+               "12-05)\n",
+               run.outcome, run.detail, (unsigned long long)run.guest_tick);
+}
+
 static raw_out g_raw_first;
 static expectation g_expected;
 
@@ -899,6 +995,7 @@ static int case_two_run(void) {
     CHECK(is_hex64(g_raw_first.digest_raw));
     compare_outputs(&g_raw_first, &g_expected);
     compare_pins(&pins, &g_raw_first, &raw_run);
+    check_exclusions(&g_raw_first);
   } else {
     CHECK(false);
   }
@@ -956,6 +1053,171 @@ static int case_wrong_input(void) {
   return g_failures == 0 ? 0 : 1;
 }
 
+/* ---- case refused-frame ---------------------------------------------------- */
+
+/* What the runner can show about the refused-frame ROM (the title built with
+ * T64_TITLE_REFUSED: it draws nothing, never completes, plays no audio and
+ * prints no transcript). The raw capture finalizes only on a guest completion
+ * with at least one audio packet, so the run is aborted at the tick cap with
+ * the result detail capture-error, no bundle is published and no frame of the
+ * refused run is observable here. The control therefore judges only what the
+ * runner shows: a non-pass, no completion, capture-error at the tick cap and no
+ * transcript. That every frame of the refused ROM equals the blank digest is
+ * compared through the installed consumer (plan 12-05, case title-refused),
+ * where the oracle's blank_sha256 is read against each drained packet. */
+typedef struct {
+  bool completed;
+  bool passed;
+  char detail[64];
+  char stop_kind[48];
+  uint64_t guest_tick;
+  size_t transcript_length;
+  bool bundle_published;
+} refused_observation;
+
+typedef struct {
+  bool ok;
+  char text[256];
+} refused_verdict;
+
+#define REFUSED_DETAIL "capture-error"
+#define REFUSED_STOP "host-error"
+
+/* The comparator: the observation against the oracle's refused section and the
+ * recorded runner limit, with its own text for the first difference. */
+static void judge_refused(const refused_observation *obs,
+                          const expectation *exp, refused_verdict *verdict) {
+  memset(verdict, 0, sizeof *verdict);
+  if (obs->completed != exp->refused_completes) {
+    (void)snprintf(verdict->text, sizeof verdict->text,
+                   "refused-frame mismatch: oracle completes=%d, run "
+                   "completed=%d",
+                   exp->refused_completes ? 1 : 0, obs->completed ? 1 : 0);
+    return;
+  }
+  if (!exp->refused_completes && obs->passed) {
+    (void)snprintf(verdict->text, sizeof verdict->text,
+                   "refused-frame mismatch: the run passed (a refused frame "
+                   "must end non-pass)");
+    return;
+  }
+  if (strcmp(obs->detail, REFUSED_DETAIL) != 0 ||
+      strcmp(obs->stop_kind, REFUSED_STOP) != 0 ||
+      obs->guest_tick != (uint64_t)strtoull(GUEST_BOUND, NULL, 10)) {
+    (void)snprintf(verdict->text, sizeof verdict->text,
+                   "refused-frame mismatch: runner limit expected %s/%s at "
+                   "tick %s, observed %s/%s at tick %llu",
+                   REFUSED_DETAIL, REFUSED_STOP, GUEST_BOUND, obs->detail,
+                   obs->stop_kind, (unsigned long long)obs->guest_tick);
+    return;
+  }
+  if (obs->transcript_length != exp->refused_transcript_len) {
+    (void)snprintf(verdict->text, sizeof verdict->text,
+                   "refused-frame mismatch: transcript expected %zu bytes, "
+                   "captured %zu",
+                   exp->refused_transcript_len, obs->transcript_length);
+    return;
+  }
+  if (obs->bundle_published) {
+    (void)snprintf(verdict->text, sizeof verdict->text,
+                   "refused-frame mismatch: a raw-capture bundle was "
+                   "published, so the frames are observable here and the blank "
+                   "assertion can return to the runner");
+    return;
+  }
+  verdict->ok = true;
+  (void)snprintf(verdict->text, sizeof verdict->text,
+                 "refused-frame limit holds: %s/%s at tick %s, no transcript, "
+                 "no bundle",
+                 REFUSED_DETAIL, REFUSED_STOP, GUEST_BOUND);
+}
+
+/* One same-setup control: the real observation with exactly one field changed
+ * must be refused by the comparator with its own text for that field. */
+static void refused_control(const char *what, const refused_observation *seeded,
+                            const expectation *exp, const char *text_prefix) {
+  refused_verdict verdict;
+  judge_refused(seeded, exp, &verdict);
+  CHECK(!verdict.ok);
+  CHECK(strncmp(verdict.text, text_prefix, strlen(text_prefix)) == 0);
+  (void)printf("control refused-frame: %s changed, %s\n", what, verdict.text);
+}
+
+static int case_refused_frame(void) {
+  run_spec spec = {0};
+  run_out run;
+  refused_observation obs;
+  refused_observation seeded;
+  refused_verdict verdict;
+  struct stat info;
+  size_t transcript_length = 0u;
+  uint8_t transcript[TRANSCRIPT_MAX];
+  char path[PATH_MAX];
+  CHECK(load_expectation(&g_expected));
+  spec.stem = REFUSED_ROM;
+  spec.script = &g_short;
+  spec.raw = true;
+  spec.capture = true;
+  if (!run_supervised(&spec, &run)) {
+    CHECK(false);
+    return 1;
+  }
+  /* A harness-error record the checker accepts, written by a supervisor that
+   * itself finished normally. */
+  CHECK(run.checker_ok);
+  CHECK(run.supervisor_exit == 0);
+  CHECK(strcmp(run.fixture_id, REFUSED_ROM) == 0);
+  CHECK(strcmp(run.profile_id, TITLE_PROFILE) == 0);
+  CHECK(strcmp(run.outcome, "pass") != 0);
+  CHECK(strcmp(run.detail, "runner-signalled") != 0);
+  CHECK(read_file(run.capture_path, transcript, sizeof transcript,
+                  &transcript_length));
+  CHECK(join_path(path, sizeof path, run.raw_dir, "manifest.json"));
+  memset(&obs, 0, sizeof obs);
+  obs.completed = strcmp(run.stop_kind, "authored-completion") == 0;
+  obs.passed = strcmp(run.outcome, "pass") == 0;
+  (void)snprintf(obs.detail, sizeof obs.detail, "%s", run.detail);
+  (void)snprintf(obs.stop_kind, sizeof obs.stop_kind, "%s", run.stop_kind);
+  obs.guest_tick = run.guest_tick;
+  obs.transcript_length = transcript_length;
+  obs.bundle_published = lstat(path, &info) == 0;
+  judge_refused(&obs, &g_expected, &verdict);
+  CHECK(verdict.ok);
+  (void)printf("control refused-frame: %s (%s, %s) at guest tick %llu, %zu "
+               "transcript bytes\n",
+               verdict.text, run.outcome, run.detail,
+               (unsigned long long)run.guest_tick, transcript_length);
+  (void)printf("control refused-frame: the runner shows no frame of the "
+               "refused ROM; every frame equal to the blank digest is "
+               "compared through the installed consumer (plan 12-05)\n");
+
+  seeded = obs;
+  seeded.completed = true;
+  refused_control("the completion", &seeded, &g_expected,
+                  "refused-frame mismatch: oracle completes=0, run completed=1");
+  seeded = obs;
+  seeded.passed = true;
+  refused_control("the outcome to pass", &seeded, &g_expected,
+                  "refused-frame mismatch: the run passed");
+  seeded = obs;
+  (void)snprintf(seeded.detail, sizeof seeded.detail, "video-drain-error");
+  refused_control("the result detail", &seeded, &g_expected,
+                  "refused-frame mismatch: runner limit expected");
+  seeded = obs;
+  seeded.guest_tick = obs.guest_tick - 1u;
+  refused_control("the stop tick", &seeded, &g_expected,
+                  "refused-frame mismatch: runner limit expected");
+  seeded = obs;
+  seeded.transcript_length = 20u;
+  refused_control("the transcript length", &seeded, &g_expected,
+                  "refused-frame mismatch: transcript expected 0 bytes");
+  seeded = obs;
+  seeded.bundle_published = true;
+  refused_control("the bundle state", &seeded, &g_expected,
+                  "refused-frame mismatch: a raw-capture bundle was published");
+  return g_failures == 0 ? 0 : 1;
+}
+
 /* ---- dispatch ----------------------------------------------------------- */
 
 typedef struct {
@@ -966,6 +1228,7 @@ typedef struct {
 static const case_entry cases[] = {
     {"two-run", case_two_run},
     {"wrong-input", case_wrong_input},
+    {"refused-frame", case_refused_frame},
 };
 
 int main(int argc, char **argv) {
