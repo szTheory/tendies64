@@ -114,3 +114,46 @@ set_tests_properties(repo.stale-freeze-text-selftest PROPERTIES
   LABELS "repo;phase11"
   TIMEOUT 30
   COST 1)
+
+# Install-from-build-tree path (plan 11-16, DR-20, VER-05). One CTest fixture
+# chain, no ci.yml edit: install.setup installs the Development component of
+# this build tree (no rebuild) into a prefix whose path contains spaces and
+# moves it; installed.consumer.build configures and builds the independent
+# consumer of tests/installed-consumer against the moved prefix (a separate
+# top-level project, never add_subdirectory'd); installed.consumer.smoke runs
+# its smoke case. The scratch tree is build/<preset>/install-check.
+# COST is the measured native seconds of the name (W-11); TIMEOUT follows F-108:
+# at least 3.5 times the slowest expected hosted figure, which is the native
+# figure times the hosted multiplier 4.3 of Phase 10 section 6.1, and never
+# below 30 s, so the preflight timeout audit (TIMEOUT at least 2 times COST)
+# holds with a wide margin.
+add_test(NAME install.setup
+  COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/check-install.sh
+          --build ${CMAKE_BINARY_DIR} setup
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(install.setup PROPERTIES
+  LABELS "install;phase11"
+  TIMEOUT 60
+  COST 0.05
+  FIXTURES_SETUP t64_install)
+
+add_test(NAME installed.consumer.build
+  COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/check-install.sh
+          --build ${CMAKE_BINARY_DIR} build
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(installed.consumer.build PROPERTIES
+  LABELS "installed;phase11"
+  TIMEOUT 120
+  COST 0.43
+  FIXTURES_REQUIRED t64_install
+  FIXTURES_SETUP t64_consumer)
+
+add_test(NAME installed.consumer.smoke
+  COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/check-install.sh
+          --build ${CMAKE_BINARY_DIR} run smoke
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(installed.consumer.smoke PROPERTIES
+  LABELS "installed;phase11"
+  TIMEOUT 60
+  COST 0.02
+  FIXTURES_REQUIRED t64_consumer)

@@ -296,7 +296,10 @@ repo.abi-prefix
 repo.stale-freeze-text
 repo.stale-freeze-text-selftest
 unit.core.api.handshake
-unit.core.api.struct-size'
+unit.core.api.struct-size
+install.setup
+installed.consumer.build
+installed.consumer.smoke'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

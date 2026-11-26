@@ -17,8 +17,8 @@
 1	^harness\.composite-oracle$
 # Phase 11 name families, zero until the owning plan registers them.
 4	^repo\.abi
-0	^install\.
-0	^installed\.consumer\.
+1	^install\.
+2	^installed\.consumer\.
 0	^installed\.controls\.
 0	^api04\.
 13	^unit\.core\.api\.
