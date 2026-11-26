@@ -965,6 +965,13 @@ T64_API t64_status t64_machine_queue_input(t64_machine *machine, uint64_t tick,
  * These calls do not execute guest code or translate virtual addresses, and
  * rejected reads leave value_out unchanged.
  *
+ * The value_out span of t64_machine_bus_read is the caller's responsibility:
+ * a NULL value_out is T64_STATUS_INVALID_ARGUMENT, but a value_out that points
+ * into storage the instance owns (the machine storage, the admitted image or a
+ * packet storage) is not refused here, unlike the out pointers of the other
+ * entries, and the caller must not pass one. The debug bus is a host tool.
+ * t64_machine_bus_write takes its value by value and has no pointer to judge.
+ *
  * t64_machine_bus_write is carved out of the rule that a refused call changes
  * nothing (plan 11-03, AMBIG-D). It is the host's view of a guest store, and a
  * device that refuses a store records the refusal itself. A write that answers

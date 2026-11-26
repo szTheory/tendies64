@@ -798,6 +798,137 @@ static void op_admit(seq *g, unsigned v) {
   }
 }
 
+/*
+ * Plan 11-27 (finding F-20-A): the header's check order puts a struct span that
+ * overlaps the instance before the struct is read, before struct_size and
+ * before the admission answer, and names advance among the entries that judge
+ * their request and their result that way. The instance owns the blocks its
+ * allocator returned, which the consumer's own ledger lists, so the generator
+ * can put the request or the result inside one of them (any live block, a
+ * 16-byte aligned place in its upper half, where the library keeps payload only:
+ * guest RAM behind the control state of the machine storage, ROM bytes, packet
+ * bytes) with the public API alone. Four stop objects are
+ * written 16 bytes apart (a valid request, a request whose struct_size is 0, a
+ * poisoned result, a result whose struct_size is 0); the original bytes are
+ * saved first and written back last. The placement is the generator's own
+ * deliberate write, so the burst that holds the refusal is closed before it and
+ * after the call (the machine digest of the burst is the one taken after the
+ * placement), and what must stay equal is everything the refused call could
+ * have changed: the observations, the digest, the placed bytes and a result
+ * that is outside the instance. On a poisoned instance the entry guard answers
+ * POISONED first, as for every call.
+ */
+#define SEQ_SPAN_BYTES 64u
+
+static void seq_advance_aliased(seq *g) {
+  const t64c_ledger *ledger = &g->fx->ledger;
+  t64_stop_request request_valid = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, g->tick + 1000u);
+  t64_stop_request request_zero = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, g->tick + 1000u);
+  t64_stop_result result_poisoned = T64_STOP_RESULT_INIT_WITH(SEQ_U32_SENTINEL, SEQ_U64_SENTINEL);
+  t64_stop_result result_zero = T64_STOP_RESULT_INIT_WITH(SEQ_U32_SENTINEL, SEQ_U64_SENTINEL);
+  t64_stop_request outside_valid = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, g->tick + 1000u);
+  t64_stop_request outside_zero = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, g->tick + 1000u);
+  t64_stop_result outside_result = T64_STOP_RESULT_INIT_WITH(SEQ_U32_SENTINEL, SEQ_U64_SENTINEL);
+  uint8_t placed[SEQ_SPAN_BYTES];
+  uint8_t saved[SEQ_SPAN_BYTES];
+  const t64_stop_request *request;
+  t64_stop_result *result;
+  const char *label;
+  uint8_t *where;
+  size_t slot;
+  size_t size;
+  size_t half;
+  size_t room;
+  unsigned eligible = 0u;
+  unsigned wanted;
+  unsigned shape;
+  bool was_poisoned;
+  bool result_outside;
+  bool outside_intact;
+  bool placed_intact;
+  t64_status status;
+
+  for (slot = 0u; slot < ledger->slot_count; slot++) {
+    if (ledger->slots[slot].active && ledger->slots[slot].size >= 2u * SEQ_SPAN_BYTES) {
+      eligible++;
+    }
+  }
+  if (eligible == 0u) {
+    return;
+  }
+  wanted = seq_pick(g, eligible);
+  for (slot = 0u; slot < ledger->slot_count; slot++) {
+    if (ledger->slots[slot].active && ledger->slots[slot].size >= 2u * SEQ_SPAN_BYTES) {
+      if (wanted == 0u) {
+        break;
+      }
+      wanted--;
+    }
+  }
+  size = ledger->slots[slot].size;
+  half = (size / 2u) & ~(size_t)15u;
+  room = size - SEQ_SPAN_BYTES - half;
+  where = (uint8_t *)ledger->slots[slot].data + half +
+          ((((size_t)seq_pick(g, 65536u) * 16u) % (room + 1u)) & ~(size_t)15u);
+  shape = seq_pick(g, 5u);
+
+  request_zero.struct_size = 0u;
+  result_zero.struct_size = 0u;
+  outside_zero.struct_size = 0u;
+  (void)memcpy(placed + 0u, &request_valid, sizeof request_valid);
+  (void)memcpy(placed + 16u, &request_zero, sizeof request_zero);
+  (void)memcpy(placed + 32u, &result_poisoned, sizeof result_poisoned);
+  (void)memcpy(placed + 48u, &result_zero, sizeof result_zero);
+
+  seq_unbracketed_mutation(g);
+  (void)memcpy(saved, where, sizeof saved);
+  (void)memcpy(where, placed, sizeof placed);
+  was_poisoned = g->poisoned;
+  switch (shape) {
+    case 0u:
+      request = (const t64_stop_request *)(const void *)where;
+      result = &outside_result;
+      label = "advance with a request inside an instance block";
+      break;
+    case 1u:
+      request = (const t64_stop_request *)(const void *)(where + 16u);
+      result = &outside_result;
+      label = "advance with a struct_size 0 request inside an instance block";
+      break;
+    case 2u:
+      request = &outside_valid;
+      result = (t64_stop_result *)(void *)(where + 32u);
+      label = "advance with a result inside an instance block";
+      break;
+    case 3u:
+      request = &outside_zero;
+      result = (t64_stop_result *)(void *)(where + 48u);
+      label = "advance with a struct_size 0 request and a result inside an instance block";
+      break;
+    default:
+      request = (const t64_stop_request *)(const void *)where;
+      result = (t64_stop_result *)(void *)(where + 32u);
+      label = "advance with a request and a result inside an instance block";
+      break;
+  }
+  result_outside = result == &outside_result;
+  seq_begin(g, SEQ_REFUSED);
+  status = t64_machine_advance(seq_m(g), request, result);
+  outside_intact = !result_outside ||
+                   (outside_result.struct_size == (uint32_t)sizeof outside_result &&
+                    outside_result.reason == SEQ_U32_SENTINEL &&
+                    outside_result.tick == SEQ_U64_SENTINEL);
+  placed_intact = memcmp(where, placed, sizeof placed) == 0;
+  seq_end(g, status, label, outside_intact && placed_intact);
+  seq_check(g, was_poisoned || status == T64_STATUS_INVALID_ARGUMENT,
+            "a request or a result inside the instance is refused with INVALID_ARGUMENT before "
+            "struct_size and admission");
+  seq_check(g, placed_intact, "a refused advance wrote no byte of the instance");
+  /* verify the burst while the placement is still in place, then write it back */
+  seq_close_burst(g);
+  (void)memcpy(where, saved, sizeof saved);
+}
+
 static void op_advance(seq *g, unsigned v) {
   t64_stop_request request = T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, g->tick + 1000u);
   t64_stop_result result = T64_STOP_RESULT_INIT_WITH(SEQ_U32_SENTINEL, SEQ_U64_SENTINEL);
@@ -891,11 +1022,14 @@ static void op_advance(seq *g, unsigned v) {
       seq_end(g, status, "advance with an unknown stop kind",
               result.reason == SEQ_U32_SENTINEL && result.tick == SEQ_U64_SENTINEL);
       break;
-    default:
+    case 13u:
       seq_begin(g, SEQ_REFUSED | SEQ_NO_MACHINE);
       status = t64_machine_advance(NULL, &request, &result);
       seq_end(g, status, "advance on a NULL machine",
               result.reason == SEQ_U32_SENTINEL && result.tick == SEQ_U64_SENTINEL);
+      break;
+    default:
+      seq_advance_aliased(g);
       break;
   }
 }
@@ -1708,7 +1842,7 @@ static void op_drain_all(seq *g, unsigned v) {
 
 static const seq_op seq_ops[SEQ_OP_COUNT] = {
     {"admit", 3u, op_admit, 6u, SEQ_BIT(0), true},
-    {"advance", 14u, op_advance, 14u,
+    {"advance", 14u, op_advance, 15u,
      SEQ_BIT(0) | SEQ_BIT(1) | SEQ_BIT(2) | SEQ_BIT(3) | SEQ_BIT(5) | SEQ_BIT(6) | SEQ_BIT(7), true},
     {"input", 5u, op_input, 7u, SEQ_BIT(0) | SEQ_BIT(4) | SEQ_BIT(6), true},
     {"video", 4u, op_video, 6u, SEQ_BIT(2), true},

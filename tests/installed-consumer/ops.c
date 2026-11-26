@@ -963,6 +963,122 @@ static bool stop_is_resumable_guest_stop(uint32_t reason) {
          t64c_stop_resume(reason) == T64C_RESUME_RESUMABLE;
 }
 
+/*
+ * Plan 11-27 (finding F-20-A): the header's check order puts a struct span that
+ * overlaps the instance before the struct is read, before struct_size and
+ * before the admission answer, and names advance among the entries that judge
+ * their request and their result that way. The instance owns the blocks its
+ * allocator returned, which the consumer's own ledger lists, so the consumer
+ * can put a request or a result inside each of them with the public API alone.
+ * Four stop objects are written 16 bytes apart in the middle of the block (the
+ * payload: guest RAM behind the control state of the machine storage, ROM bytes,
+ * packet bytes) (a valid request, a request whose struct_size is 0, a poisoned result, a result
+ * whose struct_size is 0); the original bytes are saved first and written back
+ * last, and the machine digest is taken after the placement, because the
+ * placement is the consumer's own deliberate write: what must stay equal is
+ * everything the refused calls could have changed. The digest (22 ms) is
+ * compared once per block, after the fifth refused call, not after each.
+ */
+#define T64C_SPAN_BYTES 64u
+
+static void advance_aliased(t64c_tally *tally, t64c_fixture *fixture) {
+  t64_machine *machine = fixture->machine;
+  t64_stop_request request_valid =
+      (t64_stop_request)T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, UINT64_C(6000));
+  t64_stop_request request_zero = request_valid;
+  t64_stop_result result_poisoned = (t64_stop_result)T64_STOP_RESULT_INIT_WITH(
+      0x5a5a5a5au, UINT64_C(0x5a5a5a5a5a5a5a5a));
+  t64_stop_result result_zero = result_poisoned;
+  t64_stop_request outside_valid = request_valid;
+  t64_stop_request outside_zero = request_valid;
+  t64_stop_result outside_result = result_poisoned;
+  t64_stop_result outside_expected = result_poisoned;
+  uint8_t placed[T64C_SPAN_BYTES];
+  uint8_t saved[T64C_SPAN_BYTES];
+  uint8_t before[T64_DIGEST_SIZE];
+  size_t index;
+  size_t blocks_used = 0u;
+
+  request_zero.struct_size = 0u;
+  result_zero.struct_size = 0u;
+  outside_zero.struct_size = 0u;
+  (void)memcpy(placed + 0u, &request_valid, sizeof request_valid);
+  (void)memcpy(placed + 16u, &request_zero, sizeof request_zero);
+  (void)memcpy(placed + 32u, &result_poisoned, sizeof result_poisoned);
+  (void)memcpy(placed + 48u, &result_zero, sizeof result_zero);
+
+  for (index = 0u; index < fixture->ledger.slot_count; index++) {
+    const t64c_slot *slot = &fixture->ledger.slots[index];
+    uint8_t *where;
+    char label[96];
+    bool unchanged;
+
+    if (!slot->active || slot->size < 2u * T64C_SPAN_BYTES) {
+      continue;
+    }
+    blocks_used++;
+    where = (uint8_t *)slot->data + (((slot->size - T64C_SPAN_BYTES) / 2u) & ~(size_t)15u);
+    (void)memcpy(saved, where, sizeof saved);
+    (void)memcpy(where, placed, sizeof placed);
+    outside_result = outside_expected = result_poisoned;
+    T64C_CHECK(tally, digest_of(machine, before));
+
+    (void)snprintf(label, sizeof label, "advance with a request inside instance block %u",
+                   (unsigned)index);
+    refused(tally,
+            t64_machine_advance(machine, (const t64_stop_request *)(const void *)where,
+                                &outside_result),
+            T64_STATUS_INVALID_ARGUMENT, label, NULL, NULL);
+    untouched(tally, memcmp(&outside_result, &outside_expected, sizeof outside_result) == 0,
+              "advance(request inside the instance) result");
+    (void)snprintf(label, sizeof label,
+                   "advance with a struct_size 0 request inside instance block %u",
+                   (unsigned)index);
+    refused(tally,
+            t64_machine_advance(machine, (const t64_stop_request *)(const void *)(where + 16u),
+                                &outside_result),
+            T64_STATUS_INVALID_ARGUMENT, label, NULL, NULL);
+    untouched(tally, memcmp(&outside_result, &outside_expected, sizeof outside_result) == 0,
+              "advance(struct_size 0 request inside the instance) result");
+    (void)snprintf(label, sizeof label, "advance with a result inside instance block %u",
+                   (unsigned)index);
+    refused(tally,
+            t64_machine_advance(machine, &outside_valid,
+                                (t64_stop_result *)(void *)(where + 32u)),
+            T64_STATUS_INVALID_ARGUMENT, label, NULL, NULL);
+    (void)snprintf(label, sizeof label,
+                   "advance with a struct_size 0 request and a result inside instance block %u",
+                   (unsigned)index);
+    refused(tally,
+            t64_machine_advance(machine, &outside_zero,
+                                (t64_stop_result *)(void *)(where + 48u)),
+            T64_STATUS_INVALID_ARGUMENT, label, NULL, NULL);
+    (void)snprintf(label, sizeof label,
+                   "advance with a request and a result inside instance block %u",
+                   (unsigned)index);
+    refused(tally,
+            t64_machine_advance(machine, (const t64_stop_request *)(const void *)where,
+                                (t64_stop_result *)(void *)(where + 32u)),
+            T64_STATUS_INVALID_ARGUMENT, label, machine, before);
+    /* Nothing was written into the placed bytes. */
+    unchanged = memcmp(where, placed, sizeof placed) == 0;
+    untouched(tally, unchanged, "advance(inside the instance) placed request and result bytes");
+    (void)memcpy(where, saved, sizeof saved);
+  }
+  /* The machine storage, the admitted image and the packet storages are all
+   * live blocks of the composite profile; every one of them is covered. */
+  accepted(tally, blocks_used >= 2u, "advance span rows covered every live instance block");
+  /* The other side of the order: both spans outside the instance, a request
+   * below the v1 size is STRUCT_TOO_SMALL with the result untouched. The
+   * placements are written back, so the digest is taken again. */
+  T64C_CHECK(tally, digest_of(machine, before));
+  refused(tally, t64_machine_advance(machine, &outside_zero, &outside_result),
+          T64_STATUS_STRUCT_TOO_SMALL, "advance with a struct_size 0 request outside the instance",
+          machine, before);
+  untouched(tally, memcmp(&outside_result, &outside_expected, sizeof outside_result) == 0,
+            "advance(struct_size 0 request outside the instance) result");
+}
+
 static int case_advance(const t64c_args *args) {
   t64c_tally tally = {0ul, 0ul};
   t64c_fixture *fixture = t64c_fixture_new(args->rom_path);
@@ -1056,6 +1172,11 @@ static int case_advance(const t64c_args *args) {
                               &stop),
           T64_STATUS_INVALID_ARGUMENT, "advance on a NULL machine", machine, before);
   untouched(&tally, memcmp(&stop, &sentinel, sizeof stop) == 0, "advance(NULL machine) result");
+
+  /* refused: a request or a result inside the instance's own blocks (F-20-A) */
+  advance_aliased(&tally, fixture);
+  T64C_CHECK(&tally, digest_of(machine, after));
+  T64C_CHECK(&tally, memcmp(before, after, sizeof before) == 0);
 
   /* accepted: the frame-event kind. The counter counts synthetic frame events
    * that only the in-tree scheduler tests schedule, so through the public API
