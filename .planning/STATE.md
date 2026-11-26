@@ -4,17 +4,17 @@ milestone: v1.2
 milestone_name: Embeddable and Playable
 current_phase: 11
 current_phase_name: Installed Consumer and Freeze Candidate
-status: executing
-stopped_at: Completed 11-24-PLAN.md (Phase 11 qualifier, fresh-archive lane and one verified rehearsal; harness.phase11-qualification; gate 329/329; next plan 11-25)
-last_updated: "2026-11-26T08:55:58.330Z"
+status: verifying
+stopped_at: Completed 11-25-PLAN.md (final audit, qualification record 20261126T091014977323Z-aa393c22, claims and evidence, origin/main dc247fa green; cold gate-macos run and Phase 11 verification are orchestrator steps)
+last_updated: "2026-11-26T09:45:24.322Z"
 last_activity: 2026-11-25
 last_activity_desc: Phase 11 execution started
-state_head: 25acb55a879f1a65d5ecdc9702030095e67606c9
+state_head: 519352d32bf5a1453dc652b063bc77e3422ae237
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 50
-  completed_plans: 49
+  completed_plans: 50
   percent: 33
 ---
 
@@ -31,9 +31,9 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 
 Phase: 11 (Installed Consumer and Freeze Candidate) — EXECUTING
 Plan: 25 of 25
-Status: Ready to execute
+Status: All Phase 11 plans executed — the cold gate-macos run with the final 329-name set (orchestrator-only) and the Phase 11 verification are pending; the phase is not marked complete
 Last activity: 2026-11-25 — Phase 11 execution started
-Note: plan 11-21 (the INSTALL review) is complete: origin/main is 4b13a90 with a green hosted pair (run 45775107983, gate-linux 240 s, gate-macos 592 s, 324 of 324); cold gate-macos measured 731 s (margin 169 s, F-133); Freeze base 189afa8ff454415870b5a703e9f728e4ae3dc5ea. Plan 11-22 is complete (docs/spec/api.md, the W2-01 boundary case with two killed mutants, W1-03, D-10-17-01 and T8; full gate 326 of 326 at 8388042; the carry-in triage is final: 8 done, 5 deferred). Plan 11-23 is complete (the freeze candidate ABI 0.1 is bound by docs/abi/FREEZE-CANDIDATE.md and docs/abi/header.sha256; repo.abi-freeze-record recomputes the four goldens from the installed tree and repo.abi-freeze-selftest has 21 seeded incompatible changes; the eight S-05 padding holes are bound; full gate 328 of 328 at 6bd542c; a candidate only, the final bind is the last plan of Phase 12). The commits after 4b13a90 (11-21 records, 11-22 and 11-23) are unpushed and go out with the next push a plan names. Next: 11-24
+Note: plan 11-25 is complete: final independent audit in a scratch clone (11-REVIEW.md FINAL, zero blocking findings), Qualification base 9b17d8106ce6d1479fd29587931c06136bae66c4, final native record 20261126T091014977323Z-aa393c22 (first attempt, verified), docs/claims/phase11.md and docs/evidence/phase11-qualification.md; origin/main is dc247faaa3f5ceda17870c5e66b7ec181c767637 with a green warm hosted pair (run 45792136442, gate-macos 539 s, gate-linux 271 s, 329 of 329), no tag. Pending (orchestrator): the cold gate-macos run of the final set and the Phase 11 verification; the local commits after dc247fa are records only.
 
 Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 
@@ -110,6 +110,7 @@ Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 | Phase 11 P22 | 30min | 3 tasks | 13 files |
 | Phase 11 P23 | 12min | 3 tasks | 9 files |
 | Phase 11 P24 | 23 min | 3 tasks | 7 files |
+| Phase 11 P25 | 43 min | 4 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -264,6 +265,7 @@ Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 - [Phase 11]: 11-22: api.md describes the code as it is (read from each entry's code, not only the header comments); the Z product dy boundary needs the tallest triangle (row bound 2^30) and the W2-01 mutants are killed by case z-product-bound; the repo.installed-case-map count row is 3 with its fixture closure
 - [Phase 11]: 11-23: the freeze candidate (ABI 0.1, package 0.1.0) is bound by docs/abi/FREEZE-CANDIDATE.md and docs/abi/header.sha256; repo.abi-freeze-record recomputes the LF-normalised header manifest, the 35 public symbols, the regenerated layout pins and the status classes from the installed tree and compares each golden, each golden's own SHA-256, the counts, the versions, the amendment rows (ABI minor must equal 1 plus the rows) and the eight S-05 padding holes; repo.abi-freeze-selftest has 21 seeded cases (RED by nine blinded checker copies); the record is a candidate only, the final bind is the last plan of Phase 12; API-03 stays open for 11-24 and 11-25; gate 328/328, 0.86 s of COST added
 - [Phase 11]: 11-24: the Phase 11 qualifier is a thin delta of the Phase 10 qualifier with twelve stages; the installed suite stage is the phase11 label with JUnit; core, installed_core and installed_consumer must carry one build id; claims are compared as the JSON value false (0 == False defect fixed in the copy only); the two evidence documents are excluded from the bound inputs; VER-05 and API-03 stay open for 11-25
+- [Phase 11]: Plan 11-25: final audit of Phase 11 in a scratch clone (zero blocking, four info rows FN-01 to FN-04); Qualification base 9b17d81; final native record 20261126T091014977323Z-aa393c22 passed on the first attempt and verifies after every later commit; docs/claims/phase11.md (four unit-tested software-interface blocks, runner-recorded pins never called independent) and docs/evidence/phase11-qualification.md; origin/main dc247fa with a green warm pair (run 45792136442, gate-macos 539 s, gate-linux 271 s), no tag; the qualifier's derivation constants stay unrefreshed by orchestrator ruling; cold gate-macos with the final set is pending, orchestrator-only
 
 ### Pending Todos
 
@@ -289,8 +291,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-26T08:55:58.182Z
-Stopped at: Completed 11-24-PLAN.md (Phase 11 qualifier, fresh-archive lane and one verified rehearsal; harness.phase11-qualification; gate 329/329; next plan 11-25)
+Last session: 2026-11-26T09:45:24.166Z
+Stopped at: Completed 11-25-PLAN.md (final audit, qualification record 20261126T091014977323Z-aa393c22, claims and evidence, origin/main dc247fa green; cold gate-macos run and Phase 11 verification are orchestrator steps)
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
