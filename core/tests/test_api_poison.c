@@ -1078,8 +1078,8 @@ static void defect_output_drain(void) {
     instance item;
     uint8_t bytes[DRAIN_BYTES];
     uint8_t bytes_expected[DRAIN_BYTES];
-    t64_output_drain_result result;
-    t64_output_drain_result result_expected;
+    t64_output_drain_result result = T64_OUTPUT_DRAIN_RESULT_INIT;
+    t64_output_drain_result result_expected = T64_OUTPUT_DRAIN_RESULT_INIT;
 
     if (!make_instance(&item, SAVE_PROFILE_ID, true)) return;
     (void)memset(bytes, 0xa5, sizeof bytes);
@@ -1113,8 +1113,8 @@ static void defect_output_status(void) {
 
   for (which = 0u; which < (unsigned)OBSERVER_BREAK_COUNT; which++) {
     instance item;
-    t64_output_status status;
-    t64_output_status status_expected;
+    t64_output_status status = T64_OUTPUT_STATUS_INIT;
+    t64_output_status status_expected = T64_OUTPUT_STATUS_INIT;
     const observer_break kind = (observer_break)which;
 
     if (!make_instance(&item, SAVE_PROFILE_ID, true)) return;
