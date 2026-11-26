@@ -18,6 +18,7 @@ plans. No check uses the moving reference HEAD as a base.
 - Wave 0 base: f9124ae9fce134f31b645c6f2911a6f27fa41b9a
 - Install base: 06e31ecab5b84c08996aba79cb3ab6e29bb021cc
 - Freeze base: 189afa8ff454415870b5a703e9f728e4ae3dc5ea
+- Qualification base: 9b17d8106ce6d1479fd29587931c06136bae66c4
 
 ## Bound-file inventory
 
