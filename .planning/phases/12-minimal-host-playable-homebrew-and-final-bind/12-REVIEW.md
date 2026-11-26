@@ -122,3 +122,48 @@ block the push), info (a recorded observation or accepted limit). The reviewer f
 Result before the push: zero blocking findings, zero warnings and eight info rows. The W0 records and the
 TITLE wave are independently confirmed check by check and control by control, and the wave moved no digest
 (check (g)).
+
+### Task 3: push, hosted pair, TITLE ledger row and the Host base
+
+Before the push, in the shared tree with a clean committed tree at `884153ac143eb04f167a27aa57bdd7faf67605b7`
+(the reviewed head plus the two 12-REVIEW.md commits of Tasks 1 and 2):
+
+- `sh scripts/gate.sh`: `[gate] PASS`, 336 of 336, ctest 102 s, total 173 s (load about 10; no limit widened).
+- `sh scripts/preflight-phase12.sh` (full, with replay): `[preflight] PASS` in 68 s (oracle-authority, ctest-counts
+  23 rows 0 mismatches, phase12 label 7 equal to the block, abi-cheap 16 names, host-cheap 1 name, guards,
+  host-load WARN at 10.2, head-ci `dc247fa` completed success, timeout-audit 189 TIMEOUTs 0 too low with lowest
+  ratio 2.9, pii, linux-compile 234 units with the act image cc 13.3.0 in 40 s, post-gate-replay 11 `ci.yml`
+  steps in 19 s).
+- `sh scripts/pii-scan.sh --tree` (1484 files) and `--range origin/main..HEAD` (39 commits): 0 findings;
+  `sh scripts/rights-scan.sh --tree --range origin/main..HEAD`: `tree=1484 history=154 findings=0`.
+
+Push: `git push origin 884153ac143eb04f167a27aa57bdd7faf67605b7:refs/heads/main`, a fast-forward from `dc247fa` (no
+force, no tag, no other branch; `git tag --points-at` is empty). Hosted run 45887012740 (`ci.yml`, event push; Binutils
+cache hit on both jobs with key `69d0bfd4`, so a warm sample; no rerun): conclusion success.
+
+- gate-macos success, job 582 s (Gate 508 s, ctest 323 s, `100% tests passed out of 336`, test-inventory-selftest
+  76 s, build 34 s, boot-evidence-selftest 33 s, core-lint 24 s; cmake 4.5.0, AppleClang 21.0.0).
+- gate-linux success, job 263 s (Gate 222 s, ctest 149 s, `100% tests passed, 0 tests failed out of 336`; cmake
+  3.31.6, GNU 13.3.0).
+- The seven TITLE names, first hosted run, macOS then Linux: `installed.consumer.title` 8.30 and 5.98 s,
+  `installed.consumer.title-persist` 7.30 and 5.44 s, `runner.title-two-run` 2.96 and 1.93 s,
+  `installed.consumer.title-refused` 2.20 and 1.31 s, `controls.real.title-refused-frame` 1.94 and 1.44 s,
+  `controls.real.title-wrong-input` 1.36 and 1.37 s, `harness.title-oracle` 0.28 and 0.18 s (24.34 s and 17.65 s).
+  The title fixture build with the pinned Binutils, the runner rows, the consumer under the hosted compilers and the
+  title literals pass on both operating systems.
+- Delta against the Phase 11 warm pair (F-135, 539 s and ctest 279 s on 329 names): gate-macos +43 s, ctest +44 s,
+  test-inventory-selftest +9 s. Cold projection (not a measurement; the cold run after the final push of 12-18 is
+  orchestrator-only): 582 s plus the F-136 cold cost of 190 s = 772 s, margin 128 s; the measured cold baseline 729 s
+  plus the hosted TITLE names and the inventory-selftest growth = 762 s, margin 138 s. Neither is above 900 s nor under
+  the 120 s warning level, so the G4 reversal rule is not triggered (finding T-09).
+- `docs/ci-reviews/LOG.md`: Runs rows for 45795103375 (the orchestrator's cold dispatch of F-136, which had no Runs
+  row; recovered from the completed run without relaunching CI) and 45887012740, and finding F-137 (this pair).
+  PIN-IMPACT "Gate-growth ledger": the TITLE row's hosted columns, final seconds and margin are filled; the Host base
+  is recorded in "Wave bases" by its own commit after these records.
+
+| id | severity | file:line | finding | disposition |
+|----|----------|-----------|---------|-------------|
+| T-09 | info | PIN-IMPACT "Gate-growth ledger" TITLE row; `docs/ci-reviews/LOG.md` F-137 | The projected cold gate-macos margin after the TITLE wave is 128 s, 8 s above the 120 s warning level of the reversal rule. The HOST wave adds about 8 s of native COST (DR-27 projection), about 25 to 35 s on hosted macOS at the measured multiplier of about 3 (24.34 s hosted for 8.35 s of COST here), so the 12-12 projection is likely to fall under the warning level. Of the seven TITLE names, `installed.consumer.title-persist` (7.30 s hosted macOS) is the named first candidate | no action now (not triggered); 12-12 measures the HOST wave and applies the reversal rule first if its projection is under 120 s of margin (a new numbered plan moves `installed.consumer.title-persist` and the selftests to a local lane) |
+
+Result after the push: zero blocking findings, zero warnings and nine info rows; the TITLE wave is reviewed in a
+scratch clone, pushed, and green on both hosted operating systems.
