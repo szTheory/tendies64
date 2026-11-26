@@ -1191,6 +1191,17 @@ set_tests_properties(unit.core.state.import-v26-roundtrip
   TIMEOUT 300
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64;T64_STATE_MUTANT_INVENTORY_V26=${CMAKE_SOURCE_DIR}/docs/spec/state-mutants-v26.txt")
 
+# Plan 11-22 (W2-01): the boundary of the importer's Z product proof against the
+# live acceptance, one case of the same binary; two rows of scripts/p10-mutants.py
+# (z-limit-half, z-divisor-plus-one) are killed by it.
+add_test(NAME unit.core.state.v26-z-product-bound
+  COMMAND test_state_import_v26 --case z-product-bound)
+set_tests_properties(unit.core.state.v26-z-product-bound PROPERTIES
+  LABELS "unit;phase11"
+  TIMEOUT 30
+  COST 1
+  ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64")
+
 # Phase 9 state container import (plan 09-09).
 add_executable(test_state_import tests/test_state_import.c
   tests/fuzz_state_import.c)

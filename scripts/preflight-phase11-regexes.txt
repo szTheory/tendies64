@@ -33,4 +33,5 @@
 1	^repo\.stale-freeze-text$
 1	^repo\.stale-freeze-text-selftest$
 0	^repo\.installed-case-map$
+1	^unit\.core\.state\.v26-z-product-bound$
 0	^harness\.phase11-qualification$

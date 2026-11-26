@@ -603,7 +603,7 @@ MUTANTS = [
                 "  const uint64_t product_limit = (uint64_t)INT64_MAX / UINT64_C(2);\n",
             )
         ],
-        "kill": [own_check("test_state_import_v26", ["--case", "hostile"])],
+        "kill": [own_check("test_state_import_v26", ["--case", "z-product-bound"])],
         "record": [],
     },
     {
@@ -618,7 +618,7 @@ MUTANTS = [
                 "           (y_bound != 0u && abs_dy > product_limit / (y_bound + 1u)));\n",
             )
         ],
-        "kill": [own_check("test_state_import_v26", ["--case", "hostile"])],
+        "kill": [own_check("test_state_import_v26", ["--case", "z-product-bound"])],
         "record": [],
     },
     {

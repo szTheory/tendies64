@@ -345,7 +345,8 @@ install.abs-paths
 api04.members
 api04.disasm
 api04.headers
-api04.seeded'
+api04.seeded
+unit.core.state.v26-z-product-bound'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

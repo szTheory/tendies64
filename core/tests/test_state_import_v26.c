@@ -20,6 +20,9 @@
  *              state 25 blob keeps the hidden table zero on a state 25 machine
  *   hostile    the independently authored hostile rows of
  *              docs/spec/state-mutants-v26.txt and the v26 fuzz windows
+ *   z-product-bound
+ *              the boundary of the Z product proof of the triangle-render
+ *              proof against the live acceptance (plan 11-22, W2-01)
  *
  * usage: test_state_import_v26 [--list-cases|--case NAME]
  */
@@ -1423,8 +1426,254 @@ static void case_hostile(void) {
   bases_release();
 }
 
+/* ======================================================================== */
+/* The Z product bound at its boundary (plan 11-22, W2-01)                   */
+/* ======================================================================== */
+
+/*
+ * state_z_products_bounded (core/t64_state.c) is the importer's written-out
+ * copy of the product half of the live acceptance preflight
+ * (t64_rdp_depth_triangle_preflight, reached through t64_rdp_triangle_bounds):
+ * the three Z plane derivatives against the pixel, edge and row bounds of the
+ * packet must fit a quarter of the signed 64-bit range. check_preflight_parity
+ * compares one benign and one hostile packet; this case pins the boundary.
+ *
+ * For each derivative it bisects the largest accepted magnitude against the
+ * live acceptance, compares that magnitude with limit / bound computed here
+ * from the packet words (the bound of the derivative: the pixel bound for
+ * dzdx, the edge bound for dzde, the row bound for dzdy), and then sends two
+ * packets through the importer, the largest accepted magnitude and the next
+ * one: the first is accepted, the second is refused with the products tuple.
+ * A limit that is too large, a divisor that is too large and a comparison off
+ * by one each move the importer's boundary against the live one and are seen
+ * by one of the three probes (the mutant rows z-limit-half and
+ * z-divisor-plus-one of scripts/p10-mutants.py).
+ *
+ * Geometry. The pixel and edge bounds grow with the major edge slope, so dzdx
+ * and dzde use the largest slope with the benign four-row triangle, which puts
+ * both boundaries near 6.3e7. The row bound reaches 2^30 only for the tallest
+ * triangle the 14-bit y fields hold (YH -8192, YL 8191, the covered rows then
+ * clipped to the scissor): its boundary is 2^31 - 1, so 0x7fffffff is the last
+ * accepted dzdy and 0x80000000 (minus 2^31) the first refused.
+ */
+#define ZPB_WORDS 6u
+#define ZPB_OPCODE 0x09u
+#define ZPB_LIMIT (UINT64_C(0x7fffffffffffffff) / UINT64_C(4))
+#define ZPB_MAGNITUDE_END UINT64_C(0x80000000)
+
+typedef enum { ZPB_DZDX = 0, ZPB_DZDE, ZPB_DZDY } zpb_input;
+typedef enum { ZPB_GEOMETRY_EDGE = 0, ZPB_GEOMETRY_TALL } zpb_geometry;
+
+typedef struct {
+  const char *name;
+  zpb_geometry geometry;
+  zpb_input input;
+} zpb_probe;
+
+static const zpb_probe zpb_probes[] = {
+    {"dzdx", ZPB_GEOMETRY_EDGE, ZPB_DZDX},
+    {"dzde", ZPB_GEOMETRY_EDGE, ZPB_DZDE},
+    {"dzdy", ZPB_GEOMETRY_TALL, ZPB_DZDY},
+};
+
+/* The benign Z packet of the mid-triangle builder with the geometry of the
+ * probe and one derivative set to the magnitude (0x80000000 is minus 2^31). */
+static void zpb_packet(uint64_t packet[ZPB_WORDS], zpb_geometry geometry,
+                       zpb_input input, uint64_t magnitude) {
+  const uint32_t derivative = magnitude >= ZPB_MAGNITUDE_END
+                                  ? UINT32_C(0x80000000)
+                                  : (uint32_t)magnitude;
+  size_t i;
+
+  for (i = 0u; i < ZPB_WORDS; i++) packet[i] = z_triangle_words[7u + i];
+  if (geometry == ZPB_GEOMETRY_EDGE) {
+    /* xh 0x10000 and the largest dxh */
+    packet[2] = UINT64_C(0x000100007fffffff);
+  } else {
+    /* opcode 0x09, YL 0x1fff, YM 0, YH 0x2000 */
+    packet[0] = (UINT64_C(0x09) << 56) | (UINT64_C(0x1fff) << 32) |
+                UINT64_C(0x2000);
+  }
+  packet[4] = 0u;
+  packet[5] = 0u;
+  if (input == ZPB_DZDX) packet[4] = derivative;
+  if (input == ZPB_DZDE) packet[5] = (uint64_t)derivative << 32;
+  if (input == ZPB_DZDY) packet[5] = derivative;
+}
+
+static int64_t zpb_signed(uint64_t value, unsigned bits) {
+  const uint64_t sign = UINT64_C(1) << (bits - 1u);
+
+  return (value & sign) != 0u ? (int64_t)value - (int64_t)(sign << 1)
+                              : (int64_t)value;
+}
+
+static uint64_t zpb_abs(int64_t value) {
+  return value < 0 ? (uint64_t)(-(value + INT64_C(1))) + UINT64_C(1)
+                   : (uint64_t)value;
+}
+
+/* limit / bound for the derivative of the probe, from the packet words and the
+ * pixel span the acceptance uses (the scissor columns clipped to the image
+ * width): the written-out arithmetic of the document comment of the importer. */
+static uint64_t zpb_expected_magnitude(const t64_machine *machine,
+                                       const uint64_t *packet,
+                                       zpb_input input) {
+  const int64_t yh = zpb_signed(packet[0] & UINT64_C(0x3fff), 14u);
+  const int64_t yl = zpb_signed((packet[0] >> 32) & UINT64_C(0x3fff), 14u);
+  const int64_t xh = zpb_signed(packet[2] >> 32, 32u);
+  const int64_t dxh = zpb_signed(packet[2] & UINT64_C(0xffffffff), 32u);
+  const int64_t x0 = (int64_t)(machine->rdp.scissor_xh >> 2);
+  int64_t x1 = (int64_t)(machine->rdp.scissor_xl >> 2);
+  uint64_t y_bound;
+  uint64_t edge_bound;
+  uint64_t x_bound;
+  uint64_t left;
+  uint64_t right;
+  uint64_t bound;
+
+  if (x1 > (int64_t)machine->rdp.color_image_width) {
+    x1 = (int64_t)machine->rdp.color_image_width;
+  }
+  y_bound = zpb_abs(yl - yh) * UINT64_C(65536) + UINT64_C(65536);
+  edge_bound = zpb_abs(dxh) * y_bound / UINT64_C(65536) + UINT64_C(1);
+  left = zpb_abs(x0 * INT64_C(65536) - xh);
+  right = zpb_abs(x1 * INT64_C(65536) - xh);
+  x_bound = (left > right ? left : right) + edge_bound + UINT64_C(65536);
+  bound = input == ZPB_DZDX ? x_bound
+                            : (input == ZPB_DZDE ? edge_bound : y_bound);
+  return ZPB_LIMIT / bound;
+}
+
+/* The live acceptance: the extent proof and the preflight of a command. */
+static bool zpb_live_accepts(const t64_machine *machine,
+                             const uint64_t *packet) {
+  uint32_t first = 0u;
+  uint32_t last = 0u;
+
+  return t64_rdp_triangle_bounds(machine, ZPB_OPCODE, packet, ZPB_WORDS,
+                                 &first, &last);
+}
+
+/* Largest magnitude the live acceptance takes, by bisection between a
+ * magnitude it takes (zero) and one it refuses (2^31). */
+static uint64_t zpb_largest_accepted(const t64_machine *machine,
+                                     const zpb_probe *probe) {
+  uint64_t packet[ZPB_WORDS];
+  uint64_t low = 0u;
+  uint64_t high = ZPB_MAGNITUDE_END;
+
+  zpb_packet(packet, probe->geometry, probe->input, low);
+  T64_CHECK(zpb_live_accepts(machine, packet));
+  zpb_packet(packet, probe->geometry, probe->input, high);
+  T64_CHECK(!zpb_live_accepts(machine, packet));
+  while (high - low > 1u) {
+    const uint64_t middle = low + (high - low) / 2u;
+
+    zpb_packet(packet, probe->geometry, probe->input, middle);
+    if (zpb_live_accepts(machine, packet)) {
+      low = middle;
+    } else {
+      high = middle;
+    }
+  }
+  return low;
+}
+
+/* One packet through the importer: the packet and the rows its extent gives
+ * (the same rows for every magnitude, the derivatives do not enter the extent)
+ * are set on the mid-triangle machine, which is exported and imported into a
+ * fresh machine of the same id. */
+static t64_status zpb_import(t64_machine *machine, const uint64_t *packet,
+                             t64_state_import_report *report) {
+  t64_rdp_triangle_view view;
+  t64_machine *peer;
+  t64_status status = T64_STATUS_INVALID_ARGUMENT;
+  uint32_t first = 1u;
+  uint32_t last = 0u;
+  uint8_t *blob;
+  size_t length = 0u;
+  size_t i;
+
+  view.scissor_xh = machine->rdp.scissor_xh;
+  view.scissor_yh = machine->rdp.scissor_yh;
+  view.scissor_xl = machine->rdp.scissor_xl;
+  view.scissor_yl = machine->rdp.scissor_yl;
+  view.image_address = machine->rdp.color_image_address;
+  view.image_width = machine->rdp.color_image_width;
+  view.image_size = machine->rdp.color_image_size;
+  view.other_modes = machine->rdp.other_modes;
+  view.depth_address = machine->rdp.depth_image_address;
+  view.depth_valid = machine->rdp.depth_image_valid;
+  view.primitive_depth_valid = machine->rdp.primitive_depth_valid;
+  T64_CHECK(t64_rdp_triangle_extent(machine, ZPB_OPCODE, packet, ZPB_WORDS,
+                                    &view, &first, &last));
+  T64_CHECK(first <= last);
+  for (i = 0u; i < ZPB_WORDS; i++) {
+    machine->rdp.pending_triangle_words[i] = packet[i];
+  }
+  machine->rdp.render_y_begin = first;
+  machine->rdp.render_y_end = last;
+  machine->rdp.render_y = first;
+  blob = export_blob(machine, &length);
+  if (blob == NULL) return status;
+  peer = import_fresh(V2_STEM, blob, length, "z-product-bound", &status,
+                      report);
+  if (peer != NULL) t64_machine_destroy(peer);
+  free(blob);
+  return status;
+}
+
+static void case_z_product_bound(void) {
+  t64_machine *machine = build_mid_z_triangle(V2_STEM);
+  size_t i;
+
+  if (machine == NULL) return;
+  /* the machine of the probes holds the registers of the Z triangle setup */
+  T64_CHECK_INT(machine->rdp.pending_triangle_word_count, ZPB_WORDS);
+  for (i = 0u; i < sizeof zpb_probes / sizeof zpb_probes[0]; i++) {
+    const zpb_probe *probe = &zpb_probes[i];
+    t64_state_import_report report = T64_STATE_IMPORT_REPORT_INIT;
+    uint64_t packet[ZPB_WORDS];
+    uint64_t largest;
+    uint64_t expected;
+    t64_status status;
+
+    zpb_packet(packet, probe->geometry, probe->input, 0u);
+    expected = zpb_expected_magnitude(machine, packet, probe->input);
+    largest = zpb_largest_accepted(machine, probe);
+    fprintf(stderr,
+            "z-product-bound %s: largest magnitude the live acceptance takes "
+            "%llu, limit / bound %llu\n",
+            probe->name, (unsigned long long)largest,
+            (unsigned long long)expected);
+    /* the boundary exists inside the 32-bit range and equals limit / bound */
+    T64_CHECK(largest > 0u && largest < ZPB_MAGNITUDE_END);
+    T64_CHECK_INT(largest, expected);
+
+    /* both sides through the live acceptance */
+    zpb_packet(packet, probe->geometry, probe->input, largest);
+    T64_CHECK(zpb_live_accepts(machine, packet));
+    status = zpb_import(machine, packet, &report);
+    T64_CHECK_INT(status, T64_STATUS_OK);
+    T64_CHECK_INT(report.status, T64_STATUS_OK);
+    T64_CHECK_INT(report.reason, T64_STATE_REASON_NONE);
+
+    zpb_packet(packet, probe->geometry, probe->input, largest + 1u);
+    T64_CHECK(!zpb_live_accepts(machine, packet));
+    status = zpb_import(machine, packet, &report);
+    T64_CHECK_INT(status, T64_STATUS_STATE_RANGE);
+    T64_CHECK_INT(report.status, T64_STATUS_STATE_RANGE);
+    T64_CHECK_INT(report.reason, T64_STATE_REASON_FIELD_RANGE);
+    T64_CHECK_INT(report.section_id, T64_STATE_SECTION_RDP_VI);
+    T64_CHECK_INT(report.rule, T64_STATE_RULE_LEN_LE);
+  }
+  t64_machine_destroy(machine);
+}
+
 int main(int argc, char **argv) {
-  static const char *const cases[] = {"roundtrip", "hostile"};
+  static const char *const cases[] = {"roundtrip", "hostile",
+                                      "z-product-bound"};
 
   if (argc == 2 && strcmp(argv[1], "--list-cases") == 0) {
     size_t index;
@@ -1443,6 +1692,10 @@ int main(int argc, char **argv) {
       case_hostile();
       return T64_TEST_FINISH("unit.core.state.import-v26-hostile");
     }
+    if (strcmp(argv[2], "z-product-bound") == 0) {
+      case_z_product_bound();
+      return T64_TEST_FINISH("unit.core.state.v26-z-product-bound");
+    }
     fprintf(stderr, "unknown case: %s\n", argv[2]);
     return 2;
   }
@@ -1452,5 +1705,6 @@ int main(int argc, char **argv) {
   }
   case_roundtrip();
   case_hostile();
+  case_z_product_bound();
   return T64_TEST_FINISH("unit.core.state.import-v26-all");
 }
