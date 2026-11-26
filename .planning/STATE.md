@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 12
 current_phase_name: Minimal Host, Playable Homebrew and Final Bind
 status: executing
-stopped_at: Completed 12-01-PLAN.md (preflight, pin maps, decision record DR-01 to DR-33; no production edit; next plan 12-02)
-last_updated: "2026-11-26T16:17:37.811Z"
+stopped_at: Completed 12-02-PLAN.md (title spec, independent oracle, four input scripts and committed expectations, harness.title-oracle; no guest, ROM, manifest or runner edit; next plan 12-03)
+last_updated: "2026-11-26T16:37:28.464Z"
 last_activity: 2026-11-26
-last_activity_desc: Plan 12-01 complete (preflight, pin maps, decision record)
-state_head: 64506afc095d0537ca7c15c931a221536346f850
+last_activity_desc: Plan 12-02 complete (title spec, independent oracle, input scripts, committed expectations)
+state_head: a6bb66de55848b24a838298ef27435323159869a
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 68
-  completed_plans: 51
+  completed_plans: 52
   percent: 67
 ---
 
@@ -30,10 +30,10 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 ## Current Position
 
 Phase: 12 (Minimal Host, Playable Homebrew and Final Bind) — EXECUTING
-Plan: 2 of 18
+Plan: 3 of 18
 Status: Ready to execute
-Last activity: 2026-11-26 — Plan 12-01 complete (preflight, pin maps, decision record)
-Note: plan 12-01 is complete (Wave 0, no production edit): Wave 0 base 60b9e3c34fc0efc0ff64296cfa31415565b847b2, `sh scripts/preflight-phase12.sh` PASS in 39 s, PIN-IMPACT.md holds the registration map (18 R rows), the bind pin-site map (35 B rows), the LibFuturo pin (a local unpublished SHA), the decision record DR-01 to DR-33 (ABI 1.0 / package 1.0.0 owner confirmed as an ABI identity), the carry-in triage (G3 count 5, at the limit) and the Phase 12 G4 exception for owner review (baseline cold gate-macos 729 s of 900 s). origin/main is dc247faaa3f5ceda17870c5e66b7ec181c767637 (hosted green); the local commits after it are records and Phase 12 work, nothing is pushed (the first push a plan names is 12-06). Next: plan 12-02 (title spec and the independent oracle).
+Last activity: 2026-11-26 — Plan 12-02 complete (title spec, independent oracle, input scripts, committed expectations)
+Note: plan 12-02 is complete (oracle first, no guest source): `fixtures/title/title-spec.md` is the behavior authority (TS-1 to TS-16), `fixtures/title/title_oracle.py` (standard library only, 114 selftest cases) generated the four `t64.input` scripts and `fixtures/title/title.expected.json` (checkpoint frame digests: short 3, short-wrong 3, long 12, shifted 13, persist 3; audio, save and transcript values; the blank digest 2aae7dc8...); `harness.title-oracle` (COST 0.09) is registered, the inventory is 330 names and the `PHASE12_TESTS` block exists. Open assumption for plan 12-03: the field boundaries use a NOMINAL VI enable tick of 550,000 (stamps keep 200,000 ticks from every boundary, so a real value within 100,000 ticks of it is safe); 12-03 measures the real tick and changes TS-4 first if it lies outside. origin/main is dc247faaa3f5ceda17870c5e66b7ec181c767637 (hosted green); everything after it is local and nothing is pushed (the first push a plan names is 12-06). Next: plan 12-03 (the authored title guest, builder copy, fixture target and probe against the oracle).
 
 Progress: [███████░░░] 67% (0 of 3 v1.2 phases complete)
 
@@ -112,6 +112,7 @@ Progress: [███████░░░] 67% (0 of 3 v1.2 phases complete)
 | Phase 11 P24 | 23 min | 3 tasks | 7 files |
 | Phase 11 P25 | 43 min | 4 tasks | 5 files |
 | Phase 12 P01 | 13 min | 3 tasks | 3 files |
+| Phase 12 P02 | 13 min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -270,6 +271,7 @@ Progress: [███████░░░] 67% (0 of 3 v1.2 phases complete)
 - [Phase 12]: Plan 12-01: Wave 0 base 60b9e3c34fc0efc0ff64296cfa31415565b847b2; title fixed (profile ntsc-cart-4m-openipl3-rdram-b-t1-si-v2-s32k, 128x96, polled MI VI pending frame lock, runner at most 3 fields under the 4,000,000-tick cap, oracle first); host layout and pump API names recorded (DR-01 to DR-21)
 - [Phase 12]: Plan 12-01: final bind DR-25 as ABI 1.0 / package 1.0.0 SameMajorVersion, an ABI identity not a release version (owner confirmed 2026-11-26); four plans 12-13 to 12-16; S-05 and I-05 kept as accepted limits; route B (libdragon) a documented costly non-goal
 - [Phase 12]: Plan 12-01: Phase 12 G4 exception for owner review (no equal-time offset; baseline cold gate-macos 729 s of 900 s, margin 171 s); reversal rule: a measured or projected cold above 900 s or a margin under 120 s moves non-essential names to a local lane first; LibFuturo pin 4177a43 is a local unpublished SHA
+- [Phase 12]: 12-02: poll p follows the VI pending bit of field p-1 (poll 1 after the VI enable), the frame after poll p is the packet at B(p), event field j is first seen by poll j+2; nominal VI enable tick 550,000 with a 200,000-tick stamp margin (plan 12-03 measures the real value)
 
 ### Pending Todos
 
@@ -295,8 +297,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-26T16:17:37.595Z
-Stopped at: Completed 12-01-PLAN.md (preflight, pin maps, decision record DR-01 to DR-33; no production edit; next plan 12-02)
+Last session: 2026-11-26T16:37:28.077Z
+Stopped at: Completed 12-02-PLAN.md (title spec, independent oracle, four input scripts and committed expectations, harness.title-oracle; no guest, ROM, manifest or runner edit; next plan 12-03)
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
