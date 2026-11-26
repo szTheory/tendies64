@@ -9,7 +9,7 @@ stopped_at: Completed 11-26-PLAN.md (executed out of wave order after 11-15; nex
 last_updated: "2026-11-26T02:08:25.252Z"
 last_activity: 2026-11-25
 last_activity_desc: Phase 11 execution started
-state_head: ea049a88c0bab8dfa32b004659c77238e16cc2b0
+state_head: c7c75818c0bab8dfa32b004659c77238e16cc2b0
 progress:
   total_phases: 3
   completed_phases: 1
@@ -284,4 +284,4 @@ pass. This approval applies to that specific repair, not future private values.
 - Owner approval 2026-11-25 (answer "Approve call-site-only rebind", Phase 11 plan-phase): Phase 11 may perform an identity-only, orchestrator-only rebind of the Phase 7 oracle request after API call-site-only edits to the nine bound test files (core/tests/test_rdp{,_copy,_triangles,_texture,_combiner,_blender,_depth}.c, test_vi.c, test_video_output.c, runner/tests/test_rdp_video.c): reproduce the old pinned hash first, change only those call sites and the derived hashes and PINNED_REQUEST_SHA256, keep local_decision blocked, isolate in one commit. No oracle, rights or publication authority granted.
   - Planner note 2026-11-25 (plan check item I-1; not owner text, the approval above is unchanged): the approval says "nine" and lists ten paths. Phase 11 reads it as nine API-using files edited (the seven test_rdp files, test_vi.c, test_video_output.c) and runner/tests/test_rdp_video.c listed but not edited (it needs no call-site change and keeps its hash); recorded as DR-27 in plan 11-01 and applied by plan 11-14.
 - Owner approval 2026-11-25 (answer "A: Extend approval to this initializer", Phase 11 execution, plan 11-01 checkpoint): the 2026-11-25 call-site-only rebind approval also covers the single value-neutral initializer update core/tests/test_rdp.c:486 (t64_host_storage image = {NULL, 0u, 0u} becomes {0}), same identity-only, orchestrator-only, one-isolated-commit, local_decision-blocked terms; no expected value, check, case name, sizeof pin or control-flow edit in any bound file is covered. t64_host_storage keeps its leading struct_size.
-- gov.pii.repo fails at HEAD (gate 274 of 275, preflight pii step): two P-PRIVATE-PATH hits in the history of commit 47f37eb (11-26-PLAN.md added with absolute home paths in its execution_context; the tree is fixed by 766d20a). History is immutable for an executor: the orchestrator must repair the unpublished range or obtain an owner waiver (tools/rights/pii-history-waivers.tsv) before any push
+- RESOLVED 2026-11-25 (orchestrator): the two P-PRIVATE-PATH hits in the unpublished commit that added 11-26-PLAN.md were repaired by rebuilding the unpublished range 517fe00..HEAD without the path (final tree byte-identical, no pushed commit touched; AUTONOMY section 2 local-repair rule); no waiver needed. The old SHAs quoted in the 11-26 records were re-pointed.
