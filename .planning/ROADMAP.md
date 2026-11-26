@@ -273,10 +273,10 @@ Plans:
 - [x] 12-03-PLAN.md — TITLE: authored 128x96 title guest, builder copy, fixture target, probe against the oracle, manifest rows (two commits)
 
 **Wave 4** *(blocked on Wave 3 completion)*
-- [ ] 12-04-PLAN.md — TITLE: runner rows, two supervised runs, wrong-input and refused-frame controls, runner-recorded pins
+- [ ] 12-04-PLAN.md — TITLE: runner rows, one supervised raw-capture run with the runner exclusions recorded, wrong-input and refused-frame controls, runner-recorded pins
 
 **Wave 5** *(blocked on Wave 4 completion)*
-- [ ] 12-05-PLAN.md — TITLE: installed-consumer title and title-persist cases, generated literals, consumer-recorded pins
+- [ ] 12-05-PLAN.md — TITLE: installed-consumer title, title-persist and title-refused cases (save image and blank-frame comparisons), generated literals, consumer-recorded pins
 
 **Wave 6** *(blocked on Wave 5 completion)*
 - [ ] 12-06-PLAN.md — W0 checklist and TITLE review in a scratch clone, push, hosted pair, Host base
