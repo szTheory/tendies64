@@ -69,20 +69,30 @@ and stay untouched.
 
 ## Bind pin-site map
 
-Written by plan 12-01 Task 2 at the Wave 0 base before any Phase 12 edit. Question: which sites
-does the final bind (plans 12-13 to 12-16) have to move or re-check? Measured fresh with `git
-grep` at the Wave 0 base; rows start with `| B-`. "Header" means the installed header
+Written by plan 12-01 Task 2 at the Wave 0 base before any Phase 12 edit and re-measured by plan
+12-13 Task 3 at HEAD (the Bind base 49d41ac plus the two commits of 12-13 that touch only
+`scripts/check-abi.py`; `git diff 49d41ac HEAD -- core docs/abi tests host runner tools` prints
+nothing). Question: which sites does the final bind (plans 12-13 to 12-16) have to move or
+re-check? Measured fresh with `git grep`; rows start with `| B-`. "Header" means the installed header
 `core/include/tendies64/t64_machine.h`. The owner is the plan that edits the site: 12-13 is the
 checker generalization (no ABI byte moves), 12-14 the one coupled bind commit (the last
 ABI-moving plan), 12-15 the live-text settle (no bound hash moves), 12-16 the post-bind
 controls and proofs. No scan path was narrowed to reach a count.
 
-Measured counts at the Wave 0 base (the proof commands follow the table):
+Measured counts, re-measured by plan 12-13 at HEAD (they replace the planning counts of the Wave
+0 base; the fresh values equal the planning values, because no line of the header or of the sites
+outside it moved after the Wave 0 base, and the rows whose line moved are corrected in the table:
+B-23, B-28 and B-33). The proof commands follow the table.
 
-- Header lines holding "provisional": 13 (`grep -c -i provisional` on the header): 11 lines hold
-  "provisional until the Phase 11" on one line (63, 131, 137, 142, 174, 190, 362, 677, 720, 877,
-  963; line 174 and line 362 read "Provisional" with a capital), 1 wrapped site where the phrase
-  continues on the next comment line (914-915) and 1 line that reads "(provisional)" (179).
+- Header provisional lines at the Bind base: 13
+
+- Header lines holding "provisional": 13 (`grep -c -i provisional` on the header, which is the
+  same file at the Bind base and at HEAD): 11 lines hold "provisional until the Phase 11" on one
+  line (63, 131, 137, 142, 174, 190, 362, 677, 720, 877, 963; line 174 and line 362 read
+  "Provisional" with a capital), 1 wrapped site where the phrase continues on the next comment
+  line (914-915: line 914 ends with "provisional", line 915 starts with "until the Phase 11
+  freeze candidate, final ABI bind at the end of Phase 12)") and 1 line that reads
+  "(provisional)" (179); 11 + 1 + 1 = 13.
 - Header text sites to settle: 15, namely those 13 lines plus the banner (lines 2-4, "a 0.x freeze
   candidate bound by Phase 11 ... it is not a frozen ABI yet") and the sentence at line 713 ("the
   API is Phase 11"). Thirteen of the 15 sites (all except line 179 and line 713) also carry the
@@ -93,23 +103,42 @@ Measured counts at the Wave 0 base (the proof commands follow the table):
   18: "PROVISIONAL, in-tree only"; the facade is the synthetic-guest runner header, it is not
   installed and sits outside the freeze record, DR-18 of Phase 11). The 15 header text sites above
   are in the installed header only; the facade lines are not bind sites.
-- Lines holding "until the Phase 11" outside the header: 4 in `core` (`core/t64_internal.h` 1,
-  `core/t64_machine.c` 1, `core/t64_state.c` 2) and 13 in `docs/spec` (`machine-contract.md` 5,
-  `raw-capture.md` 1, `replay.md` 1, `result-protocol.md` 2, `save-media.md` 1,
-  `state-container.md` 3; the wrapped `result-protocol.md` site at 546-547 is counted once);
-  `runner` and `tools` hold 0. A multi-line aware scan of `core runner tools docs/spec tests
-  scripts host` (phrase joined across comment and line breaks) finds the same per-file counts
-  outside the header, so no wrapped site hides there. `scripts/check-stale-freeze-text.sh` holds
-  1 more, in its own clean-relabel seed (line 122), which is intentional. Closed Phase 9 and
-  Phase 10 records (`docs/claims/phase09.md` line 32, `docs/claims/phase10.md` line 35,
+- Lines naming the freeze date outside the header, two commands. The strict single-line command
+  `git grep -n -i 'until the Phase 11 freeze' -- core runner tools docs/spec` prints 24 lines:
+  the header 8, `core` 4 (`core/t64_internal.h` 1, `core/t64_machine.c` 1, `core/t64_state.c` 2)
+  and `docs/spec` 12 (`machine-contract.md` 5, `raw-capture.md` 1, `replay.md` 1,
+  `result-protocol.md` 1, `save-media.md` 1, `state-container.md` 3). It misses the sites where
+  the phrase ends its line ("freeze" starts the next), 4 in the header and the wrapped
+  `result-protocol.md` site at 546-547, so the settle proofs use the wider command
+  `git grep -n -i -E 'until (the )?Phase 11' -- core runner tools docs/spec`, which prints 29
+  lines: the header 12, `core` 4 and `docs/spec` 13 (`result-protocol.md` 2: lines 546 and 555);
+  outside the header it prints 17. `runner` and `tools` hold 0. A joined-text scan of
+  `core runner tools docs/spec tests scripts host` (proof command 7) prints the same per-file
+  counts as the line command, so no site is split inside the phrase "until the Phase 11" and no
+  scan path was narrowed. `scripts/check-stale-freeze-text.sh` holds 1 more, in its own
+  clean-relabel seed (line 122), which is intentional. Closed Phase 9 and Phase 10 records
+  (`docs/claims/phase09.md` line 32, `docs/claims/phase10.md` line 35,
   `docs/evidence/phase10-qualification.md` 1) keep their historical wording and are not edited.
 - Other `provisional` lines outside the installed header, for the 12-15 judgment (not all are
   freeze statements): `core/include/tendies64/t64_facade.h` 2, `core/tests/test_save_transfer.c`
   2, `docs/spec` 23 lines in 7 files (`machine-contract.md` 10, `state-container.md` 5, `rdp.md` 2,
   `result-protocol.md` 2, `save-media.md` 2, `raw-capture.md` 1, `replay.md` 1), `runner` headers 3
-  and `runner/tests/test_state_runner.c` 1.
+  (`t64_artifact_publisher.h`, `t64_replay.h`, `t64_save_flags.h`) and
+  `runner/tests/test_state_runner.c` 1; the four `core` sites of B-31 are the only other
+  production-source lines.
+- Version pin sites at HEAD (every one listed in the table; none is new except B-36 and B-37,
+  which are observations): the ABI constants (header lines 41-42, B-01 and B-02), the package
+  version `0.1.0` with `SameMinorVersion` (`core/CMakeLists.txt` lines 141 and 160, B-18), the
+  expectations of `core/tests/test_api_surface.c` lines 21-22 (B-19), the consumer request 0.1
+  (`tests/installed-consumer/CMakeLists.txt` line 17, B-22), the host request 0.1
+  (`host/CMakeLists.txt` line 21, B-33), the two configure-failure messages of
+  `scripts/check-install.sh` (lines 211 and 993, B-23), the two version controls of
+  `tests/installed-consumer/controls.tsv` (lines 18 and 19, B-25), and the pinned layout
+  constants (`docs/abi/layout.c` lines 245-247, B-20). `0.1.0` text that is not the package
+  version (claim fixtures `build_id: 0.1.0` under `tests/seeded/claims`, `scripts/check-claims.sh`
+  and `runner/tests/test_skeleton_probe.c`) is test data of the claim format and is not a pin.
 
-| ID | Site (path and lines at the Wave 0 base) | Current value or text | What the bind does | Owner |
+| ID | Site (path and lines at HEAD, re-measured by plan 12-13) | Current value or text | What the bind does | Owner |
 |----|------------------------------------------|-----------------------|--------------------|-------|
 | B-01 | Header line 41 | `#define T64_ABI_VERSION_MAJOR UINT32_C(0)` | becomes 1 | 12-14 |
 | B-02 | Header line 42 | `#define T64_ABI_VERSION_MINOR UINT32_C(1)` | becomes 0 | 12-14 |
@@ -133,44 +162,54 @@ Measured counts at the Wave 0 base (the proof commands follow the table):
 | B-20 | `docs/abi/layout.c` lines 245-247 | three pins: `T64_ABI_VERSION_MAJOR == 0ll`, `T64_ABI_VERSION_MINOR == 1ll`, `T64_ABI_VERSION == 1ll` | regenerated by `check-abi.py layout --write` (major 1 gives `T64_ABI_VERSION == 65536ll`) | 12-14 |
 | B-21 | `docs/abi/header.sha256` and the block keys `header_sha256` and `layout_sha256` of `docs/abi/FREEZE-CANDIDATE.md` | header file hash `46d07b8f7658...`, block `header_sha256: 538a6a92...`, `layout_sha256: 9637d530...` | rewritten by `check-abi.py freeze --write`; the public-symbol and status-class goldens do not move | 12-14 |
 | B-22 | `tests/installed-consumer/CMakeLists.txt` lines 17-18 | `set(T64C_REQUIRED_VERSION 0.1 CACHE STRING ...)` and `find_package(tendies64 ${T64C_REQUIRED_VERSION} REQUIRED CONFIG)` | request 1.0 | 12-14 |
-| B-23 | `scripts/check-install.sh` lines 211 and 985 (message text), 446 | "consumer configure failed (find_package(tendies64 0.1 REQUIRED CONFIG))" twice; line 446 passes `-DT64C_REQUIRED_VERSION=$CTL_ARG` from the control row | messages say 1.0; the control mechanism is unchanged | 12-14 |
+| B-23 | `scripts/check-install.sh` lines 211 and 993 (message text; 985 at the Wave 0 base), 446 | "consumer configure failed (find_package(tendies64 0.1 REQUIRED CONFIG))" twice; line 446 passes `-DT64C_REQUIRED_VERSION=$CTL_ARG` from the control row | messages say 1.0; the control mechanism is unchanged | 12-14 |
 | B-24 | `scripts/check-install.sh` lines 477-491 and 512-515 | the `doctored-header-abi` doctoring (`T64_ABI_VERSION_MINOR` plus one, read back by `ctl_abi_minor`) | verify only: at 1.0 a caller minor 1 above the library's still answers ABI_MISMATCH | 12-14 (re-run), 12-16 |
 | B-25 | `tests/installed-consumer/controls.tsv` lines 18, 19 and 22 | `version-mismatch-minor` (request 0.2), `version-mismatch-patch` (request 0.1.5, expected text `compatible with requested version "0.1.5"`), `doctored-header-abi` (status 34) | requests of a higher minor (1.1) and a higher major (2) plus one positive control; the major control is 12-16 (DR-27 `installed.controls.version-mismatch-major`) | 12-14, 12-16 |
-| B-26 | `scripts/check-abi.py` lines 695, 702, 709, 719 and 941-962 | `FREEZE_CANDIDATE_MINOR = 1`, `SCALAR_KEYS`, `AMENDMENT_ROW_RE` (counts every dated row of the log), the advice text and the rule `minor != FREEZE_CANDIDATE_MINOR + rows` | generalized by `bound_minor` and `candidate_amendments` block keys with no ABI byte change (DR-25) | 12-13 |
-| B-27 | `scripts/check-abi.py` lines 1572-1577 | seed `freeze-amendment-missing`: anchor `UINT32_C(1)` becomes `UINT32_C(2)` | generalized to read the minor from the header (the hard-coded anchor no longer exists at 1.0); must be done before the bind commit | 12-13 |
-| B-28 | `docs/spec/api.md` lines 3-5 (status), 42-56 (2.1), 57-70 (2.2), 71-87 (2.3), 666-715 (13), 716-753 (14), 754-780 (15) and the section 12 `t64_machine_advance` row at line 638 | "0.x freeze candidate", `T64_ABI_VERSION_MAJOR` is 0 and `MINOR` is 1, 0x00000001, "0.1.0 with `COMPATIBILITY SameMinorVersion`", the 0.2 and 0.1.5 refusals, "Candidate, final bind and amendments", "Limits of this candidate"; FN-02: the advance row lacks the CP0 corrupt-phase `INTERNAL_DEFECT` source | rewritten for the bound 1.0 contract; FN-02 text added | 12-15 |
+| B-26 | `scripts/check-abi.py` (Wave 0 base lines 695, 702, 709, 719 and 941-962) | `FREEZE_CANDIDATE_MINOR = 1`, `SCALAR_KEYS`, `AMENDMENT_ROW_RE` (counts every dated row of the log), the advice text and the rule `minor != FREEZE_CANDIDATE_MINOR + rows` | generalized by `bound_minor` and `candidate_amendments` block keys with no ABI byte change (DR-25). DONE in 12-13 (commits 129f314 and 2f177d3): `BOUND_KEYS` (line 716), `bound_numbers` and `minor_findings` (lines 948-995; a record with both keys requires minor == `bound_minor` + rows - `candidate_amendments`, a record with neither keeps the candidate rule and its text, a lone or non-decimal key and a log shorter than `candidate_amendments` are findings), `write_freeze` keeps both keys and refuses a lone one; `FREEZE_CANDIDATE_MINOR` stays for the candidate rule | 12-13 |
+| B-27 | `scripts/check-abi.py` selftest seed `freeze-amendment-missing` (Wave 0 base lines 1572-1577) | anchor `UINT32_C(1)` becomes `UINT32_C(2)` | generalized to read the minor from the header (the hard-coded anchor no longer exists at 1.0). DONE in 12-13: `seed_minor_raised` reads `T64_ABI_VERSION_MINOR` from the scratch header and writes it plus one (at minor 0 it writes 1), its wanted text is `ABI minor {raised} ... needs` and `amendment row(s)` (both rules print that prefix); 16 cases were added to the freeze selftest (21 became 37): `freeze-candidate-*` (3), `freeze-bound-*` (10 seeded and 2 special write cases) and `freeze-amendment-missing-bound` for the post-bind world | 12-13 |
+| B-28 | `docs/spec/api.md` lines 3-5 (status), 42-56 (2.1), 57-70 (2.2), 71-87 (2.3), 673-722 (13), 723-760 (14), 761-787 (15) and the section 12 `t64_machine_advance` row at line 645 | "0.x freeze candidate", `T64_ABI_VERSION_MAJOR` is 0 and `MINOR` is 1, 0x00000001, "0.1.0 with `COMPATIBILITY SameMinorVersion`", the 0.2 and 0.1.5 refusals, "Candidate, final bind and amendments", "Limits of this candidate"; FN-02: the advance row lacks the CP0 corrupt-phase `INTERNAL_DEFECT` source | rewritten for the bound 1.0 contract; FN-02 text added | 12-15 |
 | B-29 | `docs/abi/FREEZE-CANDIDATE.md` lines 3-5 (status), 56-65 (evidence, FN-04), 85-113 (rule between record and bind), 114-120 (final bind), 124-147 (block: `abi_version: 0.1`, `package_version: 0.1.0`, `amendments: 0`), 149-155 (amendment log, empty) | candidate wording | status, block (`abi_version: 1.0`, `package_version: 1.0.0`, new keys `bound_minor: 0` and `candidate_amendments: N`), final bind text and the D6 statement in 12-14; the FN-04 evidence text, prose only, in 12-15 | 12-14, 12-15 |
 | B-30 | `scripts/check-stale-freeze-text.sh` line 27 (`DENY`) and its seeds from line 82 | deny list holds only the Phase 10 patterns | adds the deny phrase for "provisional until the Phase 11" with a seeded case so the settle cannot regress | 12-15 |
 | B-31 | `core/t64_internal.h` line 2111, `core/t64_machine.c` line 1062, `core/t64_state.c` lines 10 and 461 | "provisional until the Phase 11 freeze candidate" (4 lines in comments) | relabeled; a `core` comment edit moves `T64_BUILD_ID`, and no sealed body (`REVIEWED_BODY_DIGESTS` of `scripts/check-rsp-no-hle.py`) may be touched | 12-15 |
 | B-32 | `docs/spec/machine-contract.md` lines 532, 574, 658, 775, 904; `raw-capture.md` 132; `replay.md` 11; `result-protocol.md` 546 (wrapped to 547) and 555; `save-media.md` 30; `state-container.md` 28, 416, 801 | "until the Phase 11 freeze candidate (final ABI bind at the end of Phase 12)" (13 lines) | relabeled | 12-15 |
-| B-33 | `host/CMakeLists.txt` (added by 12-07; not present at the Wave 0 base) | `find_package(tendies64 0.1 CONFIG REQUIRED)` until the bind | request 1.0 in the bind commit | 12-07 (adds), 12-14 (moves) |
+| B-33 | `host/CMakeLists.txt` line 21 (added by 12-07; not present at the Wave 0 base) | `find_package(tendies64 0.1 CONFIG REQUIRED)` until the bind | request 1.0 in the bind commit | 12-07 (adds), 12-14 (moves) |
 | B-34 | `core/tests/test_api_struct_size.c` lines 112-127, `tests/installed-consumer/ops.c` lines 400-414, `tests/installed-consumer/sequence.c` line 1822 | create with `T64_ABI_VERSION + 1u`, `- 1u`, `+ (1 << 16)`: expectation ABI_MISMATCH; the comment "while the major is 0 the minor must match" and the label "the minor version one below the library's" | observation, no ABI byte: the expectations hold at 1.0 (`- 1u` is major 0 with minor 65,535, a lower major; `+ 1u` is minor 1 above the library's, refused by `caller_minor <= library minor`), but the two texts name a minor below that no longer exists; 12-14 Task 2 judges a relabel (test comment edit) | 12-14 |
 | B-35 | `core/t64_machine.c` lines 2718-2729 (`abi_version_is_accepted`) | the live branch `caller_minor <= T64_ABI_VERSION_MINOR` runs only with equality at minor 0 | recorded gap: "older minor accepted" is untestable until a first minor exists; the major-rule unit case is 12-16 | 12-16 |
+| B-36 | `scripts/check-host-policy.sh` line 387 (the `clean-cmake-packages` seed of `repo.host-policy-selftest`) | seed text `find_package(tendies64 0.1 CONFIG REQUIRED)` appended to a seeded copy of `host/CMakeLists.txt`, never configured | observation, no edit: the seed only shows that the policy scan accepts a package line, and the "0.1" is not compared with any package; a stale-text guard of 12-15 must not read it as a pin | none |
+| B-37 | `scripts/qualify-phase11.py` (`TOOL_PATHS` lists `scripts/check-abi.py`, the record and the four goldens as bound tools of its own record; `freeze_binding` reads the block keys with a generic key pattern and ignores keys it does not know; its summary check compares the printed `abi=` and `package=` with the block) and the hermetic `scripts/tests/test_phase11_qualification.py` (`harness.phase11-qualification`, scratch records with `abi_version: 0.1`) | the Phase 11 record is closed history; the hermetic test builds its own records and never reads the real block | observation, no edit: the Phase 11 record is not re-verified at a later head (the precedent of the Phase 10 record at a Phase 11 head); 12-14's scratch-clone gate shows a red name if this reading is wrong | none |
 
-Proof commands (run at the Wave 0 base, `H` is the header path; each is multi-line aware where
-a phrase wraps):
+Proof commands (re-run by plan 12-13 at HEAD, so the values are those of the Bind base header;
+`H` is the header path `core/include/tendies64/t64_machine.h`; each command that must see a
+phrase across a line break is multi-line aware; `J` below names the joined text `tr '\n' ' ' <
+"$H" | sed 's/ \* / /g; s/  */ /g'`: the first sed rule squeezes each " * " comment continuation
+and the second collapses the double space left at each line break, so the banner's wrapped "not a
+frozen" / "ABI yet" of lines 3-4 joins; without the second rule that site is missed):
 
 1. `grep -c -i provisional "$H"` prints 13.
-2. `git grep -n -i provisional -- core/include | wc -l` prints 15 (13 in the header, 2 in the
-   facade; M-1 above).
-3. `tr '\n' ' ' < "$H" | sed 's/ \* / /g; s/  */ /g' | grep -c -i -E 'until the Phase 11|the API is
-   Phase 11|not a frozen ABI yet'` prints 1: the comment text joined into one line holds a match.
-   The count is one because the joined text is one line; the occurrence form of the same command
-   (`grep -o ... | wc -l` in place of `grep -c`) prints 14: 12 of "provisional until the Phase 11"
-   (11 one-line plus the wrapped site), 1 of "the API is Phase 11" and 1 of "not a frozen ABI
-   yet" (the banner's "not a frozen" / "ABI yet" of lines 3-4 joins only after the collapse,
-   which is why the plain line grep of the banner finds nothing).
-4. `grep -c -i 'until the Phase 11' "$H"` prints 12: the 11 one-line phrases plus line 915, the
+2. `J | grep -c -i -E 'until the Phase 11|the API is Phase 11|not a frozen ABI yet'` prints 1: the
+   joined text is one line, so the line count is 0 or 1, and 1 means a match.
+3. The occurrence form of 2, `J | grep -o -i -E 'until the Phase 11|the API is Phase 11|not a
+   frozen ABI yet' | wc -l`, prints 14: 12 of "until the Phase 11" (11 one-line phrases plus the
+   second line of the wrapped site), 1 of "the API is Phase 11" and 1 of "not a frozen ABI yet".
+4. `J | grep -o -i provisional | wc -l` prints 13 (the word never wraps, so it equals command 1).
+5. `grep -c -i 'until the Phase 11' "$H"` prints 12: the 11 one-line phrases plus line 915, the
    second line of the wrapped site (line 914 holds only "provisional", so command 1 counts that
    site on line 914 and this command counts it on line 915).
-5. `git grep -n -i -E 'until (the )?Phase 11' -- core runner tools docs/spec` prints 29 lines:
-   12 in the header, 4 in `core` outside it and 13 in `docs/spec` (`runner` and `tools` print
-   none); without the header the same command prints 17. The only other tracked line with the
-   phrase, outside this pathspec, is the clean-relabel seed of
-   `scripts/check-stale-freeze-text.sh` (line 122), which stays.
-6. After the bind (plans 12-14 and 12-15) command 1 and the occurrence form of command 3 must
-   print 0 for the header, the command of item 5 must print 0 outside the header and, with the
-   header settled, 0 in total, and `repo.stale-freeze-text` carries the deny phrase (B-30).
+6. `git grep -n -i -E 'until (the )?Phase 11' -- core runner tools docs/spec | wc -l` prints 29
+   (header 12, `core` 4, `docs/spec` 13); with the header excluded
+   (`':!core/include/tendies64/t64_machine.h'`) it prints 17. `git grep -n -i provisional --
+   core/include | wc -l` prints 15 (13 in the header, 2 in the facade; M-1 above).
+7. Joined-text scan outside the header (LC_ALL=C): `for f in $(git ls-files -- core runner tools
+   docs/spec tests scripts host); do n=$(tr '\n' ' ' < "$f" | sed 's/ \(\*\|\/\/\|#\|>\) / /g;
+   s/  */ /g' | grep -o -i -E 'until (the )?Phase 11' | wc -l); [ "$n" -gt 0 ] && echo "$f $n";
+   done` prints 11 files, each count equal to its line count of command 6 (the header 12, the
+   three `core` files 1, 1 and 2, the six `docs/spec` files 5, 1, 1, 2, 1 and 3) and
+   `scripts/check-stale-freeze-text.sh` 1.
+8. After the bind (plans 12-14 and 12-15): command 1 and the occurrence form (3) must print 0 for
+   the header, command 6 must print 0 outside the header and, with the header settled, 0 in
+   total, command 7 prints no file other than `scripts/check-stale-freeze-text.sh` (its own seed
+   lines name the phrase on purpose; 1 today, more once B-30 adds the deny phrase), and
+   `repo.stale-freeze-text` carries the deny phrase (B-30).
 
 ## API-07 pin: LibFuturo
 
@@ -608,3 +647,56 @@ wrong ROM, not committed): `title-refused` with the title ROM fails 9 checks (th
 NOT blank" lines, then audio, transcript, completion, bound and save), `title` with the refused ROM
 fails every checkpoint line marked "(blank)", the audio and transcript lines, and `title-persist` with
 the refused ROM fails 16 checks, each with its own text.
+
+## Bind staging
+
+Written by plan 12-13 Task 3 before 12-14 starts. It fixes the exact file set of the one coupled
+bind commit of plan 12-14 (rows start with `| S-`; 10 files). The 12-14 plan and DR-25 count 11
+files because the plan also lists this record, which is committed separately after the bind
+(plan 12-14 Task 4, "Bind steps"); the bind commit itself holds exactly these 10.
+
+| ID | File | What it holds and what the bind does to it | Pin-site rows |
+|----|------|--------------------------------------------|---------------|
+| S-01 | `core/include/tendies64/t64_machine.h` | the ABI constants (lines 41-42: MAJOR 0 to 1, MINOR 1 to 0) and the 15 header text sites (banner, 13 "provisional" lines, line 713); no struct, function, status or stop-reason change; the installed header, so its hash moves by design | B-01 to B-17 |
+| S-02 | `core/CMakeLists.txt` | the package version literal `VERSION 1.0.0 COMPATIBILITY SameMajorVersion` (line 160) and its comment (line 141); `project(VERSION)` stays in the top-level file, untouched | B-18 |
+| S-03 | `core/tests/test_api_surface.c` | the expectations of lines 21-22 (major 1, minor 0) | B-19 |
+| S-04 | `docs/abi/layout.c` | the generated pins (lines 245-247, `T64_ABI_VERSION == 65536ll` at 1.0), regenerated by `check-abi.py layout --write`; hash-bound to the header | B-20 |
+| S-05 | `docs/abi/header.sha256` | the manifest of the installed header, rewritten by `check-abi.py freeze --write` | B-21 |
+| S-06 | `docs/abi/FREEZE-CANDIDATE.md` | the bound record: block (`abi_version: 1.0`, `package_version: 1.0.0`, `bound_minor: 0`, `candidate_amendments: 0`, the new `header_sha256` and `layout_sha256`), status and rule text and the D6 owner-review item | B-21, B-29 |
+| S-07 | `tests/installed-consumer/CMakeLists.txt` | the consumer's request `T64C_REQUIRED_VERSION` 1.0 (line 17) | B-22 |
+| S-08 | `tests/installed-consumer/controls.tsv` | the two version controls move to requests 1.1 and 1.0.5 with their expected headlines tied to their arguments (lines 18-19); `doctored-header-abi` (line 22) is re-read, not edited | B-25 |
+| S-09 | `host/CMakeLists.txt` | the host's request `find_package(tendies64 1.0 CONFIG REQUIRED)` (line 21) | B-33 |
+| S-10 | `scripts/check-install.sh` | the two configure-failure messages (lines 211 and 993) name `find_package(tendies64 1.0 REQUIRED CONFIG)`; the control mechanism is unchanged | B-23 |
+
+Not in the set, on purpose: the B-34 relabel (the "minor below the library's" wording of
+`core/tests/test_api_struct_size.c`, `tests/installed-consumer/ops.c` and
+`tests/installed-consumer/sequence.c`) is a test comment edit with no bound hash and no pin, and
+it would make the bind commit 13 files; it stays unedited unless 12-15 or 12-16 carries it. B-36
+and B-37 need no edit. `docs/spec/api.md`, the four `core` comment sites (B-31), the `docs/spec`
+sites (B-32), `scripts/check-stale-freeze-text.sh` (B-30) and every consumer, host or control
+addition of 12-16 are later plans and move no bound hash.
+
+File-count exception reason (the warning band is 10 files per plan, "Plan file-count
+exceptions"): every one of the 10 files is hash-bound to the installed header (S-01 with S-04,
+S-05 and S-06 by the freeze check), or a version pin of the same compile state (S-02, S-03, S-07,
+S-08, S-09 and S-10 name the package or ABI number the header and the package files now state), so
+no subset compiles and tests green: the header at 1.0 with a 0.1 package, a 0.1 request or a 0.1
+expectation fails `repo.abi-freeze-record`, `install.setup`, `installed.consumer.*` or
+`unit.core.api.*`. It is one commit by the coupled-commit rule of AUTONOMY.
+
+Proof procedure (plan 12-14, Task 4 of its plan; the 12-13 plan text calls it Task 3): the staged
+set is exported once as `git diff --cached --binary` to `build/12-14-bind/bind.patch` with its
+SHA-256 in `build/12-14-bind/bind.patch.sha256`, applied to a detached scratch clone of HEAD, and
+`sh scripts/gate.sh`, the no-HLE check and the digest sweep against the Wave 0 base run there; only
+then is the shared tree committed, and the commit's own binary diff must hash to the proven patch.
+
+Resume rule: an interrupted 12-14 restarts from this plan's head (the 12-13 commit that records
+this section); the staged patch saved under `build/12-14-bind` is reusable only after
+`git apply --check` on a clean checkout of that head succeeds, otherwise 12-14 restarts at its
+Task 1.
+
+Owner confirmation: ABI 1.0 / package 1.0.0: OWNER CONFIRMED 2026-11-26 (CONTEXT); 0.x is a recorded alternative only
+(DR-25, kept for an amendment still open at the start of 12-14; none is open: the "Host-found API
+defects" ledger has 0 amend rows and "12-11 trigger: no"). The number is an ABI identity constant
+and the package's ABI number, not a release version; `project(VERSION)`, tags, the release channel
+and release naming stay unselected (D6) and are listed in the record as an owner-review item.
