@@ -19,3 +19,5 @@ visible-source-tree-seed	source-tree	seed	text	seed detected	the same scan finds
 doctored-header-abi	doctored	abi	status	34	a copied prefix whose header has T64_ABI_VERSION_MINOR plus one: create answers ABI_MISMATCH and machine_out stays NULL
 doctored-header-size	doctored	size	status	35	a copied prefix whose create-info lacks its last member: create answers STRUCT_TOO_SMALL before reading past the caller's size
 relocated-spaces	relocate	-	text	failures=0	a copy of the prefix moved a second time to another path with spaces builds and runs the smoke case and the new build tree names no earlier prefix
+symbol-collision	collision	-	text	f32_add calls: 0	a consumer that defines its own f32_add and t64_sha256_init links, the composite case ends at the pinned digest, and the core calls neither
+plain-cc	plain-cc	-	text	failures=0	one cc command without CMake compiles the consumer against the installed include directory and archive and the smoke case runs

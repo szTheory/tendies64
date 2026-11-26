@@ -23,7 +23,7 @@
 # plan 11-18 adds composite and literals (5 after Task 1; 15 after Task 2: three-way and nine ops cases; 23 after Task 3); plan 11-19 adds the four host-loop cases (27).
 27	^installed\.consumer\.
 # plan 11-19: installed.controls.* names require the t64_install fixture, so install.setup joins them (8 control names plus 1: 9 after Task 2, 11 after Task 3).
-9	^installed\.controls\.
+11	^installed\.controls\.
 # api04.* requires the t64_install fixture: install.setup joins the api04 names (plan 11-16 lesson), so the count is the api04 names plus one.
 5	^api04\.
 13	^unit\.core\.api\.

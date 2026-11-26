@@ -17,13 +17,25 @@ set(CMAKE_C_EXTENSIONS OFF)
 set(T64C_REQUIRED_VERSION 0.1 CACHE STRING "tendies64 version the consumer requests")
 find_package(tendies64 ${T64C_REQUIRED_VERSION} REQUIRED CONFIG)
 
-add_executable(t64c main.c smoke.c composite.c hostloop.c ops.c t64c_sha256.c)
+set(T64C_SOURCES main.c smoke.c composite.c hostloop.c ops.c t64c_sha256.c)
+add_executable(t64c ${T64C_SOURCES})
 target_link_libraries(t64c PRIVATE tendies64::core)
 # The smoke case alone, built only on request (the negative controls of controls.tsv
 # build this target against a doctored or relocated copy of the prefix).
 add_executable(t64c_smoke EXCLUDE_FROM_ALL smoke_main.c smoke.c)
 target_link_libraries(t64c_smoke PRIVATE tendies64::core)
-foreach(t64c_target t64c t64c_smoke)
+# The symbol-collision variant (plan 11-19): the same cases plus collision.c, which
+# defines the host's own f32_add and t64_sha256_init with wrong results and call
+# counters. Built only with -DT64C_COLLISION=ON (the symbol-collision control).
+option(T64C_COLLISION "Also build t64c_collision, the consumer with colliding host symbols" OFF)
+set(t64c_targets t64c t64c_smoke)
+if(T64C_COLLISION)
+  add_executable(t64c_collision ${T64C_SOURCES} collision.c)
+  target_link_libraries(t64c_collision PRIVATE tendies64::core)
+  target_compile_definitions(t64c_collision PRIVATE T64C_COLLISION=1)
+  list(APPEND t64c_targets t64c_collision)
+endif()
+foreach(t64c_target IN LISTS t64c_targets)
   target_compile_options(${t64c_target} PRIVATE
     -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wstrict-prototypes
     -Wmissing-prototypes -Wundef -Wvla -Wcast-qual -Wformat=2 -Wwrite-strings

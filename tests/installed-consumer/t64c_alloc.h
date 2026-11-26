@@ -3,7 +3,10 @@
  * 11-18). Own code: it includes only the public header and system headers. The
  * ledger is the per-instance allocator context, so a release of an unknown
  * pointer, a double release and a leak are all visible, and an allocation can
- * be made to fail on purpose (fail_in) for the ALLOCATION_FAILED cases.
+ * be made to fail on purpose (fail_in) for the ALLOCATION_FAILED cases. The
+ * storage is aligned by arithmetic over malloc, not by aligned_alloc (a C11
+ * function): the consumer, like the public header, compiles as C99 (the plain cc
+ * control of controls.tsv uses -std=c99).
  */
 #ifndef T64C_ALLOC_H
 #define T64C_ALLOC_H
@@ -18,7 +21,8 @@
 #define T64C_MAX_SLOTS 1024u
 
 typedef struct {
-  void *data;
+  void *data; /* the aligned block the library sees */
+  void *raw;  /* what malloc returned, for free */
   bool active;
 } t64c_slot;
 
@@ -41,6 +45,7 @@ static inline bool t64c_allocate(void *context, size_t size, size_t alignment,
   t64c_ledger *ledger = (t64c_ledger *)context;
   size_t host_alignment = alignment;
   size_t rounded;
+  void *raw;
   void *memory;
 
   if (ledger == NULL || storage_out == NULL || size == 0u || alignment == 0u ||
@@ -60,12 +65,15 @@ static inline bool t64c_allocate(void *context, size_t size, size_t alignment,
     return false;
   }
   rounded = ((size + host_alignment - 1u) / host_alignment) * host_alignment;
-  memory = aligned_alloc(host_alignment, rounded);
-  if (memory == NULL) {
+  raw = malloc(rounded + host_alignment);
+  if (raw == NULL) {
     ledger->refusals++;
     return false;
   }
+  memory = (void *)((((uintptr_t)raw + host_alignment - 1u) / host_alignment) *
+                    host_alignment);
   ledger->slots[ledger->slot_count].data = memory;
+  ledger->slots[ledger->slot_count].raw = raw;
   ledger->slots[ledger->slot_count].active = true;
   ledger->slot_count++;
   ledger->allocations++;
@@ -88,7 +96,7 @@ static inline void t64c_release(void *context, t64_host_storage storage) {
       ledger->slots[i].active = false;
       ledger->releases++;
       ledger->outstanding--;
-      free(storage.data);
+      free(ledger->slots[i].raw);
       return;
     }
   }

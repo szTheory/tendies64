@@ -516,6 +516,83 @@ ctl_relocate() {
   echo "relocation: the prefix was copied, moved to another path with spaces, and neither it nor the new build tree names an earlier prefix" >>"$CTL_LOG"
 }
 
+# archive_names ARCHIVE: the external names of an archive (defined and undefined),
+# one per line, the leading underscore of Darwin symbols stripped.
+archive_names() {
+  nm -P -g "$1" 2>/dev/null | awk 'NF >= 2 && $1 !~ /:$/ { n = $1; sub(/^_/, "", n); print n }' | LC_ALL=C sort -u
+}
+
+# ctl_collision: a consumer that defines its own f32_add and t64_sha256_init must link
+# against the installed archive, the composite case must give the unchanged digest, and
+# the core must never call the host's definitions. The unprefixed archive fails this.
+ctl_collision() {
+  [ -f "$CTL_ROM" ] || die "the authored composite ROM is not built: $CTL_ROM"
+  if ! consumer_configure "$CTL_BUILD" "$MOVED" "$CTL_DIR/configure.log" -DT64C_COLLISION=ON; then
+    cat "$CTL_DIR/configure.log" >&2
+    fail "control $CTL_ID: the collision consumer does not configure"
+  fi
+  if ! "$CMAKE" --build "$CTL_BUILD" --target t64c_collision >"$CTL_DIR/build.log" 2>&1; then
+    cat "$CTL_DIR/build.log" >&2
+    if grep -qiE 'duplicate symbol|multiple definition' "$CTL_DIR/build.log"; then
+      fail "control $CTL_ID: the link stopped on a duplicate symbol: the archive defines a name the host also defines"
+    fi
+    fail "control $CTL_ID: the consumer that defines its own f32_add and t64_sha256_init does not link"
+  fi
+  echo "link: the consumer with its own f32_add and t64_sha256_init linked against the archive" >>"$CTL_LOG"
+  archive_names "$MOVED/lib/libt64_core.a" >"$CTL_DIR/archive.names"
+  for _name in t64i_f32_add t64i_sha256_init; do
+    grep -qx "$_name" "$CTL_DIR/archive.names" || fail "control $CTL_ID: the archive has no $_name (the check of its names is empty or the rename is gone)"
+  done
+  for _name in f32_add t64_sha256_init; do
+    if grep -qx "$_name" "$CTL_DIR/archive.names"; then
+      fail "control $CTL_ID: the archive defines or references the unprefixed name $_name, which a host definition would override"
+    fi
+  done
+  echo "archive: it has t64i_f32_add and t64i_sha256_init and defines or references neither f32_add nor t64_sha256_init" >>"$CTL_LOG"
+  if "$CTL_BUILD/t64c_collision" --case composite --rom "$CTL_ROM" >"$CTL_DIR/run.txt" 2>&1; then
+    CTL_RUN_RC=0
+  else
+    CTL_RUN_RC=$?
+  fi
+  cat "$CTL_DIR/run.txt" >>"$CTL_LOG"
+  [ "$CTL_RUN_RC" -eq 0 ] || { tail -n 20 "$CTL_DIR/run.txt" >&2; fail "control $CTL_ID: the composite case failed or the core called a host symbol"; }
+  _digest=$(sed -n 's/^#define T64C_PIN_FINAL_DIGEST_HEX "\(.*\)"$/\1/p' "$ROOT/tests/installed-consumer/t64c_composite.h")
+  [ -n "$_digest" ] || die "no final digest pin in t64c_composite.h"
+  grep -qF "final state digest $_digest: equal" "$CTL_DIR/run.txt" || fail "control $CTL_ID: the final digest changed"
+  grep -qF "t64_sha256_init calls: 0" "$CTL_DIR/run.txt" || fail "control $CTL_ID: the core called the host's t64_sha256_init"
+  echo "digest: the composite case ends at the pinned final digest $_digest with the host symbols linked in" >>"$CTL_LOG"
+}
+
+# ctl_plain_cc: no CMake. One cc command compiles every source of the consumer (but the
+# collision file and the standalone smoke main) against the installed include directory
+# and links the installed archive; the smoke case then runs.
+ctl_plain_cc() {
+  _cc=$(cache_value CMAKE_C_COMPILER)
+  [ -n "$_cc" ] || die "the build tree records no C compiler"
+  _id=$(sed -n 's/^set(tendies64_BUILD_ID "\(.*\)")$/\1/p' "$MOVED/lib/cmake/tendies64/tendies64Config.cmake")
+  [ -n "$_id" ] || die "the installed package records no build identity"
+  set --
+  for _f in "$ROOT"/tests/installed-consumer/*.c; do
+    case ${_f##*/} in
+      collision.c | smoke_main.c) continue ;;
+    esac
+    set -- "$@" "$_f"
+  done
+  echo "cc line: cc -std=c99 -I <prefix>/include -DT64C_EXPECTED_BUILD_ID=<id> <$# consumer sources> <prefix>/lib/libt64_core.a" >>"$CTL_LOG"
+  if ! "$_cc" -std=c99 -I "$MOVED/include" "-DT64C_EXPECTED_BUILD_ID=\"$_id\"" \
+    -o "$CTL_DIR/t64c_plain" "$@" "$MOVED/lib/libt64_core.a" >"$CTL_DIR/cc.log" 2>&1; then
+    cat "$CTL_DIR/cc.log" >&2
+    fail "control $CTL_ID: the plain cc line does not compile and link the consumer"
+  fi
+  if "$CTL_DIR/t64c_plain" --case smoke >"$CTL_DIR/smoke.txt" 2>&1; then
+    CTL_SMOKE_RC=0
+  else
+    CTL_SMOKE_RC=$?
+  fi
+  cat "$CTL_DIR/smoke.txt" >>"$CTL_LOG"
+  [ "$CTL_SMOKE_RC" -eq 0 ] || fail "control $CTL_ID: the smoke case of the plain cc build failed"
+}
+
 # ctl_judge: compare what the action observed with the row.
 ctl_judge() {
   case $CTL_KIND in
@@ -575,6 +652,8 @@ cmd_control() {
     source-tree) ctl_source_tree ;;
     doctored) ctl_doctored ;;
     relocate) ctl_relocate ;;
+    collision) ctl_collision ;;
+    plain-cc) ctl_plain_cc ;;
     *) die "unknown control action $CTL_ACTION in controls.tsv" ;;
   esac
   ctl_judge

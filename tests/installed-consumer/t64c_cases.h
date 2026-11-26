@@ -107,4 +107,9 @@ bool t64c_hostloop_known(const char *name);
 void t64c_hostloop_list(void);
 int t64c_hostloop_run(const char *name, const t64c_args *args);
 
+/* The collision variant (collision.c, linked only into t64c_collision): print the
+ * call counters of the host's own f32_add and t64_sha256_init, and return status or
+ * 1 when either was called. */
+int t64c_collision_report(int status);
+
 #endif /* T64C_CASES_H */

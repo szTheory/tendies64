@@ -42,6 +42,15 @@ static const t64c_case t64c_cases[] = {
     {"composite", t64c_case_composite},
 };
 
+/* The collision executable (T64C_COLLISION) reports its counters after the case. */
+static int t64c_finish(int status) {
+#ifdef T64C_COLLISION
+  return t64c_collision_report(status);
+#else
+  return status;
+#endif
+}
+
 static bool parse_u64(const char *text, uint64_t *value_out) {
   uint64_t value = 0u;
 
@@ -93,14 +102,14 @@ int main(int argc, char **argv) {
     }
     for (k = 0u; k < sizeof t64c_cases / sizeof t64c_cases[0]; k++) {
       if (strcmp(name, t64c_cases[k].name) == 0) {
-        return t64c_cases[k].run(&args);
+        return t64c_finish(t64c_cases[k].run(&args));
       }
     }
     if (t64c_ops_known(name)) {
-      return t64c_ops_run(name, &args);
+      return t64c_finish(t64c_ops_run(name, &args));
     }
     if (t64c_hostloop_known(name)) {
-      return t64c_hostloop_run(name, &args);
+      return t64c_finish(t64c_hostloop_run(name, &args));
     }
     (void)fprintf(stderr, "t64c: unknown case: %s\n", name);
     return 2;
