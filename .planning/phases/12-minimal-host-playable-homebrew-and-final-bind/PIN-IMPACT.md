@@ -370,6 +370,8 @@ authored, software-profile policy only; no compatibility, accuracy, hardware or 
 | Blank digest | SHA-256 of 49,152 zero bytes `2aae7dc846aaf25f1cadf55f1666862046c6db9d65d84bdc07fa039dac405606`; no scenario frame equals it (selftest and document invariant); the refused-frame variant expects it for every packet; blank 32,768-byte save image `c35020473aed1b4642cd726cad727b63fff2824ad68cedd7ffb73c7cbd890479` |
 | Distinguishable controls | the short and short-wrong frame lists first differ at frame index 1 (poll 2), the long and shifted lists first differ at index 1, the persist frame differs from a fresh-boot frame |
 | Independence statement | The oracle imports only the standard library (ast walk of its own source, closed list), reads only its own source (selftest), the input scripts beside it and the constants it carries (each cites its title-spec.md section), and writes only the expectation file and the scripts of `--emit-inputs`. It reads no ROM, no core or runner source, no build output, no manifest row and no output of any other emulator, and it was written before `title.S` exists. |
+| Title source revision | 7b962961fcb8e1c1600dc84dae8a67f0c88dce26 (plan 12-03 Task 3: the commit that holds the final `fixtures/title/title.S`, 557 lines, 522 non-empty, SHA-256 `4c8ffcb967571c01f26d3014df66fcbd80de3c9bc979a6e59aa46b559befb6c9`; `fixtures/title/title.ld` SHA-256 `06dc5d6959df6499b90cef612d7598acc14a5b01cf042e8ad698e0eb0b700b9f`; builder source-content SHA-256 `0946b6391a5cdd56b2ffd8d594e5c4bb3d14f14d88266befb116813f5bd56c2a`); every later pin cites this revision (authoring-once rule) |
+| Built identities (build-only, never committed) | `phase12-title-s32k` ROM SHA-256 `dfe77f5856aa2069d7f44671770c336e0958d03e7ec2bca31b0ad89383a7d684`, 7,568 bytes, payload SHA-256 `ab2f79b01e4e5776e62659916c81d9170a890af2cada15c5dd88c6603da22703` (3,472 bytes); `phase12-title-refused-s32k` ROM SHA-256 `7989af8ac44028bdb56a43202ad80ae50ccb768619438e5cab113984953a0271`, 7,568 bytes, payload SHA-256 `03f57652e0091a003fef53d46559a6637e800156415bc2e2b65747de30d791bc`; completion PC `0x80000820` for both |
 
 Choices made in the spec that DR-02 to DR-06 leave open (no decision row changed; an addition, not a
 different value): the tone table is 512 stereo frames of a square wave of period 64 frames and
@@ -391,3 +393,20 @@ to `title-spec.md` TS-4 first, followed by `--emit-inputs` and `--write` (revers
 guest source commit of the authoring-once rule). The short scenarios end near
 B(3) + 60,000 = 3,738,126 ticks, below the runner guest cap of 4,000,000; a fourth field would need
 B(4) = 4,720,834.
+
+Measured by plan 12-03 (a throwaway probe against the moved installed prefix, single-stepped by
+instruction count with the trace enabled; observations of the authored software profile, not a
+hardware or timing claim): the VI enable (the retired `STATUS` store, equal to the first video
+packet's start tick) is at tick 546,614, 3,386 ticks before the nominal 550,000 and inside the
+100,000-tick band, so TS-4, the scripts and the expectations stand unchanged. Poll `p` issues its
+RD64B 3,984 or 3,985 ticks after the real B(p - 1) and the SI executes the state command (samples
+the controller) 10,876 ticks later, so the sampling tick is B(p - 1) + 14,860 or 14,861 (polls 1 to
+8 of the long scenario), inside the 4,000 to 60,000 delay of TS-4 and 11,475 ticks after the
+nominal boundary, far inside the 200,000-tick stamp margin. The short scenario completes at tick
+3,693,938 (below the runner guest cap of 4,000,000), the long one at 13,078,313 and the shifted
+one at 14,121,022. The probe found every checkpoint frame digest, the audio packets and stream
+digest, the save digest and the transcript of short, short-wrong, long and shifted, the persist
+run (the long run's exported save imported into a fresh instance) and a slot image built from the
+TS-12 layout equal to `title.expected.json`, and every packet of the refused-frame ROM equal to
+the blank digest with no audio, no transcript, a blank save and no completion by tick 5,000,000.
+No expected value was taken from the probe; the probe is not committed.
