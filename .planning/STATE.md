@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 11
 current_phase_name: Installed Consumer and Freeze Candidate
 status: executing
-stopped_at: Completed 11-20-PLAN.md
-last_updated: "2026-11-26T05:10:46.261Z"
+stopped_at: Completed 11-27-PLAN.md (ran out of wave order; next plan stays 11-21)
+last_updated: "2026-11-26T05:46:54.116Z"
 last_activity: 2026-11-25
 last_activity_desc: Phase 11 execution started
-state_head: a1bf29be756de5be5114dc65519e10a41b21aa99
+state_head: 40ba6d9922dbb1d94f9e684546020d9669b4644f
 progress:
   total_phases: 3
   completed_phases: 1
-  total_plans: 47
-  completed_plans: 42
+  total_plans: 48
+  completed_plans: 43
   percent: 33
 ---
 
@@ -33,7 +33,7 @@ Phase: 11 (Installed Consumer and Freeze Candidate) — EXECUTING
 Plan: 21 of 25
 Status: Ready to execute
 Last activity: 2026-11-25 — Phase 11 execution started
-Note: plan 11-20 (the call-sequence generator through the installed package, the local ASan and UBSan lanes against the shipped and an instrumented library, the two-thread TSan lane and the shared API test header S-09) is complete locally and unpushed (origin/main is c6f28f6; the local commits after it, 11-19 and 11-20, go out with the next push a plan names, 11-21); one new CTest name, `installed.consumer.sequence` (COST 1.10, 1.0 to 1.2 s native), full gate 324 of 324 (ctest 91 s, total 157 s). `ctest -N -R '^installed\.consumer\.'` is 28 with the fixture closure. Open for the orchestrator: finding F-20-A (`t64_machine_advance` has no span check on its request and result; deferred-items.md in the phase directory) needs a decision (a numbered defect-fix plan); API-02 is not marked complete until then. The hosted run at 11-21 is the first Linux ELF run of the sequence, the controls and the Linux undefined set; a measured cold gate-macos run should precede the 11-21 ledger row.
+Note: plan 11-20 (the call-sequence generator through the installed package, the local ASan and UBSan lanes against the shipped and an instrumented library, the two-thread TSan lane and the shared API test header S-09) is complete locally and unpushed (origin/main is c6f28f6; the local commits after it, 11-19 and 11-20, go out with the next push a plan names, 11-21); one new CTest name, `installed.consumer.sequence` (COST 1.10, 1.0 to 1.2 s native), full gate 324 of 324 (ctest 91 s, total 157 s). `ctest -N -R '^installed\.consumer\.'` is 28 with the fixture closure. Plan 11-27 (finding F-20-A: `t64_machine_advance` now judges the spans of its request and result before `struct_size` and admission, review candidate (g) closed, in-tree, consumer and generator aliasing rows, the bus read `value_out` span documented as the caller's responsibility, two hand-built white-box tests given storage records, the generator's drain-all fixed for NOT_READY) ran EARLY, out of wave order, after 11-20 and before the 11-21 review, and is complete locally and unpushed: full gate 324 of 324 (ctest 98 s, total 165 s), sweep 0 differences, `installed.consumer.ops-advance` COST 0.65 and `installed.consumer.sequence` COST 1.20. The next plan stays 11-21, which must verify 11-27 (the span order, the rows, the bus statement and whether the bus read should get the uniform span rule). API-02 is not marked complete. The hosted run at 11-21 is the first Linux ELF run of the sequence, the controls and the Linux undefined set; a measured cold gate-macos run should precede the 11-21 ledger row.
 
 Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 
@@ -103,6 +103,7 @@ Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 | Phase 11 P18 | 35min | 3 tasks | 18 files |
 | Phase 11 P19 | 36min | 3 tasks | 15 files |
 | Phase 11 P20 | 52min | 4 tasks | 19 files |
+| Phase 11 P27 | 38min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -245,6 +246,8 @@ Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 - [Phase 11]: 11-18: runner-recorded pins are a committed, sourced, labeled fixture and never called independent; the consumer's class table t64c_classes.h was written here (pulled forward from 11-20) so every refusal asserts its class
 - [Phase 11]: 11-19: only a RESOURCE_LIMIT stop that moved nothing is backpressure (drain, resume, next advance must move or fail with 'stall without progress'); controls are one TSV row, one CTest name and one driver action each; the smoke case has its own small target so doctored headers still build; the consumer allocator aligns over malloc so the plain cc row compiles as C99; the unprefixed archive fails the collision control by a duplicate t64_sha256_init and by changed results for f32_add
 - [Phase 11]: 11-20: the machine digest (22 ms) is compared over a refusal burst and the cheap snapshot after every refused call; the gate verifies every second burst (1.1 s), the local shipped sanitizer lane every burst; the black-box defect trigger (the stored profile digest flipped in the consumer's own allocator storage) held, so no test-only symbol; the two-thread case is built only with T64C_THREADS and is in no CTest name; S-09 is one static-inline test header; finding F-20-A: t64_machine_advance has no span check on its request and result (deferred-items.md), API-02 not marked complete
+- [Phase 11]: 11-27: t64_machine_advance judges the spans of its request and result before either struct_size and before the admission answer (F-20-A, candidate g); the bus read value_out span is NOT checked and the header says it is the caller's responsibility (the RSP data path uses that entry; reversible in a plan that names core/t64_rsp.c)
+- [Phase 11]: 11-27: a public entry that gains a span check breaks hand-built white-box machines (no recorded storage): run the full gate, not only unit.core.api, and give such machines their storage blocks (test_cpu_time, test_sched_matrix)
 
 ### Pending Todos
 
@@ -270,8 +273,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-26T05:10:46.112Z
-Stopped at: Completed 11-20-PLAN.md
+Last session: 2026-11-26T05:46:53.961Z
+Stopped at: Completed 11-27-PLAN.md (ran out of wave order; next plan stays 11-21)
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
