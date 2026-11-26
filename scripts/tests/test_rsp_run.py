@@ -12,6 +12,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -42,6 +43,36 @@ def fake_adapter(path: pathlib.Path, body: str) -> pathlib.Path:
     path.write_text("#!/usr/bin/env python3\n" + body, encoding="utf-8")
     path.chmod(0o700)
     return path
+
+
+class ReadinessClock:
+    """Stand-in for the `time` module of the runner: monotonic() stands still at 0
+    until the guest has published its readiness file, then runs at real speed.
+
+    The outer deadline of a supervised guest is thereby measured from guest
+    readiness, not from process spawn: interpreter start-up under host load
+    cannot consume a short deadline before the guest has done anything (F-129).
+    Nothing is slept longer and the supervisor is not changed. If the guest never
+    becomes ready within `grace` real seconds the clock starts anyway, so a broken
+    guest ends in a failed assertion, not a hang.
+    """
+
+    def __init__(self, ready_path: pathlib.Path, grace: float = 30.0) -> None:
+        self.ready_path = ready_path
+        self.grace = grace
+        self.first_call: float | None = None
+        self.ready_at: float | None = None
+
+    def monotonic(self) -> float:
+        now = time.monotonic()
+        if self.first_call is None:
+            self.first_call = now
+        if self.ready_at is None and (self.ready_path.exists() or now - self.first_call > self.grace):
+            self.ready_at = now
+        return 0.0 if self.ready_at is None else now - self.ready_at
+
+    def __getattr__(self, name: str):
+        return getattr(time, name)
 
 
 def sample_member() -> dict[str, object]:
@@ -109,13 +140,20 @@ class RspRunControls(unittest.TestCase):
         self.assertEqual(command["classification"], "harness-error")
 
     def test_closed_pipes_do_not_end_the_outer_deadline(self) -> None:
-        command_path = self.run_guest(
-            "import os,pathlib,sys,time\n"
-            "pathlib.Path(sys.argv[-1]).write_text('{}')\n"
-            "os.write(1, b'classification=pass\\n')\n"
-            "os.close(1); os.close(2); time.sleep(0.6)\n",
-            outer_seconds=0.1,
-        )
+        # The guest closes both pipes first and only then publishes its batch file, which
+        # is its readiness signal: the 0.1 s outer deadline is measured from that signal
+        # (ReadinessClock), so Python start-up under host load cannot expire it before
+        # the batch exists and the pipes are closed (F-129).
+        ready = self.workspace / "batches" / f"{sample_member()['selector']}.json"
+        with patch.object(self.module, "time", ReadinessClock(ready)):
+            command_path = self.run_guest(
+                "import os,pathlib,sys,time\n"
+                "os.write(1, b'classification=pass\\n')\n"
+                "os.close(1); os.close(2)\n"
+                "pathlib.Path(sys.argv[-1]).write_text('{}')\n"
+                "time.sleep(0.6)\n",
+                outer_seconds=0.1,
+            )
         command = json.loads(command_path.read_text())
         self.assertTrue(command["outer_deadline_expired"])
         self.assertEqual(command["classification"], "timeout")
