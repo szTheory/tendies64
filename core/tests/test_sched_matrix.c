@@ -2519,6 +2519,19 @@ static const count_literal count_even = {
 static const count_literal count_odd = {
     4u, 1u, 1u, false, COUNT_SPAN_ODD, COUNT_SPAN_ODD + UINT64_C(1)};
 
+/* These tests build the machine by hand, not through t64_machine_create.
+ * t64_machine_advance judges the spans of its request and result against the
+ * storage of the instance (plan 11-27), so the object records itself as its
+ * own storage block and a one-byte block stands for the admitted image. */
+static uint8_t image_stand_in[1];
+
+static void record_storage(t64_machine *machine) {
+  machine->machine_storage.data = machine;
+  machine->machine_storage.capacity = sizeof *machine;
+  machine->image_storage.data = image_stand_in;
+  machine->image_storage.capacity = sizeof image_stand_in;
+}
+
 /* Provenance: core/tests/test_cpu_time.c setup_machine / setup_t1_machine. */
 static bool setup_direct(t64_machine *machine, const char *profile_id) {
   const t64_profile_descriptor *profile = NULL;
@@ -2530,6 +2543,7 @@ static bool setup_direct(t64_machine *machine, const char *profile_id) {
   }
   machine->profile = *profile;
   machine->has_image = true;
+  record_storage(machine);
   machine->cpu.cp0[CP0_COMPARE_REG] = UINT32_C(5);
   machine->cpu.cp0[1] = UINT32_C(17);
   machine->cpu.count_compare_deadline = UINT64_MAX;

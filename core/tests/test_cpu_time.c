@@ -56,6 +56,19 @@ static bool read_t1_ipl3_asset(uint8_t image[4096]) {
 
 static void write_be32(uint8_t *bytes, uint32_t value);
 
+/* These tests build the machine by hand, not through t64_machine_create.
+ * t64_machine_advance judges the spans of its request and result against the
+ * storage of the instance (plan 11-27), so the object records itself as its
+ * own storage block and a one-byte block stands for the admitted image. */
+static uint8_t image_stand_in[1];
+
+static void record_storage(t64_machine *machine) {
+  machine->machine_storage.data = machine;
+  machine->machine_storage.capacity = sizeof *machine;
+  machine->image_storage.data = image_stand_in;
+  machine->image_storage.capacity = sizeof image_stand_in;
+}
+
 static bool setup_machine(t64_machine *machine, bool with_ram) {
   const t64_profile_descriptor *profile = NULL;
 
@@ -67,6 +80,7 @@ static bool setup_machine(t64_machine *machine, bool with_ram) {
   }
   machine->profile = *profile;
   machine->has_image = true;
+  record_storage(machine);
   machine->cpu.cp0[CP0_RANDOM] = UINT32_C(17);
   machine->cpu.count_compare_deadline = UINT64_MAX;
   if (with_ram) {
@@ -89,6 +103,7 @@ static bool setup_t1_machine(t64_machine *machine, const char *profile_id) {
   }
   machine->profile = *profile;
   machine->has_image = true;
+  record_storage(machine);
   machine->cpu.cp0[CP0_RANDOM] = UINT32_C(17);
   machine->cpu.count_compare_deadline = UINT64_MAX;
   machine->ram = (uint8_t *)calloc(machine->profile.rdram_bytes, 1u);
