@@ -756,9 +756,15 @@ static void compare_outputs(const raw_out *raw, const expectation *exp) {
                  (const char(*)[65])raw->video_sha256, raw->video_count,
                  exp->blank_sha256, &verdict);
   CHECK(verdict.checkpoint == 0u);
+  if (verdict.checkpoint != 0u) {
+    (void)printf("compare video: %s\n", verdict.text);
+  }
   for (i = 0u; i < raw->video_count; i++) {
-    (void)printf("compare video: checkpoint %zu equal (%u bytes, sha256 %s%s)\n",
-                 i + 1u, FRAME_BYTES, raw->video_sha256[i],
+    const bool equal = i < want->frame_count &&
+                       strcmp(want->frames[i], raw->video_sha256[i]) == 0;
+    (void)printf("compare video: checkpoint %zu %s (%u bytes, sha256 %s%s)\n",
+                 i + 1u, equal ? "equal" : "DIFFERS", FRAME_BYTES,
+                 raw->video_sha256[i],
                  strcmp(raw->video_sha256[i], exp->blank_sha256) == 0
                      ? ", blank"
                      : "");
