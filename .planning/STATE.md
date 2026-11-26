@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 12
 current_phase_name: Minimal Host, Playable Homebrew and Final Bind
 status: executing
-stopped_at: Completed 12-03-PLAN.md (authored title guest frozen at 7b96296, builder and fixture target, probe equal to the oracle on every scenario, two manifest rows; next plan 12-04)
-last_updated: "2026-11-26T17:03:53.878Z"
+stopped_at: "Completed 12-04-PLAN.md (title through the supervised runner: one raw-capture run, wrong-input and refused-frame controls, runner-recorded pins, decision DR-34 moving the save image and blank-frame comparisons to 12-05; next plan 12-05)"
+last_updated: "2026-11-26T19:06:55.586Z"
 last_activity: 2026-11-26
-last_activity_desc: Plan 12-03 complete (authored title guest, builder and fixture target, probe equal to the oracle, manifest rows)
-state_head: c47bc55e4abe70d9c59385fde82a32a230cfb706
+last_activity_desc: Plan 12-04 complete (title through the supervised runner: one raw-capture run, wrong-input and refused-frame controls, runner-recorded pins; decision DR-34 moved the save image and blank-frame comparisons to 12-05)
+state_head: de56e2440d0f4ab46b7e6ee3433167a8e6f45ad0
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 68
-  completed_plans: 53
+  completed_plans: 54
   percent: 67
 ---
 
@@ -30,10 +30,10 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 ## Current Position
 
 Phase: 12 (Minimal Host, Playable Homebrew and Final Bind) — EXECUTING
-Plan: 4 of 18
+Plan: 5 of 18
 Status: Ready to execute
-Last activity: 2026-11-26 — Plan 12-03 complete (authored title guest, builder and fixture target, probe equal to the oracle, manifest rows)
-Note: plan 12-03 is complete: `fixtures/title/title.S` (522 non-empty lines of composed composite idioms, polled frame lock, no handler, TLB, Z, texture or RSP microcode) is frozen at source revision 7b962961fcb8e1c1600dc84dae8a67f0c88dce26, built by `scripts/build-title-fixture.sh` (a copy of the composite builder) through the target `t64-phase12-title-fixture` into the build-only ROMs `phase12-title-s32k` (SHA-256 dfe77f58..., 7,568 bytes) and `phase12-title-refused-s32k` (7989af8a...), whose manifest rows were appended by commit 54731f4 with no oracle-authority rebind. A throwaway probe against the moved installed prefix matched `title.expected.json` on every scenario (41 keys, 0 mismatches; refused ROM blank with no completion). Measured VI enable tick 546,614 and controller sampling at B(p-1) + 14,860 or 14,861 ticks, inside the TS-4 bands, so the spec and expectations stand. origin/main is dc247faaa3f5ceda17870c5e66b7ec181c767637 (hosted green); everything after it is local and nothing is pushed (the first push a plan names is 12-06). Next: plan 12-04 (runner rows, the title two-run test, the wrong-input and refused-frame controls, runner-recorded pins).
+Last activity: 2026-11-26 — Plan 12-04 complete (title through the supervised runner: one raw-capture run, wrong-input and refused-frame controls, runner-recorded pins; decision DR-34)
+Note: plan 12-04 is complete: the runner table gained the rows `phase12-title-s32k` and `phase12-title-refused-s32k` (the only production runner edit); `runner.title-two-run` compares the one raw-capture run of the short scenario (3 frames of 49,152 bytes, 2 audio packets, the 20-byte transcript) with the oracle and the four runner-recorded pins (`fixtures/title/title.runner-pins.json`, label "runner-recorded pin, not independent"), `controls.real.title-wrong-input` fails at checkpoint 2 and `controls.real.title-refused-frame` shows only the runner-visible limit (non-pass, no completion, capture-error at the 4,000,000 tick cap, no transcript). Decision B (DR-34, costly; reversal is a runner contract change in a numbered plan): the runner cannot produce a save image of the title or show a frame of the refused ROM, so the save-image equality and the refused ROM's blank-frame assertion belong to plan 12-05 (new third consumer case `installed.consumer.title-refused`), and plans 12-04, 12-05, 12-06 and 12-18, the ROADMAP lines and 12-VALIDATION were amended. Full local gate 333 of 333 (260 s). origin/main is dc247faaa3f5ceda17870c5e66b7ec181c767637 (hosted green); everything after it is local and nothing is pushed (the first push a plan names is 12-06). API-06 stays incomplete. Next: plan 12-05 (installed-consumer title, title-persist and title-refused cases).
 
 Progress: [███████░░░] 67% (0 of 3 v1.2 phases complete)
 
@@ -114,6 +114,7 @@ Progress: [███████░░░] 67% (0 of 3 v1.2 phases complete)
 | Phase 12 P01 | 13 min | 3 tasks | 3 files |
 | Phase 12 P02 | 13 min | 3 tasks | 11 files |
 | Phase 12 P03 | 16min | 4 tasks | 7 files |
+| Phase 12 P04 | 122min | 3 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -275,6 +276,7 @@ Progress: [███████░░░] 67% (0 of 3 v1.2 phases complete)
 - [Phase 12]: 12-02: poll p follows the VI pending bit of field p-1 (poll 1 after the VI enable), the frame after poll p is the packet at B(p), event field j is first seen by poll j+2; nominal VI enable tick 550,000 with a 200,000-tick stamp margin (plan 12-03 measures the real value)
 - [Phase 12]: 12-03: measured VI enable tick 546,614 (nominal 550,000) and controller sampling at B(p-1)+14,860..14,861 ticks, both inside the TS-4 bands, so the title spec, scripts and expectations stand unchanged
 - [Phase 12]: 12-03: title guest frozen at source revision 7b962961fcb8e1c1600dc84dae8a67f0c88dce26 (authoring-once rule); manifest rows phase12-title-s32k and phase12-title-refused-s32k in commit 54731f4 with no oracle-authority rebind
+- [Phase 12]: DR-34 (orchestrator decision B, 2026-11-26): the runner stays at the manifest rows; runner.title-two-run closes on one raw-capture run with the runner exclusions recorded as executable facts; the title save-image equality and the refused ROM blank-frame assertion move to plan 12-05 (third consumer case title-refused); controls.real.title-refused-frame shows only the runner-visible limit (non-pass, no completion, capture-error at the 4,000,000 tick cap, no transcript). Rated costly; reversal is a runner contract change in a numbered plan.
 
 ### Pending Todos
 
@@ -300,8 +302,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-26T17:03:53.301Z
-Stopped at: Completed 12-03-PLAN.md (authored title guest frozen at 7b96296, builder and fixture target, probe equal to the oracle on every scenario, two manifest rows; next plan 12-04)
+Last session: 2026-11-26T19:06:54.953Z
+Stopped at: Completed 12-04-PLAN.md (title through the supervised runner: one raw-capture run, wrong-input and refused-frame controls, runner-recorded pins, decision DR-34 moving the save image and blank-frame comparisons to 12-05; next plan 12-05)
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
