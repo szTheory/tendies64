@@ -101,7 +101,10 @@ static t64_machine *create_admitted_profile(const char *profile_id) {
 
   T64_CHECK_INT(t64_profile_lookup(profile_id, &profile), T64_STATUS_OK);
   if (profile == NULL) return NULL;
-  T64_CHECK_INT(t64_machine_create(&allocator, profile, &machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &allocator, profile),
+                    &machine),
                 T64_STATUS_OK);
   if (machine == NULL) return NULL;
   if (strcmp(profile_id, SKELETON_PROFILE) == 0) {
@@ -621,6 +624,7 @@ static bool dispatch_order(t64_machine *machine, uint64_t tick,
   T64_CHECK_INT(t64_machine_trace_set_enabled(machine, true), T64_STATUS_OK);
   T64_CHECK_INT(t64_machine_advance(machine, &request, &stop), T64_STATUS_OK);
   T64_CHECK_INT(t64_machine_trace_drain(machine, records,
+                                        (uint32_t)sizeof(t64_trace_record),
                                         T64_TRACE_RECORD_CAPACITY, &count,
                                         &dropped, &saturated),
                 T64_STATUS_OK);

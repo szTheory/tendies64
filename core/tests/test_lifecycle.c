@@ -276,25 +276,39 @@ static void test_invalid_creation_does_not_allocate(void) {
     return;
   }
   attempts_before = allocator.allocation_attempts;
-  T64_CHECK_INT(t64_machine_create(&valid_allocator, profile, NULL),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &valid_allocator, profile),
+                    NULL),
                 T64_STATUS_INVALID_ARGUMENT);
   T64_CHECK_INT(allocator.allocation_attempts, attempts_before);
-  T64_CHECK_INT(t64_machine_create(&missing_allocate, profile, &machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &missing_allocate, profile),
+                    &machine),
                 T64_STATUS_INVALID_ARGUMENT);
   T64_CHECK(machine == NULL);
-  T64_CHECK_INT(t64_machine_create(&missing_release, profile, &machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &missing_release, profile),
+                    &machine),
                 T64_STATUS_INVALID_ARGUMENT);
   T64_CHECK(machine == NULL);
   (void)memcpy(&invalid_profile, profile, sizeof invalid_profile);
   invalid_profile.rdram_bytes = 0u;
-  T64_CHECK_INT(t64_machine_create(&valid_allocator, &invalid_profile,
-                                  &machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &valid_allocator, &invalid_profile),
+                    &machine),
                 T64_STATUS_INVALID_ARGUMENT);
   T64_CHECK(machine == NULL);
   T64_CHECK_INT(allocator.allocation_attempts, attempts_before);
 
   allocator.next_mode = ALLOCATE_DENY;
-  T64_CHECK_INT(t64_machine_create(&valid_allocator, profile, &machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &valid_allocator, profile),
+                    &machine),
                 T64_STATUS_ALLOCATION_FAILED);
   T64_CHECK(machine == NULL);
   T64_CHECK_INT(allocator.allocation_attempts, attempts_before + 1u);
@@ -303,7 +317,10 @@ static void test_invalid_creation_does_not_allocate(void) {
 
   allocator.alias_pointer = &machine;
   allocator.next_mode = ALLOCATE_ALIAS;
-  T64_CHECK_INT(t64_machine_create(&valid_allocator, profile, &machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &valid_allocator, profile),
+                    &machine),
                 T64_STATUS_BAD_STORAGE);
   T64_CHECK(machine == NULL);
   T64_CHECK_INT(allocator.allocation_attempts, attempts_before + 2u);
@@ -311,14 +328,20 @@ static void test_invalid_creation_does_not_allocate(void) {
   T64_CHECK_INT(allocator.release_count, 0u);
 
   allocator.next_mode = ALLOCATE_SHORT_CAPACITY;
-  T64_CHECK_INT(t64_machine_create(&valid_allocator, profile, &machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &valid_allocator, profile),
+                    &machine),
                 T64_STATUS_BAD_STORAGE);
   T64_CHECK(machine == NULL);
   T64_CHECK_INT(allocator.release_count, 1u);
   T64_CHECK_INT(allocator.outstanding_count, 0u);
 
   allocator.next_mode = ALLOCATE_BAD_ALIGNMENT;
-  T64_CHECK_INT(t64_machine_create(&valid_allocator, profile, &machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &valid_allocator, profile),
+                    &machine),
                 T64_STATUS_BAD_STORAGE);
   T64_CHECK(machine == NULL);
   T64_CHECK_INT(allocator.release_count, 2u);
@@ -352,7 +375,10 @@ static void test_admission_alias_and_descriptor_refusals(void) {
   if (profile == NULL) {
     return;
   }
-  T64_CHECK_INT(t64_machine_create(&host_allocator, profile, &machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &host_allocator, profile),
+                    &machine),
                 T64_STATUS_OK);
   T64_CHECK(machine != NULL);
   if (machine == NULL) {
@@ -452,7 +478,10 @@ static void test_zero_capacity_aliases_are_not_released(void) {
   if (profile == NULL) {
     return;
   }
-  T64_CHECK_INT(t64_machine_create(&host_allocator, profile, &machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &host_allocator, profile),
+                    &machine),
                 T64_STATUS_OK);
   if (machine == NULL) {
     return;
@@ -513,7 +542,10 @@ static void test_adjacent_candidate_and_replacement_order(void) {
     free(arena);
     return;
   }
-  T64_CHECK_INT(t64_machine_create(&host_allocator, profile, &machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &host_allocator, profile),
+                    &machine),
                 T64_STATUS_OK);
   if (machine == NULL) {
     free(arena);
@@ -675,9 +707,15 @@ static void test_two_instances_have_disjoint_storage(void) {
   if (profile == NULL) {
     return;
   }
-  T64_CHECK_INT(t64_machine_create(&first_host, profile, &first),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &first_host, profile),
+                    &first),
                 T64_STATUS_OK);
-  T64_CHECK_INT(t64_machine_create(&second_host, profile, &second),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &second_host, profile),
+                    &second),
                 T64_STATUS_OK);
   if (first == NULL || second == NULL) {
     t64_machine_destroy(second);

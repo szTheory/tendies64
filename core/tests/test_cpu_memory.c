@@ -144,7 +144,10 @@ static bool fixture_open_profile(fixture *value, const char *profile_id) {
   if (value == NULL || !read_asset(asset) ||
       t64_profile_lookup(profile_id, &profile) != T64_STATUS_OK ||
       profile == NULL ||
-      t64_machine_create(&allocator, profile, &value->machine) !=
+      t64_machine_create(
+          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+              &allocator, profile),
+          &value->machine) !=
           T64_STATUS_OK ||
       value->machine == NULL ||
       t64_machine_admit_rom(value->machine, asset, sizeof asset) !=

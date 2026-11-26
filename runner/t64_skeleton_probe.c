@@ -40,6 +40,7 @@ static const uint8_t sp_expected[8] = {
 
 /* Duplicated here as an independent descriptor expectation for this probe. */
 static const t64_profile_descriptor expected_profile = {
+    .struct_size = (uint32_t)sizeof(t64_profile_descriptor),
     .profile_id = PROFILE_ID,
     .console_target = "NUS-CPU-03",
     .console_qualification = "unqualified-target",
@@ -203,7 +204,10 @@ static bool run_probe(const char *profile_id, assertions *counts,
                             T64_DIGEST_SIZE) == 0,
                      1u);
 
-  if (t64_machine_create(&allocator, profile, &machine) != T64_STATUS_OK ||
+  if (t64_machine_create(
+          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+              &allocator, profile),
+          &machine) != T64_STATUS_OK ||
       machine == NULL) {
     return false;
   }

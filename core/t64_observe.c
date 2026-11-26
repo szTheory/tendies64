@@ -59,6 +59,8 @@ t64_status t64_machine_output_drain(t64_machine *machine, uint8_t *bytes_out,
                       machine->output.captured_bytes);
   }
   (void)memset(&result, 0, sizeof result);
+  /* struct_size is the caller's and is written back unchanged (DR-06). */
+  result.struct_size = result_out->struct_size;
   result.required_bytes = pending_bytes;
   result.total_attempted_bytes = machine->output.total_attempted_bytes;
   result.lost_output = machine->output.lost_output;

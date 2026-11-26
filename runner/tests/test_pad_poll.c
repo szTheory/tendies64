@@ -524,7 +524,10 @@ static bool measure_polls(const char *rom_path, poll_measure *out) {
   if (!read_file(rom_path, rom, sizeof rom, &rom_length) || rom_length == 0u ||
       rom_length >= sizeof rom ||
       t64_profile_lookup(PROFILE_STEM, &profile) != T64_STATUS_OK ||
-      t64_machine_create(&allocator, profile, &machine) != T64_STATUS_OK ||
+      t64_machine_create(
+          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+              &allocator, profile),
+          &machine) != T64_STATUS_OK ||
       machine == NULL) {
     return false;
   }
@@ -546,7 +549,8 @@ static bool measure_polls(const char *rom_path, poll_measure *out) {
     do {
       size_t i;
       count = 0u;
-      if (t64_machine_trace_drain(machine, records, 64u, &count, &dropped,
+      if (t64_machine_trace_drain(machine, records,
+                                  (uint32_t)sizeof(t64_trace_record), 64u, &count, &dropped,
                                   &saturated) != T64_STATUS_OK) {
         count = 0u;
         break;

@@ -126,7 +126,10 @@ static t64_machine *new_machine(const char *profile_id, bool trace) {
   t64_machine *machine = NULL;
   if (!load_rom() ||
       t64_profile_lookup(profile_id, &profile) != T64_STATUS_OK ||
-      t64_machine_create(&g_allocator, profile, &machine) != T64_STATUS_OK ||
+      t64_machine_create(
+          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+              &g_allocator, profile),
+          &machine) != T64_STATUS_OK ||
       machine == NULL) {
     return NULL;
   }
@@ -151,7 +154,8 @@ static bool drain_trace_all(t64_machine *machine, trace_visit visit,
   do {
     size_t i;
     count = 0u;
-    if (t64_machine_trace_drain(machine, records, 64u, &count, &dropped,
+    if (t64_machine_trace_drain(machine, records,
+                                (uint32_t)sizeof(t64_trace_record), 64u, &count, &dropped,
                                 &saturated) != T64_STATUS_OK) {
       return false;
     }

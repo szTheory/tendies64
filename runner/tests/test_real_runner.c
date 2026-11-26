@@ -75,7 +75,10 @@ static bool core_content_digest_matches(const uint8_t *rom, size_t length,
       t64_profile_lookup("ntsc-cart-4m-openipl3-warm-v1", &profile) !=
           T64_STATUS_OK ||
       profile == NULL ||
-      t64_machine_create(&allocator, profile, &machine) != T64_STATUS_OK ||
+      t64_machine_create(
+          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+              &allocator, profile),
+          &machine) != T64_STATUS_OK ||
       machine == NULL ||
       t64_machine_admit_rom(machine, rom, length) != T64_STATUS_OK ||
       t64_machine_content_digest(machine, digest) != T64_STATUS_OK) {

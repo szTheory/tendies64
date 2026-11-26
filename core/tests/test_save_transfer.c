@@ -123,7 +123,10 @@ static t64_machine *create_admitted(const char *profile_id) {
 
   T64_CHECK_INT(t64_profile_lookup(profile_id, &profile), T64_STATUS_OK);
   if (profile == NULL) return NULL;
-  T64_CHECK_INT(t64_machine_create(&allocator, profile, &machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &allocator, profile),
+                    &machine),
                 T64_STATUS_OK);
   if (machine == NULL) return NULL;
   if (!read_openipl3_asset(asset)) {
@@ -244,7 +247,10 @@ static t64_machine *create_unadmitted(const char *profile_id) {
 
   T64_CHECK_INT(t64_profile_lookup(profile_id, &profile), T64_STATUS_OK);
   if (profile == NULL) return NULL;
-  T64_CHECK_INT(t64_machine_create(&allocator, profile, &machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &allocator, profile),
+                    &machine),
                 T64_STATUS_OK);
   return machine;
 }

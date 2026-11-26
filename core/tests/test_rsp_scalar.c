@@ -48,7 +48,7 @@ static void fixture_release(void *context, t64_host_storage storage) {
 
 static bool fixture_create(rsp_scalar_fixture *fixture) {
   const t64_profile_descriptor *profile = NULL;
-  t64_host_storage image = {NULL, 0u, 0u};
+  t64_host_storage image = {0};
   t64_status status;
 
   if (fixture == NULL) {
@@ -60,7 +60,10 @@ static bool fixture_create(rsp_scalar_fixture *fixture) {
   status = t64_profile_lookup(
       "ntsc-cart-4m-openipl3-rsp-functional-v1", &profile);
   if (status != T64_STATUS_OK || profile == NULL ||
-      t64_machine_create(&fixture->allocator, profile, &fixture->machine) !=
+      t64_machine_create(
+          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+              &fixture->allocator, profile),
+          &fixture->machine) !=
           T64_STATUS_OK ||
       fixture->machine == NULL ||
       !fixture_allocate(fixture, 2u, 1u, &image)) {

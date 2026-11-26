@@ -3360,6 +3360,8 @@ t64_status t64_machine_state_import(t64_machine *machine,
     (void)memset(&machine->state_summary, 0, sizeof machine->state_summary);
   }
   if (report_usable && report_out != NULL) {
+    /* struct_size is the caller's and is written back unchanged (DR-06). */
+    report.struct_size = report_out->struct_size;
     *report_out = report;
   }
   return status;

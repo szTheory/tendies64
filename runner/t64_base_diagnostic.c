@@ -326,6 +326,7 @@ static bool observe_machine(t64_machine *machine, uint8_t *capture,
   size_t i;
   t64_output_drain_result output = T64_OUTPUT_DRAIN_RESULT_INIT;
   if (t64_machine_trace_drain(machine, trace,
+                              (uint32_t)sizeof(t64_trace_record),
                               sizeof trace / sizeof trace[0], &count,
                               &dropped, &saturated) != T64_STATUS_OK ||
       dropped != 0u || saturated) return false;
@@ -402,7 +403,10 @@ static t64_base_diag_outcome execute_tier_b_t1(
                           &profile) != T64_STATUS_OK || profile == NULL)
     goto cleanup;
   *stage_out = "canonical-machine-create";
-  if (t64_machine_create(&allocator, profile, &machine) != T64_STATUS_OK ||
+  if (t64_machine_create(
+          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+              &allocator, profile),
+          &machine) != T64_STATUS_OK ||
       machine == NULL ||
       t64_machine_trace_set_enabled(machine, true) != T64_STATUS_OK)
     goto cleanup;

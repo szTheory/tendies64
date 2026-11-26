@@ -146,8 +146,10 @@ static t64_machine *prepare_program(const test_environment *environment,
   if (environment == NULL || environment->allocator == NULL ||
       environment->profile == NULL || environment->asset == NULL ||
       program == NULL || instruction_count == 0u ||
-      t64_machine_create(environment->allocator, environment->profile,
-                         &machine) != T64_STATUS_OK ||
+      t64_machine_create(
+          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+              environment->allocator, environment->profile),
+          &machine) != T64_STATUS_OK ||
       machine == NULL) {
     return NULL;
   }
@@ -182,7 +184,10 @@ static t64_machine *prepare_profile_program(
       profile_id == NULL || instruction_count == 0u ||
       t64_profile_lookup(profile_id, &profile) != T64_STATUS_OK ||
       profile == NULL ||
-      t64_machine_create(environment->allocator, profile, &machine) !=
+      t64_machine_create(
+          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+              environment->allocator, profile),
+          &machine) !=
           T64_STATUS_OK ||
       machine == NULL) {
     return NULL;

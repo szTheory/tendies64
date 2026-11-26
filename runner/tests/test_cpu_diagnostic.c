@@ -232,6 +232,7 @@ static bool observe_machine(t64_machine *machine, bool *saw_entry,
   bool saturated = false;
   size_t i;
   if (t64_machine_trace_drain(machine, records,
+                              (uint32_t)sizeof(t64_trace_record),
                               sizeof records / sizeof records[0], &count,
                               &dropped, &saturated) != T64_STATUS_OK ||
       dropped != 0u || saturated) {
@@ -302,7 +303,10 @@ static void test_cpu_profile_authored_guest(void) {
     return;
   }
   if (warm_profile != NULL &&
-      t64_machine_create(&allocator, warm_profile, &warm_machine) ==
+      t64_machine_create(
+          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+              &allocator, warm_profile),
+          &warm_machine) ==
           T64_STATUS_OK &&
       warm_machine != NULL) {
     check(t64_machine_admit_rom(warm_machine, image, TEST_ROM_BYTES) !=
@@ -313,7 +317,10 @@ static void test_cpu_profile_authored_guest(void) {
   } else {
     check(false, "create warm-v1 machine for expansion refusal control");
   }
-  status = t64_machine_create(&allocator, profile, &machine);
+  status = t64_machine_create(
+               &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                   &allocator, profile),
+               &machine);
   check(status == T64_STATUS_OK && machine != NULL, "create CPU machine");
   if (machine == NULL) {
     free(image);
@@ -484,7 +491,10 @@ static void test_cpu_profile_exact_image_limit(void) {
             profile->state_serialization_version == 9u,
         "select the descriptor-v3 CPU profile for its flat-loader boundary");
   if (profile == NULL) goto cleanup;
-  status = t64_machine_create(&allocator, profile, &machine);
+  status = t64_machine_create(
+               &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                   &allocator, profile),
+               &machine);
   check(status == T64_STATUS_OK && machine != NULL,
         "create canonical machine for exact-limit flat admission");
   if (machine == NULL) goto cleanup;
@@ -517,7 +527,10 @@ static void check_cpu_profile_rejects_transactionally(
   uint8_t after[T64_DIGEST_SIZE];
   t64_status status;
 
-  status = t64_machine_create(&allocator, profile, &machine);
+  status = t64_machine_create(
+               &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                   &allocator, profile),
+               &machine);
   check(status == T64_STATUS_OK && machine != NULL,
         "create machine for malformed flat image control");
   if (machine == NULL) return;

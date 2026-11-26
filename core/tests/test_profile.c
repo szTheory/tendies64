@@ -141,6 +141,7 @@ static bool digest_is_nonzero(const uint8_t digest[T64_DIGEST_SIZE]) {
 }
 
 static const t64_profile_descriptor serialization_vector = {
+    .struct_size = (uint32_t)sizeof(t64_profile_descriptor),
     .profile_id = "A",
     .console_target = "B",
     .console_qualification = "C",
@@ -337,7 +338,8 @@ static void test_each_descriptor_field_changes_hash(
 
 static void test_rejected_descriptors(
     const t64_profile_descriptor *profile) {
-  t64_profile_descriptor empty = {0};
+  t64_profile_descriptor empty =
+      {.struct_size = (uint32_t)sizeof(t64_profile_descriptor)};
   t64_profile_descriptor changed = *profile;
   t64_profile_descriptor valid_mutable = *profile;
   union {
@@ -465,11 +467,20 @@ static void test_country_metadata_and_test_contrast(
   T64_CHECK(memcmp(profile_hash_default, profile_hash_contrast,
                    T64_DIGEST_SIZE) != 0);
 
-  T64_CHECK_INT(t64_machine_create(&host, profile, &machine_default),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &host, profile),
+                    &machine_default),
                 T64_STATUS_OK);
-  T64_CHECK_INT(t64_machine_create(&host, &contrast, &machine_contrast),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &host, &contrast),
+                    &machine_contrast),
                 T64_STATUS_OK);
-  T64_CHECK_INT(t64_machine_create(&host, profile, &machine_country_changed),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &host, profile),
+                    &machine_country_changed),
                 T64_STATUS_OK);
   if (machine_default == NULL || machine_contrast == NULL ||
       machine_country_changed == NULL) {
@@ -849,8 +860,10 @@ static void test_rdp_profile_metadata_binding(bool run_mutations) {
                                         &original_length), T64_STATUS_OK);
     {
       t64_machine *canonical_machine = NULL;
-      T64_CHECK_INT(t64_machine_create(&allocator, profile,
-                                       &canonical_machine), T64_STATUS_OK);
+      T64_CHECK_INT(t64_machine_create(
+                        &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                            &allocator, profile),
+                        &canonical_machine), T64_STATUS_OK);
       T64_CHECK(canonical_machine != NULL);
       if (canonical_machine != NULL)
         t64_machine_destroy(canonical_machine);
@@ -881,7 +894,10 @@ static void test_rdp_profile_metadata_binding(bool run_mutations) {
                                           &changed_length), T64_STATUS_OK);
       T64_CHECK_INT(changed_length, original_length);
       T64_CHECK(memcmp(original_bytes, changed_bytes, original_length) != 0);
-      T64_CHECK_INT(t64_machine_create(&allocator, &changed, &machine),
+      T64_CHECK_INT(t64_machine_create(
+                        &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                            &allocator, &changed),
+                        &machine),
                     T64_STATUS_INVALID_ARGUMENT);
       T64_CHECK(machine == NULL);
       if (machine != NULL) t64_machine_destroy(machine);
@@ -903,7 +919,10 @@ static void test_rdp_profile_metadata_binding(bool run_mutations) {
         T64_CHECK_INT(t64_profile_serialize(&changed, serialized,
                                             sizeof serialized, &length),
                       T64_STATUS_INVALID_ARGUMENT);
-        T64_CHECK_INT(t64_machine_create(&allocator, &changed, &machine),
+        T64_CHECK_INT(t64_machine_create(
+                          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                              &allocator, &changed),
+                          &machine),
                       T64_STATUS_INVALID_ARGUMENT);
         T64_CHECK(machine == NULL);
         if (machine != NULL) t64_machine_destroy(machine);

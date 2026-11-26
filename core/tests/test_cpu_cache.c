@@ -114,7 +114,10 @@ static bool fixture_open_profile(fixture *value,
       profile == NULL ||
       profile->machine_model_version != expected_model_version ||
       profile->state_serialization_version != expected_state_version ||
-      t64_machine_create(&allocator, profile, &value->machine) !=
+      t64_machine_create(
+          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+              &allocator, profile),
+          &value->machine) !=
           T64_STATUS_OK ||
       value->machine == NULL ||
       t64_machine_admit_rom(value->machine, asset, IPL3_ASSET_BYTES) !=

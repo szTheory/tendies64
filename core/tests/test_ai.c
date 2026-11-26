@@ -72,7 +72,10 @@ static t64_machine *create_admitted_profile(const char *profile_id,
   t64_machine *machine = NULL;
   T64_CHECK_INT(t64_profile_lookup(profile_id, &profile), T64_STATUS_OK);
   if (profile == NULL) return NULL;
-  T64_CHECK_INT(t64_machine_create(&allocator, profile, &machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &allocator, profile),
+                    &machine),
                 T64_STATUS_OK);
   if (machine == NULL) return NULL;
   if (!read_openipl3_asset(ipl3_asset)) {
@@ -244,7 +247,10 @@ static void case_admitted_profile_dma_queue(void) {
   T64_CHECK_INT(profile->descriptor_version, 11u);
   T64_CHECK_INT(profile->machine_model_version, 19u);
   T64_CHECK_INT(profile->state_serialization_version, 24u);
-  T64_CHECK_INT(t64_machine_create(&allocator, profile, &machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &allocator, profile),
+                    &machine),
                 T64_STATUS_OK);
   T64_CHECK(machine != NULL);
   if (machine == NULL) return;
@@ -1453,6 +1459,7 @@ static void run_vi_ai_tie_order(bool ai_first) {
   T64_CHECK_INT(t64_machine_trace_set_enabled(machine, true), T64_STATUS_OK);
   T64_CHECK(advance_guest_to_in_slices(machine, sample_tick));
   T64_CHECK_INT(t64_machine_trace_drain(machine, records,
+                                        (uint32_t)sizeof(t64_trace_record),
                                         sizeof records / sizeof records[0],
                                         &count, &dropped, &saturated),
                 T64_STATUS_OK);

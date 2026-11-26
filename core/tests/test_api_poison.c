@@ -155,7 +155,10 @@ static bool make_instance(instance *item, const char *profile_id,
       counting_allocate, counting_release, &item->counts);
   T64_CHECK_INT(t64_profile_lookup(profile_id, &profile), T64_STATUS_OK);
   if (profile == NULL) return false;
-  T64_CHECK_INT(t64_machine_create(&item->allocator, profile, &item->machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &item->allocator, profile),
+                    &item->machine),
                 T64_STATUS_OK);
   if (item->machine == NULL) return false;
   if (admit) {
@@ -456,7 +459,8 @@ static t64_status call_entry(unsigned entry, t64_machine *machine,
   case 21:
     return t64_machine_trace_set_enabled(machine, true);
   case 22:
-    return t64_machine_trace_drain(machine, s->records, 2u, &s->trace_count,
+    return t64_machine_trace_drain(machine, s->records,
+                                   (uint32_t)sizeof(t64_trace_record), 2u, &s->trace_count,
                                    &s->trace_dropped, &s->trace_saturated);
   case 23:
     return t64_machine_reset(machine);
@@ -756,15 +760,20 @@ static void case_refusals_never_poison(void) {
   REFUSED(t64_machine_bus_write(m, 0u, 3u, 0u));
   REFUSED(t64_machine_bus_write(m, UINT32_C(1), 4u, 0u));
   /* Trace drain: NULL outputs. */
-  REFUSED(t64_machine_trace_drain(m, NULL, 4u, &trace_count, &trace_dropped,
+  REFUSED(t64_machine_trace_drain(m, NULL,
+                                  (uint32_t)sizeof(t64_trace_record), 4u, &trace_count, &trace_dropped,
                                   &trace_saturated));
-  REFUSED(t64_machine_trace_drain(m, records, 1u, NULL, &trace_dropped,
+  REFUSED(t64_machine_trace_drain(m, records,
+                                  (uint32_t)sizeof(t64_trace_record), 1u, NULL, &trace_dropped,
                                   &trace_saturated));
   /* Creation refusals leave no instance to poison but must refuse cleanly. */
   {
     t64_machine *created = (t64_machine *)(uintptr_t)1u;
 
-    T64_CHECK_INT(t64_machine_create(&main_item.allocator, NULL, &created),
+    T64_CHECK_INT(t64_machine_create(
+                      &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                          &main_item.allocator, NULL),
+                      &created),
                   T64_STATUS_INVALID_ARGUMENT);
     T64_CHECK(created == NULL);
     T64_CHECK_INT(t64_profile_lookup(SAVE_PROFILE_ID, &profile),

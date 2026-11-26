@@ -254,7 +254,10 @@ static bool run_openipl3_to_tick_bound(t64_stop_result *first_result,
       profile == NULL) {
     return false;
   }
-  status = t64_machine_create(&allocator, profile, &machine);
+  status = t64_machine_create(
+               &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                   &allocator, profile),
+               &machine);
   if (status != T64_STATUS_OK || machine == NULL) {
     return false;
   }
@@ -412,7 +415,10 @@ static void test_actual_open_ipl3_entry(void) {
                    sizeof expected_policy_sha256) == 0);
   T64_CHECK_INT(profile->hle_seed_reset_version, 1u);
 
-  status = t64_machine_create(&allocator, profile, &machine);
+  status = t64_machine_create(
+               &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                   &allocator, profile),
+               &machine);
   T64_CHECK_INT(status, T64_STATUS_OK);
   T64_CHECK(machine != NULL);
   if (status != T64_STATUS_OK || machine == NULL) {
@@ -441,6 +447,7 @@ static void test_actual_open_ipl3_entry(void) {
   T64_CHECK(memcmp(state_before_refusal, state_after_first_retirement,
                    sizeof state_before_refusal) != 0);
   T64_CHECK_INT(t64_machine_trace_drain(machine, records,
+                                        (uint32_t)sizeof(t64_trace_record),
                                         sizeof records / sizeof records[0],
                                         &count, &dropped, &saturated),
                 T64_STATUS_OK);
@@ -468,6 +475,7 @@ static void test_actual_open_ipl3_entry(void) {
   T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
   T64_CHECK_INT(result.tick, UINT64_C(2));
   T64_CHECK_INT(t64_machine_trace_drain(machine, records,
+                                        (uint32_t)sizeof(t64_trace_record),
                                         sizeof records / sizeof records[0],
                                         &count, &dropped, &saturated),
                 T64_STATUS_OK);
@@ -481,7 +489,8 @@ static void test_actual_open_ipl3_entry(void) {
     T64_CHECK_INT(result.reason, T64_STOP_REASON_BOUND);
     T64_CHECK_INT(result.tick, request.value);
     T64_CHECK_INT(t64_machine_trace_drain(
-                      machine, records, sizeof records / sizeof records[0],
+                      machine, records,
+                      (uint32_t)sizeof(t64_trace_record), sizeof records / sizeof records[0],
                       &count, &dropped, &saturated),
                   T64_STATUS_OK);
     T64_CHECK_INT(dropped, 0u);
@@ -501,7 +510,8 @@ static void test_actual_open_ipl3_entry(void) {
     T64_CHECK_INT(t64_machine_advance(machine, &request, &result),
                   T64_STATUS_OK);
     T64_CHECK_INT(t64_machine_trace_drain(
-                      machine, records, sizeof records / sizeof records[0],
+                      machine, records,
+                      (uint32_t)sizeof(t64_trace_record), sizeof records / sizeof records[0],
                       &count, &dropped, &saturated),
                   T64_STATUS_OK);
     T64_CHECK_INT(dropped, 0u);
@@ -583,7 +593,10 @@ static void test_openipl3_instruction_count_boundary(void) {
   if (profile == NULL) {
     return;
   }
-  status = t64_machine_create(&allocator, profile, &machine);
+  status = t64_machine_create(
+               &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                   &allocator, profile),
+               &machine);
   T64_CHECK_INT(status, T64_STATUS_OK);
   if (status != T64_STATUS_OK || machine == NULL) {
     return;
@@ -710,7 +723,10 @@ static void test_machine_tracer(void) {
   T64_CHECK(memcmp(profile_digest_a, profile_digest_b, T64_DIGEST_SIZE) == 0);
   T64_CHECK(digest_is_nonzero(profile_digest_a));
 
-  status = t64_machine_create(&host_a, profile, &machine_a);
+  status = t64_machine_create(
+               &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                   &host_a, profile),
+               &machine_a);
   T64_CHECK_INT(status, T64_STATUS_OK);
   T64_CHECK(machine_a != NULL);
   if (status != T64_STATUS_OK || machine_a == NULL) {
@@ -754,7 +770,10 @@ static void test_machine_tracer(void) {
                 T64_STATUS_OK);
   T64_CHECK(digest_is_nonzero(state_digest_a));
 
-  status = t64_machine_create(&host_b, profile, &machine_b);
+  status = t64_machine_create(
+               &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                   &host_b, profile),
+               &machine_b);
   T64_CHECK_INT(status, T64_STATUS_OK);
   T64_CHECK(machine_b != NULL);
   if (status == T64_STATUS_OK && machine_b != NULL) {
@@ -807,7 +826,10 @@ static void test_allocator_storage_validation(void) {
     return;
   }
   short_storage.reported_capacity = 1u;
-  T64_CHECK_INT(t64_machine_create(&short_allocator, profile, &machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &short_allocator, profile),
+                    &machine),
                 T64_STATUS_BAD_STORAGE);
   T64_CHECK(machine == NULL);
   T64_CHECK_INT(short_storage.allocation_count, 1u);
@@ -815,7 +837,10 @@ static void test_allocator_storage_validation(void) {
   T64_CHECK_INT(short_storage.outstanding_count, 0u);
 
   misreported_alignment.reported_alignment = 1u;
-  T64_CHECK_INT(t64_machine_create(&alignment_allocator, profile, &machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &alignment_allocator, profile),
+                    &machine),
                 T64_STATUS_BAD_STORAGE);
   T64_CHECK(machine == NULL);
   T64_CHECK_INT(misreported_alignment.allocation_count, 1u);

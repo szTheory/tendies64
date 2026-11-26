@@ -12,6 +12,59 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/*
+ * v1 sizes of the public structs (plan 11-12, DR-06): a caller struct_size, or
+ * the trace record_size, below these is refused with
+ * T64_STATUS_STRUCT_TOO_SMALL. They are the sizes of the 0.1 candidate layouts
+ * and stay fixed when a struct grows later; the asserts pin them on LP64.
+ */
+#define T64_HOST_STORAGE_V1_SIZE ((uint32_t)sizeof(t64_host_storage))
+#define T64_HOST_ALLOCATOR_V1_SIZE ((uint32_t)sizeof(t64_host_allocator))
+#define T64_PROFILE_DESCRIPTOR_V1_SIZE                                        \
+  ((uint32_t)sizeof(t64_profile_descriptor))
+#define T64_MACHINE_CREATE_INFO_V1_SIZE                                       \
+  ((uint32_t)sizeof(t64_machine_create_info))
+#define T64_STOP_REQUEST_V1_SIZE ((uint32_t)sizeof(t64_stop_request))
+#define T64_STOP_RESULT_V1_SIZE ((uint32_t)sizeof(t64_stop_result))
+#define T64_CPU_STOP_DETAIL_V1_SIZE ((uint32_t)sizeof(t64_cpu_stop_detail))
+#define T64_TRACE_RECORD_V1_SIZE ((uint32_t)sizeof(t64_trace_record))
+#define T64_OUTPUT_DRAIN_RESULT_V1_SIZE                                       \
+  ((uint32_t)sizeof(t64_output_drain_result))
+#define T64_VIDEO_PACKET_INFO_V1_SIZE ((uint32_t)sizeof(t64_video_packet_info))
+#define T64_AUDIO_PACKET_INFO_V1_SIZE ((uint32_t)sizeof(t64_audio_packet_info))
+#define T64_STATE_IMPORT_REPORT_V1_SIZE                                       \
+  ((uint32_t)sizeof(t64_state_import_report))
+#define T64_SAVE_INFO_V1_SIZE ((uint32_t)sizeof(t64_save_info))
+#if UINTPTR_MAX == UINT64_MAX
+_Static_assert(sizeof(t64_host_storage) == 32u, "t64_host_storage v1");
+_Static_assert(sizeof(t64_host_allocator) == 32u, "t64_host_allocator v1");
+_Static_assert(sizeof(t64_machine_create_info) == 24u,
+               "t64_machine_create_info v1");
+#endif
+_Static_assert(sizeof(t64_profile_descriptor) == 2304u,
+               "t64_profile_descriptor v1");
+_Static_assert(sizeof(t64_stop_request) == 16u, "t64_stop_request v1");
+_Static_assert(sizeof(t64_stop_result) == 16u, "t64_stop_result v1");
+_Static_assert(sizeof(t64_cpu_stop_detail) == 24u, "t64_cpu_stop_detail v1");
+_Static_assert(sizeof(t64_trace_record) == 24u, "t64_trace_record v1");
+_Static_assert(sizeof(t64_output_drain_result) == 72u,
+               "t64_output_drain_result v1");
+_Static_assert(sizeof(t64_video_packet_info) == 488u,
+               "t64_video_packet_info v1");
+_Static_assert(sizeof(t64_audio_packet_info) == 280u,
+               "t64_audio_packet_info v1");
+_Static_assert(sizeof(t64_state_import_report) == 32u,
+               "t64_state_import_report v1");
+_Static_assert(sizeof(t64_save_info) == 24u, "t64_save_info v1");
+_Static_assert(offsetof(t64_host_storage, struct_size) == 0u &&
+                   offsetof(t64_host_allocator, struct_size) == 0u &&
+                   offsetof(t64_profile_descriptor, struct_size) == 0u &&
+                   offsetof(t64_machine_create_info, struct_size) == 0u,
+               "leading struct_size");
+/* An empty host storage record: the core is the caller of t64_host_storage
+ * and fills struct_size before every allocate callback (DR-06, INFO-03). */
+#define T64_HOST_STORAGE_EMPTY {T64_HOST_STORAGE_V1_SIZE, NULL, 0u, 0u}
+
 #define T64_ROM_HEADER_BYTES T64_ROM_HEADER_SIZE
 #define T64_ROM_TITLE_BYTES 20u
 #define T64_ROM_GAME_CODE_BYTES 4u

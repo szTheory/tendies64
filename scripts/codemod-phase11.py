@@ -34,7 +34,17 @@ of the shared tree, is the git toplevel of its own clone (different from the
 shared toplevel), is not a link to a shared bound file, and the marker file
 .t64-bound-scratch exists in the parent directory of ROOT. The printer
 tools/digest-sweep/t64_digest_sweep.c keeps two branches by design and is never
-written, scratch root or not. --create and --trace land in plan 11-12.
+written, scratch root or not.
+
+Call-site modes (plan 11-12, the flip), with --dir and instead of the
+initializer pass: --create rewrites t64_machine_create(A, B, C) into
+t64_machine_create(&(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(A, B),
+C) (the compound-literal form at every site: a named local "info" would collide
+with the many test locals of that name and with a second create in one block)
+and gives a brace-initialized t64_profile_descriptor of a non-bound file its
+struct_size; --trace inserts (uint32_t)sizeof(t64_trace_record) after the
+records argument of t64_machine_trace_drain. Both are re-runnable (a call that
+already has the new arity is left alone) and keep the same path refusals.
 """
 
 from __future__ import annotations
@@ -434,6 +444,8 @@ def process(text: str) -> Result:
                 "hand", type_name, line, "several declarators in one statement"))
             continue
         if dims.strip():
+            if term == "=" and array_uses_init(text, masked, match.end(), spec):
+                continue  # every entry already uses the INIT form (11-12)
             result.sites.append(Site(
                 "hand", type_name, line, f"array of {type_name}"))
             continue
@@ -522,6 +534,205 @@ def process(text: str) -> Result:
         last_end = max(last_end, end)
     out = text
     for start, end, new in reversed(accepted):
+        out = out[:start] + new + out[end:]
+    result.text = out
+    return result
+
+
+def array_uses_init(text: str, masked: str, pos: int, spec: Spec) -> bool:
+    """True when the brace list at pos (after '=') holds only INIT forms."""
+    while pos < len(masked) and masked[pos].isspace():
+        pos += 1
+    if pos >= len(masked) or masked[pos] != "{":
+        return False
+    close = match_brace(masked, pos)
+    if close < 0:
+        return False
+    elements = split_elements(text, masked, pos, close)
+    if not elements:
+        return False
+    for element in elements:
+        if element.startswith("{") and element.endswith("}"):
+            if array_uses_init(element, mask(element), 0, spec):
+                continue  # a row of a multi-dimensional array
+            return False
+        if spec.zero is not None and element == spec.zero:
+            continue
+        if spec.args_macro is not None and re.fullmatch(
+                re.escape(spec.args_macro) + r"\s*\(.*\)", element, re.S):
+            continue
+        return False
+    return True
+
+
+# ------------------------------------------------- create and trace (11-12)
+
+CREATE_INFO = "&(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT"
+RECORD_SIZE = "(uint32_t)sizeof(t64_trace_record)"
+DESCRIPTOR_SIZE = "(uint32_t)sizeof(t64_profile_descriptor)"
+CALL_RE = re.compile(r"\b(t64_machine_create|t64_machine_trace_drain)\s*\(")
+DESCRIPTOR_RE = re.compile(
+    r"(?<![\w])((?:(?:static|const)\s+)*)\bt64_profile_descriptor\s+(\w+)\s*=\s*\{")
+
+
+def call_arguments(text: str, masked: str, open_pos: int):
+    """(argument spans, close position) of the call whose '(' is at open_pos."""
+    depth = 0
+    spans: list[tuple[int, int]] = []
+    begin = open_pos + 1
+    for pos in range(open_pos, len(masked)):
+        char = masked[pos]
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+            if depth == 0:
+                spans.append((begin, pos))
+                return spans, pos
+        elif char == "," and depth == 1:
+            spans.append((begin, pos))
+            begin = pos + 1
+    return spans, -1
+
+
+def flat(text: str) -> str:
+    return re.sub(r"\s+", " ", text.strip())
+
+
+def render_create(text: str, start: int, close: int, args: list[str]) -> str:
+    line_start = text.rfind("\n", 0, start) + 1
+    col = start - line_start
+    line_end = text.find("\n", close)
+    line_end = len(text) if line_end < 0 else line_end
+    suffix = len(text[close + 1:line_end])
+    init = f"{CREATE_INFO}({args[0]}, {args[1]})"
+    one = f"t64_machine_create({init}, {args[2]})"
+    if col + len(one) + suffix <= LIMIT:
+        return one
+    pad = " " * (col + 4)
+    if col + 4 + len(init) + 2 + len(args[2]) + 1 + suffix <= LIMIT:
+        return f"t64_machine_create(\n{pad}{init}, {args[2]})"
+    if col + 4 + len(init) + 1 <= LIMIT:
+        return f"t64_machine_create(\n{pad}{init},\n{pad}{args[2]})"
+    inner = " " * (col + 8)
+    return (f"t64_machine_create(\n{pad}{CREATE_INFO}(\n{inner}{args[0]}, "
+            f"{args[1]}),\n{pad}{args[2]})")
+
+
+def process_calls(text: str, create: bool, trace: bool,
+                  descriptors: bool) -> Result:
+    """Rewrite t64_machine_create into the create-info form (--create) and
+    insert the trace record size after the records argument (--trace)."""
+    masked = mask(text)
+    result = Result(text)
+    repls: list[tuple[int, int, str]] = []
+
+    def line_of(pos: int) -> int:
+        return text.count("\n", 0, pos) + 1
+
+    for match in CALL_RE.finditer(masked):
+        name = match.group(1)
+        if name == "t64_machine_create" and not create:
+            continue
+        if name == "t64_machine_trace_drain" and not trace:
+            continue
+        before = masked[:match.start()].rstrip()
+        word = re.search(r"(\w+)$", before)
+        if word and word.group(1) != "return":
+            continue  # a declaration or definition, not a call
+        open_pos = match.end() - 1
+        spans, close = call_arguments(text, masked, open_pos)
+        line = line_of(match.start())
+        if close < 0:
+            result.sites.append(Site("hand", name, line, "unbalanced call"))
+            continue
+        args = [text[b:e] for b, e in spans]
+        masked_args = [masked[b:e] for b, e in spans]
+        if any("/*" in t or "//" in t for t in args) \
+                or any('"' in m or "'" in m for m in masked_args):
+            result.sites.append(Site(
+                "hand", name, line, "comment or literal inside the arguments"))
+            continue
+        if name == "t64_machine_create":
+            if len(args) == 2:
+                continue  # already the create-info form
+            if len(args) != 3:
+                result.sites.append(Site(
+                    "hand", name, line, f"{len(args)} arguments"))
+                continue
+            new = render_create(text, match.start(), close,
+                                [flat(a) for a in args])
+            repls.append((match.start(), close + 1, new))
+            result.sites.append(Site("create", name, line))
+        else:
+            if len(args) == 7:
+                continue  # already carries the record size
+            if len(args) != 6:
+                result.sites.append(Site(
+                    "hand", name, line, f"{len(args)} arguments"))
+                continue
+            comma = spans[1][1]
+            line_start = text.rfind("\n", 0, comma) + 1
+            line_end = text.find("\n", comma)
+            line_end = len(text) if line_end < 0 else line_end
+            if len(text[line_start:line_end]) + len(RECORD_SIZE) + 2 <= LIMIT:
+                new = f", {RECORD_SIZE},"
+            else:
+                arg_start = spans[0][0]
+                while text[arg_start].isspace():
+                    arg_start += 1
+                indent = arg_start - (text.rfind("\n", 0, arg_start) + 1)
+                new = ",\n" + " " * indent + RECORD_SIZE + ","
+            repls.append((comma, comma + 1, new))
+            result.sites.append(Site("trace", name, line))
+
+    if descriptors:
+        for match in DESCRIPTOR_RE.finditer(masked):
+            open_pos = match.end() - 1
+            close = match_brace(masked, open_pos)
+            if close < 0:
+                continue
+            elements = split_elements(text, masked, open_pos, close)
+            line = line_of(match.start())
+            if elements and (elements[0].startswith(".struct_size")
+                             or elements[0] == DESCRIPTOR_SIZE):
+                continue
+            if all(ZERO_RE.fullmatch(e) for e in elements):
+                # Designated, so the other members stay zero without a
+                # missing-field diagnostic (C99; the callers are C).
+                body = "{.struct_size = " + DESCRIPTOR_SIZE + "}"
+                line_start = text.rfind("\n", 0, open_pos) + 1
+                line_end = text.find("\n", close)
+                line_end = len(text) if line_end < 0 else line_end
+                head = text[line_start:open_pos]
+                if len(head) + len(body) + line_end - close - 1 > LIMIT \
+                        and head.rstrip().endswith("="):
+                    indent = len(head) - len(head.lstrip()) + 4
+                    repls.append((line_start + len(head.rstrip()), close + 1,
+                                  "\n" + " " * indent + body))
+                else:
+                    repls.append((open_pos, close + 1, body))
+            elif elements and elements[0].startswith("."):
+                first = open_pos + 1
+                while first < close and masked[first] in " \t":
+                    first += 1
+                if masked[first] == "\n":
+                    start = first + 1
+                    while masked[start] in " \t":
+                        start += 1
+                    indent = text[first + 1:start]
+                    repls.append((first + 1, first + 1,
+                                  f"{indent}.struct_size = {DESCRIPTOR_SIZE},\n"))
+                else:
+                    repls.append((open_pos + 1, open_pos + 1,
+                                  f".struct_size = {DESCRIPTOR_SIZE}, "))
+            else:
+                repls.append((open_pos + 1, open_pos + 1, DESCRIPTOR_SIZE + ", "))
+            result.sites.append(Site("descriptor", "t64_profile_descriptor", line))
+
+    repls.sort()
+    out = text
+    for start, end, new in reversed(repls):
         out = out[:start] + new + out[end:]
     result.text = out
     return result
@@ -688,6 +899,7 @@ def run(args: argparse.Namespace) -> int:
     files, excluded = expand(paths, base, writing, top, bound, scratch)
     total_converted = total_hand = 0
     failed = False
+    calls = args.create or args.trace
     for note in excluded:
         print(f"excluded: {note}")
     for path in files:
@@ -697,6 +909,22 @@ def run(args: argparse.Namespace) -> int:
         except (OSError, UnicodeDecodeError) as error:
             print(f"error: {rel}: {error}", file=sys.stderr)
             failed = True
+            continue
+        if calls:
+            result = process_calls(source, args.create, args.trace,
+                                   args.create and rel not in bound)
+            for site in result.sites:
+                if site.kind == "hand":
+                    print(f"hand: {rel}:{site.line}: {site.type}: {site.note}")
+            if result.text != source:
+                path.write_bytes(result.text.encode("utf-8"))
+            changed = (result.count("create") + result.count("trace")
+                       + result.count("descriptor"))
+            print(f"{rel}: converted {changed} (create {result.count('create')}, "
+                  f"trace {result.count('trace')}, descriptor "
+                  f"{result.count('descriptor')}), hand {result.hand}")
+            total_converted += changed
+            total_hand += result.hand
             continue
         result = process(source)
         for site in result.sites:
@@ -828,6 +1056,44 @@ SELFTEST_CASES = [
      "  t64_output_status s = T64_OUTPUT_STATUS_INIT;\n"
      "  t64_save_info x = other;\n"),
 ]
+CALL_CASES = [
+    # name, source, expected output (create and trace modes, non-bound file)
+    ("create in a check macro",
+     "  T64_CHECK_INT(t64_machine_create(&allocator, profile, &machine),\n"
+     "                T64_STATUS_OK);\n",
+     "  T64_CHECK_INT(t64_machine_create(\n"
+     "                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(\n"
+     "                        &allocator, profile),\n"
+     "                    &machine),\n"
+     "                T64_STATUS_OK);\n"),
+    ("create short form, return statement and declarations stay",
+     "t64_status t64_machine_create(const t64_machine_create_info *i,\n"
+     "                              t64_machine **m);\n"
+     "  return t64_machine_create(a, p, m);\n",
+     "t64_status t64_machine_create(const t64_machine_create_info *i,\n"
+     "                              t64_machine **m);\n"
+     "  return t64_machine_create(\n"
+     "             &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(a, p), m);\n"),
+    ("trace drain record size",
+     "  s = t64_machine_trace_drain(m, r, 4u, &c, &d, &f);\n"
+     "  s = t64_machine_trace_drain(machine, records, T64_TRACE_RECORD_CAPACITY,\n"
+     "                              &count, &dropped, &saturated);\n",
+     "  s = t64_machine_trace_drain(m, r,\n"
+     "                              (uint32_t)sizeof(t64_trace_record), 4u, &c, &d, &f);\n"
+     "  s = t64_machine_trace_drain(machine, records,\n"
+     "                              (uint32_t)sizeof(t64_trace_record), T64_TRACE_RECORD_CAPACITY,\n"
+     "                              &count, &dropped, &saturated);\n"),
+    ("zero descriptor gets its struct_size",
+     "  t64_profile_descriptor empty = {0};\n",
+     "  t64_profile_descriptor empty =\n"
+     "      {.struct_size = (uint32_t)sizeof(t64_profile_descriptor)};\n"),
+    ("designated descriptor gets a struct_size line",
+     "static const t64_profile_descriptor d = {\n    .profile_id = \"A\",\n};\n",
+     "static const t64_profile_descriptor d = {\n"
+     "    .struct_size = (uint32_t)sizeof(t64_profile_descriptor),\n"
+     "    .profile_id = \"A\",\n};\n"),
+]
+
 SELFTEST_HAND = {
     # static non-zero, array, declarators, designated, memset
     "hand sites stay untouched": 5,
@@ -853,7 +1119,18 @@ def selftest() -> int:
                   f"{second.converted})")
         else:
             print(f"selftest ok: {name}")
-    print(f"selftest: {len(SELFTEST_CASES) - failures} of {len(SELFTEST_CASES)} passed")
+    for name, source, expected in CALL_CASES:
+        first = process_calls(source, True, True, True)
+        second = process_calls(first.text, True, True, True)
+        ok = first.text == expected and second.text == first.text \
+            and first.hand == 0
+        if not ok:
+            failures += 1
+            print(f"selftest FAIL: {name}\n--- got\n{first.text}--- want\n{expected}")
+        else:
+            print(f"selftest ok: {name}")
+    total = len(SELFTEST_CASES) + len(CALL_CASES)
+    print(f"selftest: {total - failures} of {total} passed")
     return 1 if failures else 0
 
 
@@ -866,15 +1143,19 @@ def main(argv: list[str]) -> int:
                         help="report remaining sites without writing")
     parser.add_argument("--scratch-root", metavar="ROOT",
                         help="re-base paths under a marked scratch clone")
-    parser.add_argument("--create", action="store_true", help="lands in 11-12")
-    parser.add_argument("--trace", action="store_true", help="lands in 11-12")
+    parser.add_argument("--create", action="store_true",
+                        help="with --dir: rewrite t64_machine_create calls into "
+                        "the create-info form (plan 11-12)")
+    parser.add_argument("--trace", action="store_true",
+                        help="with --dir: insert the record size into "
+                        "t64_machine_trace_drain calls (plan 11-12)")
     parser.add_argument("--selftest", action="store_true")
     args = parser.parse_args(argv)
-    if args.create or args.trace:
-        print("codemod-phase11: --create and --trace land in 11-12", file=sys.stderr)
-        return 2
     if args.selftest:
         return selftest()
+    if (args.create or args.trace) and args.dir is None:
+        print("codemod-phase11: --create and --trace need --dir", file=sys.stderr)
+        return 2
     if (args.dir is None) == (args.check is None):
         print("codemod-phase11: give exactly one of --dir and --check", file=sys.stderr)
         return 2

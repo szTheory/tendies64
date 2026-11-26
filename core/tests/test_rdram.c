@@ -101,7 +101,10 @@ static bool create_machine(const char *profile_id,
       !read_ipl3_asset(ipl3_asset) ||
       t64_profile_lookup(profile_id, &profile) != T64_STATUS_OK ||
       profile == NULL ||
-      t64_machine_create(&allocator, profile, machine_out) != T64_STATUS_OK ||
+      t64_machine_create(
+          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+              &allocator, profile),
+          machine_out) != T64_STATUS_OK ||
       *machine_out == NULL) {
     return false;
   }
@@ -174,6 +177,7 @@ static void check_register_trace(t64_machine *machine) {
   uint32_t config_reads = 0u;
 
   T64_CHECK_INT(t64_machine_trace_drain(machine, records,
+                                        (uint32_t)sizeof(t64_trace_record),
                                         T64_TRACE_RECORD_CAPACITY,
                                         &record_count, &dropped,
                                         &drop_count_saturated),

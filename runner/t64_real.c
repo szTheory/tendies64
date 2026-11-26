@@ -556,6 +556,7 @@ static bool drain_trace(t64_machine *machine,
   size_t i;
 
   if (t64_machine_trace_drain(machine, records,
+                              (uint32_t)sizeof(t64_trace_record),
                               sizeof records / sizeof records[0], &count,
                               &dropped, &saturated) != T64_STATUS_OK ||
       dropped != 0u || saturated) {
@@ -1399,7 +1400,10 @@ static int run_real(int fixture_fd, int input_fd, const char *requested_profile,
     goto cleanup;
   }
   result.bound_tick = guest_ticks;
-  status = t64_machine_create(&allocator, profile, &machine);
+  status = t64_machine_create(
+               &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                   &allocator, profile),
+               &machine);
   if (status != T64_STATUS_OK || machine == NULL) {
     exit_code = emit_prelaunch("refusal", "refused", guest_ticks, 0);
     goto cleanup;

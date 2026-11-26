@@ -90,7 +90,10 @@ static t64_machine *create_admitted(const char *profile_id) {
 
   T64_CHECK_INT(t64_profile_lookup(profile_id, &profile), T64_STATUS_OK);
   if (profile == NULL) return NULL;
-  T64_CHECK_INT(t64_machine_create(&allocator, profile, &machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &allocator, profile),
+                    &machine),
                 T64_STATUS_OK);
   if (machine == NULL) return NULL;
   if (!read_openipl3_asset(asset)) {
@@ -2106,7 +2109,10 @@ static void case_refusals(void) {
       t64_machine_destroy(admitted);
     }
     T64_CHECK_INT(t64_profile_lookup(E4K_ID, &profile), T64_STATUS_OK);
-    T64_CHECK_INT(t64_machine_create(&allocator, profile, &raw), T64_STATUS_OK);
+    T64_CHECK_INT(t64_machine_create(
+                      &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                          &allocator, profile),
+                      &raw), T64_STATUS_OK);
     if (raw != NULL) {
       T64_CHECK_INT(t64_machine_save_info(raw, 1u, &info), T64_STATUS_NOT_READY);
       T64_CHECK_INT(t64_machine_save_info(raw, 0u, &info), T64_STATUS_NOT_READY);

@@ -134,7 +134,10 @@ static t64_machine *make_machine(const t64_host_allocator *allocator,
   };
   t64_machine *machine = NULL;
   size_t index;
-  if (t64_machine_create(allocator, profile, &machine) != T64_STATUS_OK ||
+  if (t64_machine_create(
+          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+              allocator, profile),
+          &machine) != T64_STATUS_OK ||
       machine == NULL ||
       t64_machine_admit_rom(machine, asset, IPL3_ASSET_BYTES) != T64_STATUS_OK) {
     if (machine != NULL) t64_machine_destroy(machine);

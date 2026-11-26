@@ -75,7 +75,10 @@ static bool fixture_init_with_profile(
                                                   &fixture->host_state);
   fill_authored_rom(fixture->image, salt);
   if (profile == NULL ||
-      t64_machine_create(&fixture->allocator, profile, &fixture->machine) !=
+      t64_machine_create(
+          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+              &fixture->allocator, profile),
+          &fixture->machine) !=
           T64_STATUS_OK ||
       fixture->machine == NULL ||
       t64_machine_admit_rom(fixture->machine, fixture->image,

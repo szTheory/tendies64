@@ -311,7 +311,10 @@ static bool test_vr4300_cvt_d_w_is_machine_local(
       t64_profile_lookup("ntsc-cart-4m-openipl3-vr4300-v1", &profile) !=
           T64_STATUS_OK ||
       profile == NULL ||
-      t64_machine_create(&other_allocator, profile, &other) != T64_STATUS_OK ||
+      t64_machine_create(
+          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+              &other_allocator, profile),
+          &other) != T64_STATUS_OK ||
       other == NULL ||
       t64_machine_admit_rom(other, asset, IPL3_ASSET_BYTES) != T64_STATUS_OK) {
     (void)puts("# CVT.D.W fixture setup failed");
@@ -549,7 +552,10 @@ static bool test_vr4300_cop1_transfer_conversion_memory_tracer(
   if (t64_profile_lookup("ntsc-cart-4m-openipl3-vr4300-v1", &profile) !=
           T64_STATUS_OK ||
       profile == NULL ||
-      t64_machine_create(&handler_allocator, profile, &handler_machine) !=
+      t64_machine_create(
+          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+              &handler_allocator, profile),
+          &handler_machine) !=
           T64_STATUS_OK ||
       handler_machine == NULL ||
       t64_machine_admit_rom(handler_machine, asset, IPL3_ASSET_BYTES) !=
@@ -1975,7 +1981,10 @@ static bool create_profile_machine(
          profile != NULL &&
          profile->machine_model_version == expected_model_version &&
          profile->state_serialization_version == expected_state_version &&
-         t64_machine_create(allocator, profile, machine_out) ==
+         t64_machine_create(
+             &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                 allocator, profile),
+             machine_out) ==
              T64_STATUS_OK &&
          *machine_out != NULL;
 }
@@ -2568,6 +2577,7 @@ static bool test_software_debug_stop_break(
       detail.retired_instructions != 0u || detail.pc != IPL3_ENTRY_PC ||
       detail.opcode != T64_CPU_SOFTWARE_DEBUG_STOP_BREAK ||
       t64_machine_trace_drain(machine, records,
+                              (uint32_t)sizeof(t64_trace_record),
                               sizeof records / sizeof records[0], &count,
                               &dropped, &saturated) != T64_STATUS_OK ||
       dropped != 0u || saturated) {
@@ -3265,7 +3275,10 @@ int main(int argc, char **argv) {
       t64_profile_lookup("ntsc-cart-4m-openipl3-warm-v1", &profile) !=
           T64_STATUS_OK ||
       profile == NULL ||
-      t64_machine_create(&allocator, profile, &machine) != T64_STATUS_OK ||
+      t64_machine_create(
+          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+              &allocator, profile),
+          &machine) != T64_STATUS_OK ||
       machine == NULL) {
     (void)puts("1..1");
     (void)puts("not ok 1 - qualified IPL3 fixture setup");
@@ -3292,8 +3305,10 @@ int main(int argc, char **argv) {
                       "ntsc-cart-4m-openipl3-vr4300-v1", &vr4300_profile) ==
                       T64_STATUS_OK &&
                   vr4300_profile != NULL &&
-                  t64_machine_create(&allocator, vr4300_profile,
-                                     &vr4300_machine) == T64_STATUS_OK &&
+                  t64_machine_create(
+                      &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                          &allocator, vr4300_profile),
+                      &vr4300_machine) == T64_STATUS_OK &&
                   vr4300_machine != NULL;
 
       if (okay) {

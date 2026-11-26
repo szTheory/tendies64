@@ -120,6 +120,7 @@ static bool drain_warm_dma_trace(t64_machine *machine,
 
   if (machine == NULL || observed == NULL ||
       t64_machine_trace_drain(machine, records,
+                              (uint32_t)sizeof(t64_trace_record),
                               sizeof records / sizeof records[0], &count,
                               &dropped, &saturated) != T64_STATUS_OK ||
       dropped != 0u || saturated) {
@@ -339,7 +340,10 @@ static bool warm_sp_dmem_zero_fill_checks(
   uint64_t completion_tick;
   bool passed = true;
 
-  if (t64_machine_create(allocator, profile, &machine) != T64_STATUS_OK ||
+  if (t64_machine_create(
+          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+              allocator, profile),
+          &machine) != T64_STATUS_OK ||
       machine == NULL ||
       t64_machine_admit_rom(machine, authored_rom, TEST_HELLO_BYTES) !=
           T64_STATUS_OK) {
@@ -596,7 +600,10 @@ static bool warm_sp_queue_reset_checks(
   t64_status refusal_status;
   bool passed;
 
-  if (t64_machine_create(allocator, profile, &machine) != T64_STATUS_OK ||
+  if (t64_machine_create(
+          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+              allocator, profile),
+          &machine) != T64_STATUS_OK ||
       machine == NULL ||
       t64_machine_admit_rom(machine, authored_rom, TEST_HELLO_BYTES) !=
           T64_STATUS_OK) {
@@ -744,7 +751,10 @@ int main(void) {
   }
 
   T64_CHECK_INT(profile->rom_max_bytes, UINT32_C(1048576));
-  T64_CHECK_INT(t64_machine_create(&allocator, profile, &machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &allocator, profile),
+                    &machine),
                 T64_STATUS_OK);
   T64_CHECK(machine != NULL);
   if (machine == NULL) {
@@ -864,7 +874,10 @@ int main(void) {
   T64_CHECK(warm_sp_dmem_zero_fill_checks(&allocator, profile,
                                            authored_rom));
 
-  T64_CHECK_INT(t64_machine_create(&allocator, profile, &interleaved_machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &allocator, profile),
+                    &interleaved_machine),
                 T64_STATUS_OK);
   T64_CHECK(interleaved_machine != NULL);
   if (interleaved_machine != NULL) {

@@ -245,6 +245,7 @@ static bool collect_trace(t64_machine *machine, cold_operation *operation,
   bool saturated = false;
   size_t index;
   if (t64_machine_trace_drain(machine, records,
+                              (uint32_t)sizeof(t64_trace_record),
                               T64_TRACE_RECORD_CAPACITY, &count, &dropped,
                               &saturated) != T64_STATUS_OK || saturated ||
       dropped != 0u || count > T64_TRACE_RECORD_CAPACITY) {
@@ -432,6 +433,7 @@ static bool collect_complete_trace(t64_machine *machine,
 
   if (machine == NULL || observation == NULL || dropped_total == NULL ||
       t64_machine_trace_drain(machine, records,
+                              (uint32_t)sizeof(t64_trace_record),
                               T64_TRACE_RECORD_CAPACITY, &count, &dropped,
                               &saturated) != T64_STATUS_OK || saturated ||
       dropped != 0u || count > T64_TRACE_RECORD_CAPACITY) {
@@ -912,7 +914,10 @@ static const char *run_complete_profile(const cold_rom *rom,
   if (t64_profile_hash(profile, result->profile_digest) != T64_STATUS_OK) {
     return "profile-digest";
   }
-  if (t64_machine_create(&allocator, profile, &machine) != T64_STATUS_OK ||
+  if (t64_machine_create(
+          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+              &allocator, profile),
+          &machine) != T64_STATUS_OK ||
       machine == NULL) {
     error = "machine-create";
     goto cleanup;
@@ -1209,7 +1214,10 @@ static int run_probe(const char *profile_id, const char *fixture_path) {
     (void)puts("classification=refused reason=profile-identity");
     return 2;
   }
-  if (t64_machine_create(&allocator, profile, &machine) != T64_STATUS_OK ||
+  if (t64_machine_create(
+          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+              &allocator, profile),
+          &machine) != T64_STATUS_OK ||
       machine == NULL) {
     (void)puts("classification=refused reason=machine-create");
     goto cleanup;

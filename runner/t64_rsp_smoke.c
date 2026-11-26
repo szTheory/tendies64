@@ -235,6 +235,7 @@ static bool drain_trace(t64_machine *machine, observations *seen) {
   bool saturated = false;
   size_t index;
   if (t64_machine_trace_drain(machine, records,
+                              (uint32_t)sizeof(t64_trace_record),
                               sizeof records / sizeof records[0], &count,
                               &dropped, &saturated) != T64_STATUS_OK ||
       dropped != 0u || saturated) return false;
@@ -389,7 +390,10 @@ static int run_smoke(const char *path, const char *expected_sha,
       profile->state_serialization_version != 12u ||
       strcmp(profile->sp_model_version,
              "rsp-functional-issue-dma-divider-integer-v1") != 0 ||
-      t64_machine_create(&allocator, profile, &machine) != T64_STATUS_OK ||
+      t64_machine_create(
+          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+              &allocator, profile),
+          &machine) != T64_STATUS_OK ||
       machine == NULL ||
       t64_machine_trace_set_enabled(machine, true) != T64_STATUS_OK ||
       t64_machine_admit_rom(machine, rom.bytes, rom.length) != T64_STATUS_OK) {

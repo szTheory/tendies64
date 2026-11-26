@@ -86,7 +86,10 @@ static bool fixture_init_profile(fixture *value,
       test_allocate, test_release, value);
   if (t64_profile_lookup(profile_id, &profile) != T64_STATUS_OK ||
       profile == NULL ||
-      t64_machine_create(&value->allocator, profile, &value->machine) !=
+      t64_machine_create(
+          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+              &value->allocator, profile),
+          &value->machine) !=
           T64_STATUS_OK ||
       value->machine == NULL ||
       t64_machine_admit_rom(value->machine, asset, TEST_IPL3_BYTES) !=

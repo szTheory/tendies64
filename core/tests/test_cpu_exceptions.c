@@ -153,7 +153,8 @@ static bool expect_exception(t64_machine *machine, uint64_t ticks,
   }
   status = advance_ticks(machine, ticks, &result);
   trace_status = t64_machine_trace_drain(
-      machine, trace_records, sizeof trace_records / sizeof trace_records[0],
+      machine, trace_records,
+      (uint32_t)sizeof(t64_trace_record), sizeof trace_records / sizeof trace_records[0],
       &trace_count, &dropped, &drop_saturated);
   cause = (uint32_t)machine->cpu.cp0[T64_CP0_CAUSE];
   observed_epc = machine->cpu.cp0[T64_CP0_EPC];
@@ -659,7 +660,10 @@ int main(void) {
   (void)printf("1..%zu\n", sizeof cases / sizeof cases[0]);
   for (i = 0u; i < sizeof cases / sizeof cases[0]; i++) {
     t64_machine *machine = NULL;
-    bool okay = t64_machine_create(&allocator, profile, &machine) ==
+    bool okay = t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &allocator, profile),
+                    &machine) ==
                     T64_STATUS_OK &&
                 machine != NULL;
 

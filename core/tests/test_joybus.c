@@ -473,7 +473,10 @@ static void check_timeline(const uint8_t *bytes, size_t count,
   (void)fclose(file);
   T64_CHECK_INT(t64_profile_lookup(SI_STEM_ID, &profile), T64_STATUS_OK);
   if (profile == NULL) return;
-  T64_CHECK_INT(t64_machine_create(&allocator, profile, &machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &allocator, profile),
+                    &machine),
                 T64_STATUS_OK);
   if (machine == NULL) return;
   T64_CHECK_INT(t64_machine_admit_rom(machine, asset, sizeof asset),

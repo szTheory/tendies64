@@ -175,7 +175,10 @@ static t64_machine *create_machine(const char *profile_id) {
 
   T64_CHECK_INT(t64_profile_lookup(profile_id, &profile), T64_STATUS_OK);
   if (profile == NULL) return NULL;
-  T64_CHECK_INT(t64_machine_create(&allocator, profile, &machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &allocator, profile),
+                    &machine),
                 T64_STATUS_OK);
   return machine;
 }
@@ -387,7 +390,10 @@ static void expect_refused_everywhere(const char *label,
                                       &length),
                 T64_STATUS_INVALID_ARGUMENT);
   (void)snprintf(text, sizeof text, "%s create", label);
-  expect_status(text, t64_machine_create(&host, profile, &machine),
+  expect_status(text, t64_machine_create(
+                          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                              &host, profile),
+                          &machine),
                 T64_STATUS_INVALID_ARGUMENT);
   T64_CHECK(machine == NULL);
   T64_CHECK_INT(state.allocations, 0u);
@@ -428,7 +434,10 @@ static void expect_pinned_at_create(const char *label,
   T64_CHECK(length != original_length ||
             memcmp(serialized, original_bytes, length) != 0);
   (void)snprintf(text, sizeof text, "%s create", label);
-  expect_status(text, t64_machine_create(&host, changed, &machine),
+  expect_status(text, t64_machine_create(
+                          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                              &host, changed),
+                          &machine),
                 T64_STATUS_INVALID_ARGUMENT);
   T64_CHECK(machine == NULL);
   T64_CHECK_INT(state.allocations, 0u);
@@ -597,7 +606,10 @@ static void check_family_identity(size_t index, const uint8_t ai_hash[T64_DIGEST
   external_digest(serialized, length, reference);
   T64_CHECK(memcmp(digest, reference, sizeof digest) == 0);
 
-  T64_CHECK_INT(t64_machine_create(&host, profile, &machine), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &host, profile),
+                    &machine), T64_STATUS_OK);
   T64_CHECK(machine != NULL);
   if (machine != NULL) {
     T64_CHECK_INT(machine->profile.save_kind, si_save_kinds[index]);
@@ -739,7 +751,10 @@ static void check_unregistered_family_id(void) {
                sizeof "test-only-unregistered-family");
   T64_CHECK_INT(t64_profile_hash(&changed, digest), T64_STATUS_OK);
   expect_status("unregistered descriptor-12 id create",
-                t64_machine_create(&host, &changed, &machine),
+                t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &host, &changed),
+                    &machine),
                 T64_STATUS_INVALID_ARGUMENT);
   T64_CHECK(machine == NULL);
   T64_CHECK_INT(state.allocations, 0u);
@@ -766,7 +781,10 @@ static void check_legacy_refuses_numeric_at_create(void) {
   (void)memcpy(changed.profile_id, "test-only-legacy-numeric",
                sizeof "test-only-legacy-numeric");
   T64_CHECK_INT(t64_profile_hash(&changed, baseline), T64_STATUS_OK);
-  T64_CHECK_INT(t64_machine_create(&host, &changed, &machine), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &host, &changed),
+                    &machine), T64_STATUS_OK);
   T64_CHECK(machine != NULL);
   if (machine != NULL) t64_machine_destroy(machine);
   T64_CHECK_INT(state.outstanding, 0u);
@@ -779,7 +797,10 @@ static void check_legacy_refuses_numeric_at_create(void) {
     T64_CHECK_INT(t64_profile_hash(&changed, digest), T64_STATUS_OK);
     T64_CHECK(memcmp(digest, baseline, sizeof digest) != 0);
     expect_status("legacy create with save_kind",
-                  t64_machine_create(&host, &changed, &machine),
+                  t64_machine_create(
+                      &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                          &host, &changed),
+                      &machine),
                   T64_STATUS_INVALID_ARGUMENT);
     T64_CHECK(machine == NULL);
     T64_CHECK_INT(state.allocations, before);
@@ -793,7 +814,10 @@ static void check_legacy_refuses_numeric_at_create(void) {
 
     machine = NULL;
     expect_status("legacy create with peripheral_flags",
-                  t64_machine_create(&host, &changed, &machine),
+                  t64_machine_create(
+                      &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                          &host, &changed),
+                      &machine),
                   T64_STATUS_INVALID_ARGUMENT);
     T64_CHECK(machine == NULL);
     T64_CHECK_INT(state.allocations, before);
@@ -873,7 +897,10 @@ static void case_quantum_identity(void) {
 
     if (profile == NULL) continue;
     T64_CHECK_INT(profile->synchronization_quantum, 1u);
-    T64_CHECK_INT(t64_machine_create(&host, profile, &machine), T64_STATUS_OK);
+    T64_CHECK_INT(t64_machine_create(
+                      &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                          &host, profile),
+                      &machine), T64_STATUS_OK);
     T64_CHECK(machine != NULL);
     if (machine != NULL) t64_machine_destroy(machine);
     T64_CHECK_INT(state.outstanding, 0u);
@@ -957,7 +984,10 @@ static t64_machine *create_admitted(const t64_host_allocator *host,
   uint8_t asset[IPL3_ASSET_BYTES];
 
   if (profile == NULL) return NULL;
-  T64_CHECK_INT(t64_machine_create(host, profile, &machine), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        host, profile),
+                    &machine), T64_STATUS_OK);
   if (machine == NULL) return NULL;
   T64_CHECK(read_openipl3_asset(asset));
   T64_CHECK_INT(t64_machine_admit_rom(machine, asset, sizeof asset),

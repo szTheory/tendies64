@@ -267,7 +267,10 @@ static void test_all_orders_and_refusal_state(void) {
   if (profile == NULL) {
     return;
   }
-  T64_CHECK_INT(t64_machine_create(&host_allocator, profile, &machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &host_allocator, profile),
+                    &machine),
                 T64_STATUS_OK);
   T64_CHECK(machine != NULL);
   if (machine == NULL) {
@@ -344,7 +347,10 @@ static void test_minimum_and_maximum_boundaries(void) {
     free(maximum_span);
     return;
   }
-  T64_CHECK_INT(t64_machine_create(&host_allocator, profile, &machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &host_allocator, profile),
+                    &machine),
                 T64_STATUS_OK);
   if (machine == NULL) {
     free(maximum_span);

@@ -165,7 +165,10 @@ static bool make_machine(const t64_profile_descriptor *profile,
                          bool trace_enabled, bool queue_inputs,
                          t64_machine **machine_out) {
   t64_machine *machine = NULL;
-  if (t64_machine_create(allocator, profile, &machine) != T64_STATUS_OK ||
+  if (t64_machine_create(
+          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+              allocator, profile),
+          &machine) != T64_STATUS_OK ||
       machine == NULL ||
       t64_machine_trace_set_enabled(machine, trace_enabled) != T64_STATUS_OK ||
       t64_machine_admit_rom(machine, rom, rom_length) != T64_STATUS_OK ||
@@ -189,6 +192,7 @@ static bool drain_trace(machine_run *run) {
   size_t i;
 
   if (t64_machine_trace_drain(run->machine, records,
+                              (uint32_t)sizeof(t64_trace_record),
                               T64_TRACE_RECORD_CAPACITY, &count, &dropped,
                               &saturated) != T64_STATUS_OK ||
       count > T64_TRACE_RECORD_CAPACITY || dropped != 0u || saturated) {
@@ -819,7 +823,8 @@ static bool cold_mdu_cuts(const t64_profile_descriptor *profile,
     size_t index;
     if (target > terminal) target = terminal;
     if (!cold_advance(machine, target) ||
-        t64_machine_trace_drain(machine, records, T64_TRACE_RECORD_CAPACITY,
+        t64_machine_trace_drain(machine, records,
+                                (uint32_t)sizeof(t64_trace_record), T64_TRACE_RECORD_CAPACITY,
                                 &count, &dropped, &saturated) != T64_STATUS_OK ||
         dropped != 0u || saturated) break;
     for (index = 0u; index < count; index++) {

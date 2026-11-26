@@ -58,8 +58,8 @@ T64_STATUS_STATE_CONTENT :: 30 :: refused :: n/a :: state import: content refusa
 T64_STATUS_STATE_BUILD :: 31 :: refused :: n/a :: state import: build identity refusal; the machine stays bit-identical.
 T64_STATUS_STATE_RANGE :: 32 :: refused :: n/a :: state import: range refusal; the machine stays bit-identical.
 T64_STATUS_STATE_INVARIANT :: 33 :: refused :: n/a :: state import: a blob fault, not an instance defect; the machine stays bit-identical.
-T64_STATUS_ABI_MISMATCH :: 34 :: refused :: n/a :: returned by create only: the create-info abi_version does not match the library.
-T64_STATUS_STRUCT_TOO_SMALL :: 35 :: refused :: n/a :: a caller-filled struct_size is below the v1 minimum; state and outputs unchanged.
+T64_STATUS_ABI_MISMATCH :: 34 :: refused :: n/a :: returned by create only (t64_machine_create, plan 11-12): the create-info abi_version has another major, or another minor while the major is 0; *machine_out NULL, no allocation.
+T64_STATUS_STRUCT_TOO_SMALL :: 35 :: refused :: n/a :: a caller-filled struct_size is below the v1 minimum; state and outputs unchanged. Call sites: t64_machine_create (create-info, allocator and profile struct_size; no allocation), t64_machine_trace_drain (record_size below the v1 record), t64_machine_output_status (status_out struct_size).
 T64_STATUS_REENTRANT :: 36 :: refused :: n/a :: a call while a call on the same instance is in progress (for example from an allocator callback).
 T64_STATUS_POISONED :: 37 :: defect :: n/a :: the answer of every call on a poisoned instance except destroy and the poison query.
 T64_STATUS_INTERNAL_DEFECT :: 38 :: defect :: n/a :: returned by the call that detects an internal invariant violation; the instance is then poisoned. Defect sites: the CP0 count phase, the stored profile digest at admission, a failing reset after the image swap, the digest stream and state export inconsistency sites, and a handler status outside the DR-12 whitelist during advance.

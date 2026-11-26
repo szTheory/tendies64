@@ -357,7 +357,10 @@ static int core_admit_fixture(const uint8_t *bytes, size_t length,
   int ok = 0;
   if (t64_profile_lookup("ntsc-cart-4m-openipl3-warm-v1", &profile) !=
           T64_STATUS_OK || profile == NULL ||
-      t64_machine_create(&allocator, profile, &machine) != T64_STATUS_OK ||
+      t64_machine_create(
+          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+              &allocator, profile),
+          &machine) != T64_STATUS_OK ||
       machine == NULL ||
       t64_machine_admit_rom(machine, bytes, length) != T64_STATUS_OK ||
       t64_machine_rom_size(machine, &rom_size) != T64_STATUS_OK ||

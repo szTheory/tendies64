@@ -315,7 +315,10 @@ static void test_vr4300_profile_entry(
   T64_CHECK_INT(profile->state_serialization_version, 9u);
   T64_CHECK_INT(profile->hle_seed_reset_version, 2u);
 
-  T64_CHECK_INT(t64_machine_create(&allocator, profile, &machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &allocator, profile),
+                    &machine),
                 T64_STATUS_OK);
   T64_CHECK(machine != NULL);
   if (machine == NULL) {
@@ -415,7 +418,10 @@ static void test_vr4300_profile_entry(
   check_vr4300_cpu_state_hash_sensitivity(machine);
   check_vr4300_v9_ignores_compat_branch_origin(machine);
 
-  T64_CHECK_INT(t64_machine_create(&allocator, profile, &peer_machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &allocator, profile),
+                    &peer_machine),
                 T64_STATUS_OK);
   T64_CHECK(peer_machine != NULL);
   if (peer_machine == NULL) {
@@ -483,8 +489,10 @@ static void test_vr4300_profile_entry(
   /* A non-canonical boot descriptor must not replace the admitted image. */
   altered_profile = *profile;
   altered_profile.boot_policy_sha256[0] ^= UINT8_C(1);
-  T64_CHECK_INT(t64_machine_create(&allocator, &altered_profile,
-                                  &rejected_machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &allocator, &altered_profile),
+                    &rejected_machine),
                 T64_STATUS_INVALID_ARGUMENT);
   T64_CHECK(rejected_machine == NULL);
   T64_CHECK_INT(allocator_state_value.outstanding, 4u);
@@ -1034,7 +1042,10 @@ static void test_vr4300_compat_profile_entry(
   T64_CHECK_INT(profile->rom_max_bytes, UINT32_C(0x00401000));
   T64_CHECK_INT(profile->hle_seed_reset_version, 2u);
 
-  T64_CHECK_INT(t64_machine_create(&allocator, profile, &machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &allocator, profile),
+                    &machine),
                 T64_STATUS_OK);
   T64_CHECK(machine != NULL);
   if (machine == NULL) {
@@ -1165,7 +1176,10 @@ static void test_cold_t1_profile_entry(
   T64_CHECK_INT(profile->cpu_rsp_ratio_numerator, 1u);
   T64_CHECK_INT(profile->cpu_rsp_ratio_denominator, 1u);
   T64_CHECK_STR(profile->guest_tick_unit, "model-rsp-cycle");
-  T64_CHECK_INT(t64_machine_create(&allocator, profile, &machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &allocator, profile),
+                    &machine),
                 T64_STATUS_OK);
   T64_CHECK(machine != NULL);
   if (machine == NULL) {
@@ -1360,13 +1374,18 @@ int main(void) {
 
   altered_profile = *profile;
   altered_profile.boot_policy_sha256[0] ^= UINT8_C(1);
-  status = t64_machine_create(&allocator, &altered_profile,
-                              &rejected_machine);
+  status = t64_machine_create(
+               &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                   &allocator, &altered_profile),
+               &rejected_machine);
   T64_CHECK_INT(status, T64_STATUS_INVALID_ARGUMENT);
   T64_CHECK(rejected_machine == NULL);
   T64_CHECK_INT(allocator_state_value.outstanding, 0u);
 
-  status = t64_machine_create(&allocator, profile, &machine);
+  status = t64_machine_create(
+               &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                   &allocator, profile),
+               &machine);
   T64_CHECK_INT(status, T64_STATUS_OK);
   T64_CHECK(machine != NULL);
   if (machine == NULL) {

@@ -167,7 +167,10 @@ static t64_machine *create_admitted(const char *profile_id) {
   t64_status status;
 
   if (profile == NULL) return NULL;
-  T64_CHECK_INT(t64_machine_create(&allocator, profile, &machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &allocator, profile),
+                    &machine),
                 T64_STATUS_OK);
   if (machine == NULL) return NULL;
   if (!read_openipl3_asset(asset)) {
@@ -237,7 +240,10 @@ static void expect_refused_everywhere(const char *label,
                                       &length),
                 T64_STATUS_INVALID_ARGUMENT);
   (void)snprintf(text, sizeof text, "%s create", label);
-  expect_status(text, t64_machine_create(&host, profile, &machine),
+  expect_status(text, t64_machine_create(
+                          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                              &host, profile),
+                          &machine),
                 T64_STATUS_INVALID_ARGUMENT);
   T64_CHECK(machine == NULL);
   T64_CHECK_INT(state.allocations, 0u);
@@ -273,7 +279,10 @@ static void expect_pinned_at_create(const char *label,
   T64_CHECK(length != original_length ||
             memcmp(serialized, original_bytes, length) != 0);
   (void)snprintf(text, sizeof text, "%s create", label);
-  expect_status(text, t64_machine_create(&host, changed, &machine),
+  expect_status(text, t64_machine_create(
+                          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                              &host, changed),
+                          &machine),
                 T64_STATUS_INVALID_ARGUMENT);
   T64_CHECK(machine == NULL);
   T64_CHECK_INT(state.allocations, 0u);
@@ -595,7 +604,10 @@ static void check_family_row(size_t index) {
   T64_CHECK(memcmp(digest, reference, sizeof digest) == 0);
   check_differs_from_v1_only_by_identity(index, serialized, length);
 
-  T64_CHECK_INT(t64_machine_create(&host, profile, &machine), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &host, profile),
+                    &machine), T64_STATUS_OK);
   T64_CHECK(machine != NULL);
   if (machine != NULL) {
     T64_CHECK_INT(machine->profile.save_kind, row->save_kind);
@@ -648,7 +660,10 @@ static void check_unregistered_ids(void) {
     (void)memset(changed.profile_id, 0, sizeof changed.profile_id);
     (void)memcpy(changed.profile_id, names[i], strlen(names[i]) + 1u);
     T64_CHECK_INT(t64_profile_hash(&changed, digest), T64_STATUS_OK);
-    expect_status(names[i], t64_machine_create(&host, &changed, &machine),
+    expect_status(names[i], t64_machine_create(
+                                &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                                    &host, &changed),
+                                &machine),
                   T64_STATUS_INVALID_ARGUMENT);
     T64_CHECK(machine == NULL);
     T64_CHECK_INT(state.allocations, 0u);
@@ -668,7 +683,10 @@ static void check_unregistered_ids(void) {
     (void)memset(changed.profile_id, 0, sizeof changed.profile_id);
     (void)memcpy(changed.profile_id, V2_STEM, sizeof V2_STEM);
     expect_status("si-v1 body under the si-v2 id",
-                  t64_machine_create(&host, &changed, &machine),
+                  t64_machine_create(
+                      &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                          &host, &changed),
+                      &machine),
                   T64_STATUS_INVALID_ARGUMENT);
     T64_CHECK(machine == NULL);
     T64_CHECK_INT(state.allocations, 0u);
@@ -683,7 +701,10 @@ static void check_unregistered_ids(void) {
     (void)memset(changed.profile_id, 0, sizeof changed.profile_id);
     (void)memcpy(changed.profile_id, V1_STEM, sizeof V1_STEM);
     expect_status("si-v2 body under the si-v1 id",
-                  t64_machine_create(&host, &changed, &machine),
+                  t64_machine_create(
+                      &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                          &host, &changed),
+                      &machine),
                   T64_STATUS_INVALID_ARGUMENT);
     T64_CHECK(machine == NULL);
     T64_CHECK_INT(state.allocations, 0u);
@@ -1032,7 +1053,10 @@ static void case_v26_predicate_matrix(void) {
     t64_machine *machine = NULL;
 
     if (profile == NULL) continue;
-    T64_CHECK_INT(t64_machine_create(&allocator, profile, &machine),
+    T64_CHECK_INT(t64_machine_create(
+                      &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                          &allocator, profile),
+                      &machine),
                   T64_STATUS_OK);
     if (machine == NULL) continue;
     expect_flag(row->id, "t64_has_rdp_depth_profile",

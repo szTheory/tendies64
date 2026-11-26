@@ -1380,7 +1380,10 @@ static void case_container_refusals(void) {
   }
   /* no admitted image */
   T64_CHECK_INT(t64_profile_lookup(SI_STEM_ID, &profile), T64_STATUS_OK);
-  T64_CHECK_INT(t64_machine_create(&allocator, profile, &bare), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &allocator, profile),
+                    &bare), T64_STATUS_OK);
   if (bare != NULL) {
     T64_CHECK_INT(t64_machine_state_import(bare, blob, length, 0u, &report),
                   T64_STATUS_NOT_READY);
@@ -5132,7 +5135,10 @@ static t64_machine *create_admitted_rom(const char *profile_id,
   T64_CHECK(length > 0u && length < sizeof rom);
   T64_CHECK_INT(t64_profile_lookup(profile_id, &profile), T64_STATUS_OK);
   if (profile == NULL) return NULL;
-  T64_CHECK_INT(t64_machine_create(&allocator, profile, &machine), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &allocator, profile),
+                    &machine), T64_STATUS_OK);
   if (machine == NULL) return NULL;
   if (t64_machine_admit_rom(machine, rom, length) != T64_STATUS_OK) {
     T64_CHECK(false);

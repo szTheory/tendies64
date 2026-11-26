@@ -94,7 +94,10 @@ static bool create_test_machine(t64_machine **machine_out, uint8_t *image,
   if (status != T64_STATUS_OK || profile == NULL) {
     return false;
   }
-  status = t64_machine_create(&allocator, profile, &machine);
+  status = t64_machine_create(
+               &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                   &allocator, profile),
+               &machine);
   check_status("PI fixture machine creation succeeds", status,
                T64_STATUS_OK);
   if (status != T64_STATUS_OK || machine == NULL) {
@@ -127,7 +130,10 @@ static void test_delayed_rom_copy(void) {
                t64_profile_lookup("ntsc-cart-4m-skeleton", &profile),
                T64_STATUS_OK);
   check_status("PI machine creation succeeds",
-               t64_machine_create(&allocator, profile, &machine),
+               t64_machine_create(
+                   &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                       &allocator, profile),
+                   &machine),
                T64_STATUS_OK);
   check_u64("PI machine is present", machine != NULL, UINT64_C(1));
   if (machine == NULL) {
@@ -244,7 +250,10 @@ static void test_profile_pi_duration_controls_completion_tick(void) {
   profile.pi_duration_base_ticks = 5u;
   profile.pi_duration_bytes_divisor = 1u;
   check_status("PI timing profile machine creation succeeds",
-               t64_machine_create(&allocator, &profile, &machine),
+               t64_machine_create(
+                   &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                       &allocator, &profile),
+                   &machine),
                T64_STATUS_OK);
   if (machine == NULL) {
     return;
@@ -402,7 +411,10 @@ static void test_busy_start_and_model_minimum(void) {
                t64_profile_lookup("ntsc-cart-4m-skeleton", &profile),
                T64_STATUS_OK);
   check_status("PI minimum fixture machine creation succeeds",
-               t64_machine_create(&allocator, profile, &machine),
+               t64_machine_create(
+                   &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                       &allocator, profile),
+                   &machine),
                T64_STATUS_OK);
   if (machine == NULL) {
     check_u64("PI minimum fixture machine exists", 0u, 1u);
@@ -813,7 +825,10 @@ static void test_cancel_and_stale_completion(void) {
                t64_profile_lookup("ntsc-cart-4m-skeleton", &profile),
                T64_STATUS_OK);
   check_status("PI cancel machine creation succeeds",
-               t64_machine_create(&allocator, profile, &machine),
+               t64_machine_create(
+                   &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                       &allocator, profile),
+                   &machine),
                T64_STATUS_OK);
   if (machine == NULL) {
     check_u64("PI cancel fixture machine exists", 0u, 1u);
@@ -1051,6 +1066,7 @@ static void test_pi_trace_observer(void) {
                t64_machine_digest(machine, digest_before), T64_STATUS_OK);
   check_status("PI observer records drain outside machine advancement",
                t64_machine_trace_drain(machine, records,
+                                       (uint32_t)sizeof(t64_trace_record),
                                        T64_TRACE_RECORD_CAPACITY, &count,
                                        &dropped, &saturated),
                T64_STATUS_OK);

@@ -1696,7 +1696,10 @@ static bool native_state_file(const char *dir, uint64_t tick,
   if (rom == NULL || !fixture_path(rom_path, LONG_ROM) ||
       !read_file(rom_path, rom, 1u << 20, &rom_length) || rom_length == 0u ||
       t64_profile_lookup(PROFILE_STEM, &profile) != T64_STATUS_OK ||
-      t64_machine_create(&host, profile, &machine) != T64_STATUS_OK ||
+      t64_machine_create(
+          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+              &host, profile),
+          &machine) != T64_STATUS_OK ||
       t64_machine_admit_rom(machine, rom, rom_length) != T64_STATUS_OK) {
     goto done;
   }
@@ -2476,7 +2479,10 @@ static bool inprocess_import(const uint8_t *blob, size_t size,
   if (rom != NULL && fixture_path(rom_path, LONG_ROM) &&
       read_file(rom_path, rom, 1u << 20, &rom_length) && rom_length != 0u &&
       t64_profile_lookup(PROFILE_STEM, &profile) == T64_STATUS_OK &&
-      t64_machine_create(&host, profile, &machine) == T64_STATUS_OK &&
+      t64_machine_create(
+          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+              &host, profile),
+          &machine) == T64_STATUS_OK &&
       t64_machine_admit_rom(machine, rom, rom_length) == T64_STATUS_OK) {
     *status_out = t64_machine_state_import(machine, blob, size, 0u, report_out);
     ok = true;

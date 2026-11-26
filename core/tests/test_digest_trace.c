@@ -76,7 +76,10 @@ static void test_queued_future_work_changes_digest(void) {
   if (profile == NULL) {
     return;
   }
-  T64_CHECK_INT(t64_machine_create(&allocator, profile, &machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &allocator, profile),
+                    &machine),
                 T64_STATUS_OK);
   T64_CHECK(machine != NULL);
   if (machine == NULL) {
@@ -159,7 +162,10 @@ static bool fixture_init(allocator_state *host_state,
   if (t64_profile_lookup("ntsc-cart-4m-skeleton", &profile) !=
           T64_STATUS_OK ||
       profile == NULL ||
-      t64_machine_create(allocator, profile, machine_out) != T64_STATUS_OK ||
+      t64_machine_create(
+          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+              allocator, profile),
+          machine_out) != T64_STATUS_OK ||
       *machine_out == NULL ||
       t64_machine_admit_rom(*machine_out, image, TEST_ROM_SIZE) !=
           T64_STATUS_OK) {
@@ -183,7 +189,10 @@ static bool fixture_init_with_trace(allocator_state *host_state,
   if (t64_profile_lookup("ntsc-cart-4m-skeleton", &profile) !=
           T64_STATUS_OK ||
       profile == NULL ||
-      t64_machine_create(allocator, profile, machine_out) != T64_STATUS_OK ||
+      t64_machine_create(
+          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+              allocator, profile),
+          machine_out) != T64_STATUS_OK ||
       *machine_out == NULL) {
     t64_machine_destroy(*machine_out);
     *machine_out = NULL;
@@ -518,7 +527,8 @@ static void test_scheduler_trace_records_boundary(void) {
   T64_CHECK_INT(t64_machine_advance(machine, &request, &result),
                 T64_STATUS_OK);
   T64_CHECK_INT(host_state.callback_calls, callbacks_before_advance);
-  T64_CHECK_INT(t64_machine_trace_drain(machine, &record, 1u, &record_count,
+  T64_CHECK_INT(t64_machine_trace_drain(machine, &record,
+                                        (uint32_t)sizeof(t64_trace_record), 1u, &record_count,
                                         &dropped, &saturated),
                 T64_STATUS_OK);
   T64_CHECK_INT(record_count, 1u);
@@ -569,24 +579,28 @@ static void test_trace_drain_validation_and_digest_exclusion(void) {
   count = 77u;
   dropped = 88u;
   saturated = true;
-  T64_CHECK_INT(t64_machine_trace_drain(machine, NULL, 1u, &count, &dropped,
+  T64_CHECK_INT(t64_machine_trace_drain(machine, NULL,
+                                        (uint32_t)sizeof(t64_trace_record), 1u, &count, &dropped,
                                         &saturated),
                 T64_STATUS_INVALID_ARGUMENT);
   T64_CHECK_INT(count, 77u);
   T64_CHECK_INT(dropped, 88u);
   T64_CHECK(saturated);
   T64_CHECK_INT(t64_machine_trace_drain(machine, (t64_trace_record *)machine,
+                                        (uint32_t)sizeof(t64_trace_record),
                                         1u, &count, &dropped, &saturated),
                 T64_STATUS_INVALID_ARGUMENT);
   T64_CHECK_INT(count, 77u);
 
-  T64_CHECK_INT(t64_machine_trace_drain(machine, NULL, 0u, &count, &dropped,
+  T64_CHECK_INT(t64_machine_trace_drain(machine, NULL,
+                                        (uint32_t)sizeof(t64_trace_record), 0u, &count, &dropped,
                                         &saturated),
                 T64_STATUS_OK);
   T64_CHECK_INT(count, 0u);
   T64_CHECK_INT(dropped, 0u);
   T64_CHECK(!saturated);
-  T64_CHECK_INT(t64_machine_trace_drain(machine, &record, 1u, &count, &dropped,
+  T64_CHECK_INT(t64_machine_trace_drain(machine, &record,
+                                        (uint32_t)sizeof(t64_trace_record), 1u, &count, &dropped,
                                         &saturated),
                 T64_STATUS_OK);
   T64_CHECK_INT(count, 1u);
@@ -642,7 +656,8 @@ static void test_trace_fifo_drain_and_same_digest_as_untraced(void) {
                 T64_STATUS_OK);
   T64_CHECK_INT(t64_machine_advance(machine_b, &request, &result),
                 T64_STATUS_OK);
-  T64_CHECK_INT(t64_machine_trace_drain(machine_b, records, 1u, &count,
+  T64_CHECK_INT(t64_machine_trace_drain(machine_b, records,
+                                        (uint32_t)sizeof(t64_trace_record), 1u, &count,
                                         &dropped, &saturated),
                 T64_STATUS_OK);
   T64_CHECK_INT(count, 1u);
@@ -652,7 +667,8 @@ static void test_trace_fifo_drain_and_same_digest_as_untraced(void) {
   T64_CHECK_INT(records[0].value, 31u);
   T64_CHECK_INT(dropped, 0u);
   T64_CHECK(!saturated);
-  T64_CHECK_INT(t64_machine_trace_drain(machine_b, records, 2u, &count,
+  T64_CHECK_INT(t64_machine_trace_drain(machine_b, records,
+                                        (uint32_t)sizeof(t64_trace_record), 2u, &count,
                                         &dropped, &saturated),
                 T64_STATUS_OK);
   T64_CHECK_INT(count, 1u);
@@ -710,6 +726,7 @@ static void test_trace_overflow_and_saturating_drop_counter(void) {
   T64_CHECK_INT(t64_machine_advance(machine_b, &request, &result),
                 T64_STATUS_OK);
   T64_CHECK_INT(t64_machine_trace_drain(machine_b, records,
+                                        (uint32_t)sizeof(t64_trace_record),
                                         T64_TRACE_RECORD_CAPACITY, &count,
                                         &dropped, &saturated),
                 T64_STATUS_OK);
@@ -743,7 +760,8 @@ static void test_trace_overflow_and_saturating_drop_counter(void) {
                  T64_TRACE_KIND_ROM_ADMITTED, 1000u);
   T64_CHECK_INT(machine_a->trace_drop_count, UINT64_MAX);
   T64_CHECK(machine_a->trace_drop_count_saturated);
-  T64_CHECK_INT(t64_machine_trace_drain(machine_a, NULL, 0u, &count, &dropped,
+  T64_CHECK_INT(t64_machine_trace_drain(machine_a, NULL,
+                                        (uint32_t)sizeof(t64_trace_record), 0u, &count, &dropped,
                                         &saturated),
                 T64_STATUS_OK);
   T64_CHECK_INT(count, 0u);
@@ -833,7 +851,8 @@ static void test_admission_reset_and_refusal_preserve_scheduler_trace(void) {
   T64_CHECK_INT(machine->events[machine->queue_head].value,
                 pending_before.value);
   T64_CHECK(t64_test_event_handler_matches(machine, 0u));
-  T64_CHECK_INT(t64_machine_trace_drain(machine, &output, 1u, &count,
+  T64_CHECK_INT(t64_machine_trace_drain(machine, &output,
+                                        (uint32_t)sizeof(t64_trace_record), 1u, &count,
                                         &dropped, &saturated),
                 T64_STATUS_OK);
   T64_CHECK_INT(count, 1u);
@@ -841,7 +860,8 @@ static void test_admission_reset_and_refusal_preserve_scheduler_trace(void) {
   T64_CHECK_INT(output.device, admission_before.device);
   T64_CHECK_INT(output.kind, admission_before.kind);
   T64_CHECK_INT(output.value, admission_before.value);
-  T64_CHECK_INT(t64_machine_trace_drain(machine, &output, 1u, &count,
+  T64_CHECK_INT(t64_machine_trace_drain(machine, &output,
+                                        (uint32_t)sizeof(t64_trace_record), 1u, &count,
                                         &dropped, &saturated),
                 T64_STATUS_OK);
   T64_CHECK_INT(count, 1u);
@@ -876,7 +896,8 @@ static void test_admission_reset_and_refusal_preserve_scheduler_trace(void) {
       T64_CHECK_INT(machine->trace_records[i].value, 0u);
     }
   }
-  T64_CHECK_INT(t64_machine_trace_drain(machine, &output, 1u, &count,
+  T64_CHECK_INT(t64_machine_trace_drain(machine, &output,
+                                        (uint32_t)sizeof(t64_trace_record), 1u, &count,
                                         &dropped, &saturated),
                 T64_STATUS_OK);
   T64_CHECK_INT(count, 1u);

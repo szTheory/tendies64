@@ -96,7 +96,10 @@ static bool fixture_init(fixture *value, uint8_t salt) {
   if (t64_profile_lookup("ntsc-cart-4m-skeleton", &profile) !=
           T64_STATUS_OK ||
       profile == NULL ||
-      t64_machine_create(&value->allocator, profile, &value->machine) !=
+      t64_machine_create(
+          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+              &value->allocator, profile),
+          &value->machine) !=
           T64_STATUS_OK ||
       value->machine == NULL ||
       t64_machine_admit_rom(value->machine, value->image,
@@ -255,7 +258,8 @@ static bool complete_cross_device_work(fixture *value, bool partitioned,
   T64_CHECK_INT(result.tick, PI_TICK);
   if (drain_trace) {
     T64_CHECK_INT(t64_machine_trace_drain(
-                      value->machine, records, T64_TRACE_RECORD_CAPACITY,
+                      value->machine, records,
+                      (uint32_t)sizeof(t64_trace_record), T64_TRACE_RECORD_CAPACITY,
                       &record_count, &dropped, &saturated),
                   T64_STATUS_OK);
     T64_CHECK_INT(record_count, 5u);
@@ -411,7 +415,8 @@ static void test_trace_modes_and_overflow_are_observational(void) {
   (void)advance_without_host_calls(&overflow_traced, T64_STOP_GUEST_TICK,
                                    PI_TICK, &result);
   T64_CHECK_INT(t64_machine_trace_drain(
-                    overflow_traced.machine, records, T64_TRACE_RECORD_CAPACITY,
+                    overflow_traced.machine, records,
+                    (uint32_t)sizeof(t64_trace_record), T64_TRACE_RECORD_CAPACITY,
                     &record_count, &dropped, &saturated),
                 T64_STATUS_OK);
   T64_CHECK_INT(record_count, T64_TRACE_RECORD_CAPACITY);

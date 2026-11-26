@@ -16,6 +16,7 @@
 
 #define T64_BASE_RAM_BYTES UINT32_C(4194304)
 static const t64_profile_descriptor ntsc_cart_4m_profile = {
+    .struct_size = T64_PROFILE_DESCRIPTOR_V1_SIZE,
     .profile_id = "ntsc-cart-4m-skeleton",
     .console_target = "NUS-CPU-03",
     .console_qualification = "unqualified-target",
@@ -112,6 +113,7 @@ static const t64_profile_descriptor ntsc_cart_4m_profile = {
   }
 
 static const t64_profile_descriptor ntsc_cart_4m_openipl3_warm_profile = {
+    .struct_size = T64_PROFILE_DESCRIPTOR_V1_SIZE,
     .profile_id = "ntsc-cart-4m-openipl3-warm-v1",
     .console_target = "NUS-CPU-03",
     .console_qualification = "unqualified-target",
@@ -163,6 +165,7 @@ static const t64_profile_descriptor ntsc_cart_4m_openipl3_warm_profile = {
 };
 
 static const t64_profile_descriptor ntsc_cart_4m_openipl3_vr4300_profile = {
+    .struct_size = T64_PROFILE_DESCRIPTOR_V1_SIZE,
     .profile_id = "ntsc-cart-4m-openipl3-vr4300-v1",
     .console_target = "NUS-CPU-03",
     .console_qualification = "unqualified-target-software-seed",
@@ -215,6 +218,7 @@ static const t64_profile_descriptor ntsc_cart_4m_openipl3_vr4300_profile = {
 
 static const t64_profile_descriptor
     ntsc_cart_4m_openipl3_vr4300_compat_profile = {
+        .struct_size = T64_PROFILE_DESCRIPTOR_V1_SIZE,
         .profile_id = "ntsc-cart-4m-openipl3-vr4300-compat-v1",
         .console_target = "NUS-CPU-03",
         .console_qualification = "unqualified-target-software-seed",
@@ -267,6 +271,7 @@ static const t64_profile_descriptor
 
 static const t64_profile_descriptor
     ntsc_cart_4m_openipl3_vr4300_compat_v2_profile = {
+        .struct_size = T64_PROFILE_DESCRIPTOR_V1_SIZE,
         .profile_id = "ntsc-cart-4m-openipl3-vr4300-compat-v2",
         .console_target = "NUS-CPU-03",
         .console_qualification = "unqualified-target-software-seed",
@@ -319,6 +324,7 @@ static const t64_profile_descriptor
 
 static const t64_profile_descriptor
     ntsc_cart_4m_openipl3_rsp_functional_profile = {
+        .struct_size = T64_PROFILE_DESCRIPTOR_V1_SIZE,
         .profile_id = "ntsc-cart-4m-openipl3-rsp-functional-v1",
         .console_target = "NUS-CPU-03",
         .console_qualification = "unqualified-target-software-seed",
@@ -371,6 +377,7 @@ static const t64_profile_descriptor
 
 static const t64_profile_descriptor
     ntsc_cart_4m_openipl3_rdram_a_t1_profile = {
+        .struct_size = T64_PROFILE_DESCRIPTOR_V1_SIZE,
         .profile_id = "ntsc-cart-4m-openipl3-rdram-a-t1-v1",
         .console_target = "NUS-CPU-03",
         .console_qualification = "unqualified-target-software-seed",
@@ -423,6 +430,7 @@ static const t64_profile_descriptor
 
 static const t64_profile_descriptor
     ntsc_cart_4m_openipl3_rdram_b_t1_profile = {
+        .struct_size = T64_PROFILE_DESCRIPTOR_V1_SIZE,
         .profile_id = "ntsc-cart-4m-openipl3-rdram-b-t1-v1",
         .console_target = "NUS-CPU-03",
         .console_qualification = "unqualified-target-software-seed",
@@ -475,6 +483,7 @@ static const t64_profile_descriptor
 
 static const t64_profile_descriptor
     ntsc_cart_4m_openipl3_rdram_b_t1_rdp_vi_profile = {
+        .struct_size = T64_PROFILE_DESCRIPTOR_V1_SIZE,
         .profile_id = "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v2",
         .console_target = "NUS-CPU-03",
         .console_qualification = "unqualified-target-software-seed",
@@ -532,6 +541,7 @@ static const t64_profile_descriptor
 
 static const t64_profile_descriptor
     ntsc_cart_4m_openipl3_rdram_b_t1_rdp_triangle_profile = {
+        .struct_size = T64_PROFILE_DESCRIPTOR_V1_SIZE,
         .profile_id = "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-triangle-v3",
         .console_target = "NUS-CPU-03",
         .console_qualification = "unqualified-target-software-seed",
@@ -591,6 +601,7 @@ static const t64_profile_descriptor
 
 static const t64_profile_descriptor
     ntsc_cart_4m_openipl3_rdram_b_t1_rdp_texture_profile = {
+        .struct_size = T64_PROFILE_DESCRIPTOR_V1_SIZE,
         .profile_id = "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-texture-v4",
         .console_target = "NUS-CPU-03",
         .console_qualification = "unqualified-target-software-seed",
@@ -651,6 +662,7 @@ static const t64_profile_descriptor
 
 static const t64_profile_descriptor
     ntsc_cart_4m_openipl3_rdram_b_t1_rdp_combiner_profile = {
+        .struct_size = T64_PROFILE_DESCRIPTOR_V1_SIZE,
         .profile_id = "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-combiner-v5",
         .console_target = "NUS-CPU-03",
         .console_qualification = "unqualified-target-software-seed",
@@ -713,6 +725,7 @@ static const t64_profile_descriptor
 
 static const t64_profile_descriptor
     ntsc_cart_4m_openipl3_rdram_b_t1_rdp_blender_profile = {
+        .struct_size = T64_PROFILE_DESCRIPTOR_V1_SIZE,
         .profile_id = "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-blender-v6",
         .console_target = "NUS-CPU-03",
         .console_qualification = "unqualified-target-software-seed",
@@ -773,6 +786,7 @@ static const t64_profile_descriptor
 
 static const t64_profile_descriptor
     ntsc_cart_4m_openipl3_rdram_b_t1_rdp_depth_profile = {
+        .struct_size = T64_PROFILE_DESCRIPTOR_V1_SIZE,
         .profile_id = "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-depth-v7",
         .console_target = "NUS-CPU-03",
         .console_qualification = "unqualified-target-software-seed",
@@ -839,6 +853,7 @@ static const t64_profile_descriptor
  * field layout.  Keep descriptor v10 and add a new model/state identity. */
 static const t64_profile_descriptor
     ntsc_cart_4m_openipl3_rdram_b_t1_rdp_vi_v8_profile = {
+        .struct_size = T64_PROFILE_DESCRIPTOR_V1_SIZE,
         .profile_id = "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-v8",
         .console_target = "NUS-CPU-03",
         .console_qualification = "unqualified-target-software-seed",
@@ -906,6 +921,7 @@ static const t64_profile_descriptor
  * v8 descriptor layout and every earlier profile's identity. */
 static const t64_profile_descriptor
     ntsc_cart_4m_openipl3_rdram_b_t1_rdp_vi_filter_v9_profile = {
+        .struct_size = T64_PROFILE_DESCRIPTOR_V1_SIZE,
         .profile_id =
             "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-filter-v9",
         .console_target = "NUS-CPU-03",
@@ -973,6 +989,7 @@ static const t64_profile_descriptor
 /* Plan 08-01 adds raw AI DMA/PCM to the accepted v9 composite machine. */
 static const t64_profile_descriptor
     ntsc_cart_4m_openipl3_rdram_b_t1_rdp_vi_filter_v9_ai_v1_profile = {
+        .struct_size = T64_PROFILE_DESCRIPTOR_V1_SIZE,
         .profile_id =
             "ntsc-cart-4m-openipl3-rdram-b-t1-rdp-vi-filter-v9-ai-v1",
         .console_target = "NUS-CPU-03",
@@ -1111,24 +1128,28 @@ static const t64_profile_descriptor
 
 static const t64_profile_descriptor
     ntsc_cart_4m_openipl3_rdram_b_t1_si_v1_profile = {
+        .struct_size = T64_PROFILE_DESCRIPTOR_V1_SIZE,
         .profile_id = "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1",
         .save_kind = T64_SAVE_NONE,
         T64_SI_FAMILY_COMMON_FIELDS};
 
 static const t64_profile_descriptor
     ntsc_cart_4m_openipl3_rdram_b_t1_si_v1_e4k_profile = {
+        .struct_size = T64_PROFILE_DESCRIPTOR_V1_SIZE,
         .profile_id = "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e4k",
         .save_kind = T64_SAVE_EEPROM_4K,
         T64_SI_FAMILY_COMMON_FIELDS};
 
 static const t64_profile_descriptor
     ntsc_cart_4m_openipl3_rdram_b_t1_si_v1_e16k_profile = {
+        .struct_size = T64_PROFILE_DESCRIPTOR_V1_SIZE,
         .profile_id = "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-e16k",
         .save_kind = T64_SAVE_EEPROM_16K,
         T64_SI_FAMILY_COMMON_FIELDS};
 
 static const t64_profile_descriptor
     ntsc_cart_4m_openipl3_rdram_b_t1_si_v1_s32k_profile = {
+        .struct_size = T64_PROFILE_DESCRIPTOR_V1_SIZE,
         .profile_id = "ntsc-cart-4m-openipl3-rdram-b-t1-si-v1-s32k",
         .save_kind = T64_SAVE_SRAM_32K,
         T64_SI_FAMILY_COMMON_FIELDS};
@@ -1206,24 +1227,28 @@ static const t64_profile_descriptor
 
 static const t64_profile_descriptor
     ntsc_cart_4m_openipl3_rdram_b_t1_si_v2_profile = {
+        .struct_size = T64_PROFILE_DESCRIPTOR_V1_SIZE,
         .profile_id = "ntsc-cart-4m-openipl3-rdram-b-t1-si-v2",
         .save_kind = T64_SAVE_NONE,
         T64_SI_V2_FAMILY_COMMON_FIELDS};
 
 static const t64_profile_descriptor
     ntsc_cart_4m_openipl3_rdram_b_t1_si_v2_e4k_profile = {
+        .struct_size = T64_PROFILE_DESCRIPTOR_V1_SIZE,
         .profile_id = "ntsc-cart-4m-openipl3-rdram-b-t1-si-v2-e4k",
         .save_kind = T64_SAVE_EEPROM_4K,
         T64_SI_V2_FAMILY_COMMON_FIELDS};
 
 static const t64_profile_descriptor
     ntsc_cart_4m_openipl3_rdram_b_t1_si_v2_e16k_profile = {
+        .struct_size = T64_PROFILE_DESCRIPTOR_V1_SIZE,
         .profile_id = "ntsc-cart-4m-openipl3-rdram-b-t1-si-v2-e16k",
         .save_kind = T64_SAVE_EEPROM_16K,
         T64_SI_V2_FAMILY_COMMON_FIELDS};
 
 static const t64_profile_descriptor
     ntsc_cart_4m_openipl3_rdram_b_t1_si_v2_s32k_profile = {
+        .struct_size = T64_PROFILE_DESCRIPTOR_V1_SIZE,
         .profile_id = "ntsc-cart-4m-openipl3-rdram-b-t1-si-v2-s32k",
         .save_kind = T64_SAVE_SRAM_32K,
         T64_SI_V2_FAMILY_COMMON_FIELDS};
@@ -2667,12 +2692,33 @@ t64_status t64_profile_serialize(const t64_profile_descriptor *profile,
   return T64_STATUS_OK;
 }
 
-t64_status t64_machine_create(const t64_host_allocator *allocator,
-                              const t64_profile_descriptor *profile,
+/*
+ * ABI rule of create (DR-02): the caller's major must equal the library major
+ * and, while the major is 0, the minor must be equal too; after a major bump a
+ * caller minor at most the library minor is accepted.
+ */
+static bool abi_version_is_accepted(uint32_t caller_version) {
+  uint32_t caller_major = caller_version >> 16;
+  uint32_t caller_minor = caller_version & UINT32_C(0xffff);
+
+  if (caller_major != T64_ABI_VERSION_MAJOR) {
+    return false;
+  }
+  if (caller_major == 0u) {
+    return caller_minor == T64_ABI_VERSION_MINOR;
+  }
+  return caller_minor <= T64_ABI_VERSION_MINOR;
+}
+
+t64_status t64_machine_create(const t64_machine_create_info *info,
                               t64_machine **machine_out) {
-  t64_host_storage storage = {NULL, 0u, 0u};
-  t64_host_storage video_storage = {NULL, 0u, 0u};
-  t64_host_storage audio_storage = {NULL, 0u, 0u};
+  /* Every storage record the core hands to the allocate callback carries
+   * struct_size (the core is the caller of t64_host_storage, DR-06). */
+  t64_host_storage storage = T64_HOST_STORAGE_EMPTY;
+  t64_host_storage video_storage = T64_HOST_STORAGE_EMPTY;
+  t64_host_storage audio_storage = T64_HOST_STORAGE_EMPTY;
+  const t64_host_allocator *allocator;
+  const t64_profile_descriptor *profile;
   t64_address_range allocation_range;
   t64_address_range video_range;
   t64_address_range audio_range;
@@ -2686,11 +2732,32 @@ t64_status t64_machine_create(const t64_host_allocator *allocator,
   size_t alignment = _Alignof(max_align_t);
   t64_machine *machine;
 
+  /* DR-05 order: machine_out, info, the info size, the ABI version, then the
+   * allocator and profile sizes, then the checks that precede this plan; every
+   * refusal comes before any allocation. */
   if (machine_out == NULL) {
     return T64_STATUS_INVALID_ARGUMENT;
   }
   *machine_out = NULL;
-  if (allocator == NULL || allocator->allocate == NULL ||
+  if (info == NULL) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  if (info->struct_size < T64_MACHINE_CREATE_INFO_V1_SIZE) {
+    return T64_STATUS_STRUCT_TOO_SMALL;
+  }
+  if (!abi_version_is_accepted(info->abi_version)) {
+    return T64_STATUS_ABI_MISMATCH;
+  }
+  allocator = info->allocator;
+  profile = info->profile;
+  if (allocator == NULL || profile == NULL) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  if (allocator->struct_size < T64_HOST_ALLOCATOR_V1_SIZE ||
+      profile->struct_size < T64_PROFILE_DESCRIPTOR_V1_SIZE) {
+    return T64_STATUS_STRUCT_TOO_SMALL;
+  }
+  if (allocator->allocate == NULL ||
       allocator->release == NULL || !profile_fields_are_valid(profile) ||
       profile->event_queue_capacity > T64_EVENT_QUEUE_CAPACITY ||
       t64_profile_hash(profile, profile_digest) != T64_STATUS_OK) {
@@ -2801,6 +2868,7 @@ t64_status t64_machine_create(const t64_host_allocator *allocator,
     return T64_STATUS_INVALID_ARGUMENT;
   }
   total_size += sizeof(t64_machine);
+  storage.struct_size = T64_HOST_STORAGE_V1_SIZE;
   if (!allocator->allocate(allocator->context, total_size, alignment,
                            &storage)) {
     return T64_STATUS_ALLOCATION_FAILED;
@@ -2808,7 +2876,8 @@ t64_status t64_machine_create(const t64_host_allocator *allocator,
   if (!t64_internal_storage_range(storage, total_size, alignment,
                                   &allocation_range) ||
       !machine_storage_disjoint_from_inputs(allocation_range, allocator,
-                                            profile, machine_out)) {
+                                            profile, machine_out) ||
+      !range_disjoint_from_object(allocation_range, info, sizeof *info)) {
     release_bad_machine_storage(allocator, storage, total_size, profile,
                                 machine_out);
     return T64_STATUS_BAD_STORAGE;
@@ -2832,6 +2901,7 @@ t64_status t64_machine_create(const t64_host_allocator *allocator,
       (profile->machine_model_version == 18u &&
        profile->state_serialization_version == 23u) ||
       is_ai_family_profile(profile)) {
+    video_storage.struct_size = T64_HOST_STORAGE_V1_SIZE;
     if (!allocator->allocate(allocator->context,
                              T64_VIDEO_QUEUE_STORAGE_BYTES, alignment,
                              &video_storage)) {
@@ -2856,6 +2926,7 @@ t64_status t64_machine_create(const t64_host_allocator *allocator,
     machine->video_packets = (uint8_t *)video_storage.data;
   }
   if (is_ai_family_profile(profile)) {
+    audio_storage.struct_size = T64_HOST_STORAGE_V1_SIZE;
     if (!allocator->allocate(allocator->context,
                              T64_AUDIO_QUEUE_STORAGE_BYTES, alignment,
                              &audio_storage)) {
@@ -2887,9 +2958,13 @@ t64_status t64_machine_create(const t64_host_allocator *allocator,
     machine->audio_storage = audio_storage;
     machine->audio_packets = (uint8_t *)audio_storage.data;
   }
+  /* The copies keep the known (v1) members only, so their struct_size is the
+   * v1 size whatever the caller's larger size was. */
   machine->allocator = *allocator;
+  machine->allocator.struct_size = T64_HOST_ALLOCATOR_V1_SIZE;
   machine->machine_storage = storage;
   (void)memcpy(&machine->profile, profile, sizeof machine->profile);
+  machine->profile.struct_size = T64_PROFILE_DESCRIPTOR_V1_SIZE;
   (void)memcpy(machine->profile_digest, profile_digest,
                sizeof machine->profile_digest);
   machine->ram = (uint8_t *)storage.data + sizeof *machine;
@@ -3219,6 +3294,8 @@ t64_status t64_machine_cpu_stop_detail(
   if (!machine->has_image || !machine->cpu.stopped) {
     return T64_STATUS_NOT_READY;
   }
+  /* struct_size is the caller's and is written back unchanged (DR-06). */
+  detail.struct_size = detail_out->struct_size;
   detail.retired_instructions = machine->cpu.retired_instructions;
   detail.pc = machine->cpu.stop_pc;
   detail.opcode = machine->cpu.stop_opcode;

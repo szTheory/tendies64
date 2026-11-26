@@ -54,7 +54,10 @@ static bool create_admitted_machine(t64_machine **machine_out,
   fill_authored_image(image, image_length, salt);
   return t64_profile_lookup("ntsc-cart-4m-skeleton", &profile) ==
              T64_STATUS_OK &&
-         t64_machine_create(allocator, profile, machine_out) ==
+         t64_machine_create(
+             &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                 allocator, profile),
+             machine_out) ==
              T64_STATUS_OK &&
          *machine_out != NULL &&
          t64_machine_admit_rom(*machine_out, image, image_length) ==
@@ -97,7 +100,10 @@ static void test_memory_boundaries(void) {
 
   T64_CHECK_INT(t64_profile_lookup("ntsc-cart-4m-skeleton", &profile),
                 T64_STATUS_OK);
-  T64_CHECK_INT(t64_machine_create(&allocator, profile, &machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &allocator, profile),
+                    &machine),
                 T64_STATUS_OK);
   T64_CHECK_INT(t64_machine_admit_rom(machine, image, sizeof image),
                 T64_STATUS_OK);
@@ -332,7 +338,10 @@ static void test_bus_trace_uses_guest_tick(void) {
   image[3] = 0x40u;
   T64_CHECK_INT(t64_profile_lookup("ntsc-cart-4m-skeleton", &profile),
                 T64_STATUS_OK);
-  T64_CHECK_INT(t64_machine_create(&allocator, profile, &machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &allocator, profile),
+                    &machine),
                 T64_STATUS_OK);
   T64_CHECK_INT(t64_machine_admit_rom(machine, image, sizeof image),
                 T64_STATUS_OK);
@@ -347,7 +356,8 @@ static void test_bus_trace_uses_guest_tick(void) {
   T64_CHECK_INT(value, UINT32_C(0xa5));
   T64_CHECK_INT(t64_machine_digest(machine, digest_after), T64_STATUS_OK);
   T64_CHECK(memcmp(digest_before, digest_after, sizeof digest_before) == 0);
-  T64_CHECK_INT(t64_machine_trace_drain(machine, records, 4u, &record_count,
+  T64_CHECK_INT(t64_machine_trace_drain(machine, records,
+                                        (uint32_t)sizeof(t64_trace_record), 4u, &record_count,
                                         &dropped, &saturated),
                 T64_STATUS_OK);
   T64_CHECK_INT(record_count, 2u);
@@ -548,7 +558,8 @@ static void test_mi_tick_digest_refusal_and_reset(void) {
                                      &value), T64_STATUS_OK);
   T64_CHECK_INT(value, UINT32_C(0x11));
   T64_CHECK(!machine->mi_irq_line);
-  T64_CHECK_INT(t64_machine_trace_drain(machine, records, 8u, &record_count,
+  T64_CHECK_INT(t64_machine_trace_drain(machine, records,
+                                        (uint32_t)sizeof(t64_trace_record), 8u, &record_count,
                                         &dropped, &saturated),
                 T64_STATUS_OK);
   T64_CHECK_INT(record_count, 3u);
@@ -574,7 +585,8 @@ static void test_mi_tick_digest_refusal_and_reset(void) {
   T64_CHECK_INT(t64_machine_bus_read(machine, UINT32_C(0x04300008), 4u,
                                      &value), T64_STATUS_OK);
   T64_CHECK_INT(value, UINT32_C(0x01));
-  T64_CHECK_INT(t64_machine_trace_drain(machine, records, 8u, &record_count,
+  T64_CHECK_INT(t64_machine_trace_drain(machine, records,
+                                        (uint32_t)sizeof(t64_trace_record), 8u, &record_count,
                                         &dropped, &saturated),
                 T64_STATUS_OK);
   T64_CHECK_INT(record_count, 3u);
@@ -621,7 +633,8 @@ static void test_mi_tick_digest_refusal_and_reset(void) {
   machine->mi_irq_line = true;
 
   /* Refusals preserve every canonical field and produce no observation. */
-  T64_CHECK_INT(t64_machine_trace_drain(machine, records, 8u, &record_count,
+  T64_CHECK_INT(t64_machine_trace_drain(machine, records,
+                                        (uint32_t)sizeof(t64_trace_record), 8u, &record_count,
                                         &dropped, &saturated),
                 T64_STATUS_OK);
   T64_CHECK(record_count > 0u);
@@ -648,7 +661,8 @@ static void test_mi_tick_digest_refusal_and_reset(void) {
                 T64_STATUS_INVALID_ROM);
   T64_CHECK_INT(t64_machine_digest(machine, digest_after), T64_STATUS_OK);
   T64_CHECK(memcmp(digest_before, digest_after, sizeof digest_before) == 0);
-  T64_CHECK_INT(t64_machine_trace_drain(machine, records, 8u, &record_count,
+  T64_CHECK_INT(t64_machine_trace_drain(machine, records,
+                                        (uint32_t)sizeof(t64_trace_record), 8u, &record_count,
                                         &dropped, &saturated),
                 T64_STATUS_OK);
   T64_CHECK_INT(record_count, 0u);
@@ -661,7 +675,8 @@ static void test_mi_tick_digest_refusal_and_reset(void) {
   T64_CHECK_INT(machine->mi_pending, 0u);
   T64_CHECK_INT(machine->mi_mask, 0u);
   T64_CHECK(!machine->mi_irq_line);
-  T64_CHECK_INT(t64_machine_trace_drain(machine, records, 8u, &record_count,
+  T64_CHECK_INT(t64_machine_trace_drain(machine, records,
+                                        (uint32_t)sizeof(t64_trace_record), 8u, &record_count,
                                         &dropped, &saturated),
                 T64_STATUS_OK);
   T64_CHECK_INT(record_count, 1u);

@@ -7,7 +7,8 @@
 #ifndef TENDIES64_T64_MACHINE_H
 #define TENDIES64_T64_MACHINE_H
 
-/* C++ has bool; C99 needs the header (only function parameters use bool). */
+/* C++ has bool; C99 needs the header (only function parameters and the
+ * allocator callback use bool; no struct member does). */
 #ifndef __cplusplus
 #include <stdbool.h>
 #endif
@@ -216,10 +217,28 @@ T64_API const char *t64_source_revision(void);
 /* The ABI version of the library as a uint32_t (T64_ABI_VERSION). */
 T64_API uint32_t t64_abi_version(void);
 
+/*
+ * Size handshake of the public structs (plan 11-12, DR-05 and DR-06). Every
+ * in/out struct below except t64_trace_record starts with a uint32_t
+ * struct_size that the caller fills with the size of the struct it was
+ * compiled against; the T64_*_INIT macros fill it with sizeof the type. The
+ * callee never writes the struct_size member, reads or writes at most
+ * min(struct_size, known size) bytes, and refuses a struct_size below the v1
+ * size with T64_STATUS_STRUCT_TOO_SMALL, leaving state and outputs unchanged.
+ * Struct members are fixed width (no size_t, no bool); function parameters and
+ * the allocator callback keep size_t and bool. No sType or pNext chain exists.
+ * t64_trace_record is an array element without struct_size: the caller passes
+ * its record size to t64_machine_trace_drain instead.
+ *
+ * t64_host_storage is the one struct the core fills for the host: the core is
+ * its caller and sets struct_size before every allocate callback; the callback
+ * writes only data, capacity and alignment.
+ */
 typedef struct {
+  uint32_t struct_size;
   void *data;
-  size_t capacity;
-  size_t alignment;
+  uint64_t capacity;
+  uint64_t alignment;
 } t64_host_storage;
 
 typedef bool (*t64_host_allocate_fn)(void *context, size_t size,
@@ -228,14 +247,16 @@ typedef bool (*t64_host_allocate_fn)(void *context, size_t size,
 typedef void (*t64_host_release_fn)(void *context, t64_host_storage storage);
 
 typedef struct {
+  uint32_t struct_size;
   t64_host_allocate_fn allocate;
   t64_host_release_fn release;
   void *context;
 } t64_host_allocator;
 
 /*
- * Initializer macros of the caller-owned structs (plan 11-05). Each expands to
- * a positional brace initializer in member order, with no designated
+ * Initializer macros of the caller-owned structs (plan 11-05; bodies final at
+ * the plan 11-12 flip). Each expands to a positional brace initializer in
+ * member order that fills struct_size with sizeof the type, with no designated
  * initializer, so it is valid in C99 and C++17. Use it in a declaration, as in
  * "t64_host_allocator allocator = T64_HOST_ALLOCATOR_INIT(f, g, NULL);", or in
  * C as the tail of a compound literal, as in
@@ -243,10 +264,18 @@ typedef struct {
  * initializes every such object through its macro, so the header and not the
  * call site owns the layout of the object.
  */
-#define T64_HOST_ALLOCATOR_INIT(allocate_fn, release_fn, context_ptr) \
-  {(allocate_fn), (release_fn), (context_ptr)}
+#define T64_HOST_ALLOCATOR_INIT(allocate_fn, release_fn, context_ptr)        \
+  {(uint32_t)sizeof(t64_host_allocator), (allocate_fn), (release_fn),          \
+   (context_ptr)}
 
+/*
+ * Profile descriptor. struct_size is outside t64_profile_hash and
+ * t64_profile_serialize (both write named members only), so a descriptor hash
+ * does not depend on it. A descriptor copied from t64_profile_lookup carries
+ * the registry's struct_size.
+ */
 typedef struct {
+  uint32_t struct_size;
   char profile_id[T64_PROFILE_TEXT_CAPACITY];
   char console_target[T64_PROFILE_TEXT_CAPACITY];
   char console_qualification[T64_PROFILE_TEXT_CAPACITY];
@@ -318,29 +347,33 @@ typedef struct {
 } t64_profile_descriptor;
 
 typedef struct {
+  uint32_t struct_size;
   uint32_t kind;
   uint64_t value;
 } t64_stop_request;
 /* A stop request of the given T64_STOP_* kind and value. */
-#define T64_STOP_REQUEST_INIT(request_kind, request_value) \
-  {(request_kind), (request_value)}
+#define T64_STOP_REQUEST_INIT(request_kind, request_value)                     \
+  {(uint32_t)sizeof(t64_stop_request), (request_kind), (request_value)}
 
 typedef struct {
+  uint32_t struct_size;
   uint32_t reason;
   uint64_t tick;
 } t64_stop_result;
 /* An all-zero result record, and a result record with a given reason and
  * tick (a host that seeds a sentinel before the call). */
-#define T64_STOP_RESULT_INIT {0u, 0u}
-#define T64_STOP_RESULT_INIT_WITH(stop_reason, stop_tick) \
-  {(stop_reason), (stop_tick)}
+#define T64_STOP_RESULT_INIT {(uint32_t)sizeof(t64_stop_result), 0u, 0u}
+#define T64_STOP_RESULT_INIT_WITH(stop_reason, stop_tick)                      \
+  {(uint32_t)sizeof(t64_stop_result), (stop_reason), (stop_tick)}
 
 typedef struct {
+  uint32_t struct_size;
   uint64_t retired_instructions;
   uint32_t pc;
   uint32_t opcode;
 } t64_cpu_stop_detail;
-#define T64_CPU_STOP_DETAIL_INIT {0u, 0u, 0u}
+#define T64_CPU_STOP_DETAIL_INIT                                               \
+  {(uint32_t)sizeof(t64_cpu_stop_detail), 0u, 0u, 0u}
 
 typedef struct {
   uint64_t tick;
@@ -350,15 +383,18 @@ typedef struct {
 } t64_trace_record;
 
 /* Result of a host copy from the retained per-machine ISViewer prefix. */
+/* lost_output and total_attempted_bytes_exact are 0 or 1. */
 typedef struct {
-  size_t copied_bytes;
-  size_t required_bytes;
+  uint32_t struct_size;
+  uint64_t copied_bytes;
+  uint64_t required_bytes;
   uint64_t total_attempted_bytes;
   uint8_t captured_sha256[T64_DIGEST_SIZE];
-  bool lost_output;
-  bool total_attempted_bytes_exact;
+  uint32_t lost_output;
+  uint32_t total_attempted_bytes_exact;
 } t64_output_drain_result;
-#define T64_OUTPUT_DRAIN_RESULT_INIT {0u, 0u, 0u, {0u}, false, false}
+#define T64_OUTPUT_DRAIN_RESULT_INIT                                           \
+  {(uint32_t)sizeof(t64_output_drain_result), 0u, 0u, 0u, {0u}, 0u, 0u}
 
 /*
  * Pacing information of the output rings (plan 11-04), reported by
@@ -395,6 +431,7 @@ typedef struct {
 /* One queued raw VI packet. Strings and numeric policy fields are part of the
  * packet observation, not a claim about measured hardware behavior. */
 typedef struct {
+  uint32_t struct_size;
   uint32_t width;
   uint32_t height;
   uint32_t stride_bytes;
@@ -426,17 +463,19 @@ typedef struct {
   uint64_t last_command_word;
   uint32_t last_command_byte;
   uint32_t last_opcode_field;
-  size_t source_bytes;
-  size_t packet_bytes;
+  uint64_t source_bytes;
+  uint64_t packet_bytes;
   char profile_id[T64_PROFILE_TEXT_CAPACITY];
   char build_id[128];
   char vi_clock_policy[T64_PROFILE_TEXT_CAPACITY];
   char vi_output_policy[T64_PROFILE_TEXT_CAPACITY];
 } t64_video_packet_info;
-/* All-zero record: 23 uint32_t members, 6 uint64_t members, 2 uint32_t
- * members, 2 size_t members and the 4 text members, in declaration order. */
+/* struct_size, then an all-zero record: 23 uint32_t members, 6 uint64_t
+ * members, 2 uint32_t members, 2 uint64_t members and the 4 text members, in
+ * declaration order. */
 #define T64_VIDEO_PACKET_INFO_INIT                                           \
-  {0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, \
+  {(uint32_t)sizeof(t64_video_packet_info),                                  \
+   0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, \
    0u, 0u, 0u, 0u, 0u,                                                       \
    0u, 0u, 0u, 0u, 0u, 0u,                                                   \
    0u, 0u,                                                                   \
@@ -456,7 +495,7 @@ typedef struct {
   uint32_t channels;
   uint32_t bits_per_sample;
   uint32_t encoding;
-  size_t byte_length;
+  uint64_t byte_length;
   char profile_id[T64_PROFILE_TEXT_CAPACITY];
   char build_id[128];
 } t64_audio_packet_info;
@@ -481,9 +520,36 @@ T64_API t64_status t64_profile_serialize(const t64_profile_descriptor *profile,
                                          uint8_t *bytes_out, size_t capacity,
                                          size_t *length_out);
 
-/* Create/destroy and admission are the only operations that call the host. */
-T64_API t64_status t64_machine_create(const t64_host_allocator *allocator,
-                                      const t64_profile_descriptor *profile,
+/*
+ * Create-info of the first call (plan 11-12, DR-05): struct_size and the ABI
+ * version the caller was compiled against, then the allocator and the profile.
+ * T64_MACHINE_CREATE_INFO_INIT fills struct_size with sizeof the type and
+ * abi_version with T64_ABI_VERSION.
+ */
+typedef struct {
+  uint32_t struct_size;
+  uint32_t abi_version;
+  const t64_host_allocator *allocator;
+  const t64_profile_descriptor *profile;
+} t64_machine_create_info;
+#define T64_MACHINE_CREATE_INFO_INIT(allocator_ptr, profile_ptr)               \
+  {(uint32_t)sizeof(t64_machine_create_info), T64_ABI_VERSION,                 \
+   (allocator_ptr), (profile_ptr)}
+
+/*
+ * Create/destroy and admission are the only operations that call the host.
+ * Check order of create, each refusal with no allocation and *machine_out NULL
+ * when machine_out is not NULL: a NULL machine_out or a NULL info
+ * T64_STATUS_INVALID_ARGUMENT; info->struct_size below the v1 size
+ * T64_STATUS_STRUCT_TOO_SMALL; an info->abi_version whose major differs from
+ * T64_ABI_VERSION_MAJOR, or whose minor differs while the major is 0,
+ * T64_STATUS_ABI_MISMATCH; a NULL allocator or profile
+ * T64_STATUS_INVALID_ARGUMENT; an allocator or profile struct_size below its v1
+ * size T64_STATUS_STRUCT_TOO_SMALL; then the allocator and profile checks. A
+ * host asserts header and library agreement with t64_abi_version() and
+ * t64_build_identity().
+ */
+T64_API t64_status t64_machine_create(const t64_machine_create_info *info,
                                       t64_machine **machine_out);
 T64_API void t64_machine_destroy(t64_machine *machine);
 /*
@@ -701,13 +767,15 @@ T64_API t64_status t64_machine_state_export(const t64_machine *machine,
  * the section id and rule where they apply and a position (a byte position in
  * the blob or a member ordinal). It never carries blob bytes. */
 typedef struct {
+  uint32_t struct_size;
   t64_status status;
   uint32_t reason;
   uint32_t section_id;
   uint32_t rule;
   uint64_t position;
 } t64_state_import_report;
-#define T64_STATE_IMPORT_REPORT_INIT {0u, 0u, 0u, 0u, 0u}
+#define T64_STATE_IMPORT_REPORT_INIT                                           \
+  {(uint32_t)sizeof(t64_state_import_report), 0u, 0u, 0u, 0u, 0u}
 
 T64_API t64_status t64_machine_state_import(t64_machine *machine,
                                             const uint8_t *bytes, size_t length,
@@ -776,12 +844,13 @@ T64_API t64_status t64_video_copy(t64_machine *machine, uint8_t *bytes_out,
  * replacement restarts it at 0).
  */
 typedef struct {
+  uint32_t struct_size;
   uint32_t kind;
   uint32_t size_bytes;
   uint32_t flags;
   uint64_t write_generation;
 } t64_save_info;
-#define T64_SAVE_INFO_INIT {0u, 0u, 0u, 0u}
+#define T64_SAVE_INFO_INIT {(uint32_t)sizeof(t64_save_info), 0u, 0u, 0u, 0u}
 
 /*
  * Reports the save device of an admitted machine when the requested kind is
@@ -898,10 +967,16 @@ T64_API t64_status t64_machine_trace_set_enabled(t64_machine *machine, bool enab
  * cumulative saturated drop observation. A zero capacity permits NULL
  * records_out, copies nothing, and leaves queued records intact. All output
  * parameters are required; invalid outputs leave observer state unchanged.
+ * record_size is the size of the caller's record type, normally
+ * (uint32_t)sizeof(t64_trace_record) (plan 11-12, DR-06): a value below the v1
+ * record size answers T64_STATUS_STRUCT_TOO_SMALL with every output and the
+ * queue unchanged; otherwise record i is written at byte offset i * record_size
+ * of records_out, the v1 record members fill its first bytes and the bytes
+ * after them are left untouched.
  */
 T64_API t64_status t64_machine_trace_drain(
-    t64_machine *machine, t64_trace_record *records_out, size_t capacity,
-    size_t *count_out, uint64_t *dropped_out,
+    t64_machine *machine, t64_trace_record *records_out, uint32_t record_size,
+    size_t capacity, size_t *count_out, uint64_t *dropped_out,
     bool *drop_count_saturated_out);
 
 #ifdef __cplusplus

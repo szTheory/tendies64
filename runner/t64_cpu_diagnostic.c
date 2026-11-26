@@ -392,6 +392,7 @@ static bool drain_guest_observers(t64_machine *machine, child_report *report,
   size_t i;
   t64_output_drain_result output = T64_OUTPUT_DRAIN_RESULT_INIT;
   if (t64_machine_trace_drain(machine, trace,
+                              (uint32_t)sizeof(t64_trace_record),
                               sizeof trace / sizeof trace[0], &count,
                               &dropped, &saturated) != T64_STATUS_OK ||
       dropped != 0u || saturated) {
@@ -486,7 +487,10 @@ static void execute_guest(int snapshot_fd, size_t rom_size,
     report->harness_error = 3u;
     goto cleanup;
   }
-  if (t64_machine_create(&allocator, profile, &machine) != T64_STATUS_OK ||
+  if (t64_machine_create(
+          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+              &allocator, profile),
+          &machine) != T64_STATUS_OK ||
       machine == NULL) {
     report->harness_error = 4u;
     goto cleanup;

@@ -36,21 +36,29 @@ t64_status t64_machine_trace_set_enabled(t64_machine *machine, bool enabled) {
 }
 
 t64_status t64_machine_trace_drain(
-    t64_machine *machine, t64_trace_record *records_out, size_t capacity,
-    size_t *count_out, uint64_t *dropped_out,
+    t64_machine *machine, t64_trace_record *records_out, uint32_t record_size,
+    size_t capacity, size_t *count_out, uint64_t *dropped_out,
     bool *drop_count_saturated_out) {
   t64_address_range records_range;
   t64_address_range count_range;
   t64_address_range dropped_range;
   t64_address_range saturated_range;
+  uint8_t *record_bytes = (uint8_t *)records_out;
   size_t copy_count;
   size_t i;
 
   T64_ENTRY_GUARD(machine);
   if (machine == NULL || count_out == NULL || dropped_out == NULL ||
       drop_count_saturated_out == NULL ||
-      (records_out == NULL && capacity != 0u) ||
-      capacity > SIZE_MAX / sizeof *records_out ||
+      (records_out == NULL && capacity != 0u)) {
+    return T64_STATUS_INVALID_ARGUMENT;
+  }
+  /* The caller's record size (DR-06): below the v1 record it is refused with
+   * every output and the queue unchanged; otherwise it is the stride. */
+  if (record_size < T64_TRACE_RECORD_V1_SIZE) {
+    return T64_STATUS_STRUCT_TOO_SMALL;
+  }
+  if (capacity > SIZE_MAX / record_size ||
       !output_range_is_valid(machine, count_out, sizeof *count_out,
                              &count_range) ||
       !output_range_is_valid(machine, dropped_out, sizeof *dropped_out,
@@ -65,7 +73,7 @@ t64_status t64_machine_trace_drain(
   }
   if (capacity > 0u &&
       (!output_range_is_valid(machine, records_out,
-                              capacity * sizeof *records_out,
+                              capacity * (size_t)record_size,
                               &records_range) ||
        t64_internal_ranges_overlap(records_range, count_range) ||
        t64_internal_ranges_overlap(records_range, dropped_range) ||
@@ -77,11 +85,16 @@ t64_status t64_machine_trace_drain(
                                                 : capacity;
   for (i = 0u; i < copy_count; i++) {
     size_t index = (machine->trace_head + i) % T64_TRACE_RECORD_CAPACITY;
+    t64_trace_record record;
 
-    records_out[i].tick = machine->trace_records[index].tick;
-    records_out[i].device = machine->trace_records[index].device;
-    records_out[i].kind = machine->trace_records[index].kind;
-    records_out[i].value = machine->trace_records[index].value;
+    record.tick = machine->trace_records[index].tick;
+    record.device = machine->trace_records[index].device;
+    record.kind = machine->trace_records[index].kind;
+    record.value = machine->trace_records[index].value;
+    /* At most min(record_size, v1) bytes per record; the bytes of a larger
+     * caller record after the v1 members stay as the caller left them. */
+    (void)memcpy(record_bytes + i * (size_t)record_size, &record,
+                 T64_TRACE_RECORD_V1_SIZE);
   }
   if (copy_count > 0u) {
     machine->trace_head =

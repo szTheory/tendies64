@@ -83,7 +83,10 @@ static t64_machine *create_admitted_with(const t64_host_allocator *host,
 
   T64_CHECK_INT(t64_profile_lookup(profile_id, &profile), T64_STATUS_OK);
   if (profile == NULL) return NULL;
-  T64_CHECK_INT(t64_machine_create(host, profile, &machine), T64_STATUS_OK);
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        host, profile),
+                    &machine), T64_STATUS_OK);
   if (machine == NULL) return NULL;
   if (!read_openipl3_asset(asset)) {
     T64_CHECK(false);
@@ -1675,7 +1678,10 @@ static void case_refusals(void) {
   /* A pre-admission machine of the same profile: NOT_READY in both forms;
    * after admission the same call is accepted and sizes like the baseline. */
   if (t64_machine_profile(machine, &profile) == T64_STATUS_OK &&
-      t64_machine_create(&allocator, profile, &fresh) == T64_STATUS_OK &&
+      t64_machine_create(
+          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+              &allocator, profile),
+          &fresh) == T64_STATUS_OK &&
       fresh != NULL) {
     length = LENGTH_SENTINEL;
     check_refusal("pre-admission copy", fresh, small, sizeof small, &length,

@@ -60,7 +60,7 @@ static void fixture_release(void *context, t64_host_storage storage) {
 
 static bool fixture_create(rsp_control_fixture *fixture) {
   const t64_profile_descriptor *profile = NULL;
-  t64_host_storage image = {NULL, 0u, 0u};
+  t64_host_storage image = {0};
   t64_status status;
 
   if (fixture == NULL) {
@@ -76,8 +76,10 @@ static bool fixture_create(rsp_control_fixture *fixture) {
             (unsigned)status);
     return false;
   }
-  status = t64_machine_create(&fixture->allocator, profile,
-                              &fixture->machine);
+  status = t64_machine_create(
+               &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                   &fixture->allocator, profile),
+               &fixture->machine);
   if (status != T64_STATUS_OK || fixture->machine == NULL) {
     fprintf(stderr, "fixture machine create failed: status=%u\n",
             (unsigned)status);

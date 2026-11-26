@@ -49,6 +49,8 @@ static void release_invalid_distinct_storage(
       candidate_is_disjoint(requested_range, machine_storage,
                             current_image_storage, has_current_image,
                             input_range)) {
+    /* The core is the caller of t64_host_storage (DR-06, W-1). */
+    storage.struct_size = T64_HOST_STORAGE_V1_SIZE;
     allocator->release(allocator->context, storage);
   }
 }
@@ -152,7 +154,7 @@ t64_status t64_rom_candidate_prepare(
   t64_address_range input_range;
   t64_address_range candidate_range;
   t64_rom_order order;
-  t64_host_storage storage = {NULL, 0u, 0u};
+  t64_host_storage storage = T64_HOST_STORAGE_EMPTY;
 
   if (candidate_out == NULL || allocator == NULL || allocator->allocate == NULL ||
       allocator->release == NULL || profile == NULL) {
@@ -168,6 +170,8 @@ t64_status t64_rom_candidate_prepare(
     return T64_STATUS_INVALID_ROM;
   }
 
+  /* The core fills struct_size before the allocate callback (DR-06, W-1). */
+  storage.struct_size = T64_HOST_STORAGE_V1_SIZE;
   if (!allocator->allocate(allocator->context, length, 1u, &storage)) {
     return T64_STATUS_ALLOCATION_FAILED;
   }
@@ -199,6 +203,8 @@ void t64_rom_candidate_discard(const t64_host_allocator *allocator,
     return;
   }
   if (candidate->owns_storage) {
+    /* The core is the caller of t64_host_storage (DR-06, W-1). */
+    candidate->storage.struct_size = T64_HOST_STORAGE_V1_SIZE;
     allocator->release(allocator->context, candidate->storage);
   }
   (void)memset(candidate, 0, sizeof *candidate);

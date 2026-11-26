@@ -455,7 +455,10 @@ static t64_machine *prepare_machine(const t64_host_allocator *allocator,
   if (t64_profile_lookup("ntsc-cart-4m-openipl3-warm-v1", &profile) !=
           T64_STATUS_OK ||
       profile == NULL ||
-      t64_machine_create(allocator, profile, &machine) != T64_STATUS_OK ||
+      t64_machine_create(
+          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+              allocator, profile),
+          &machine) != T64_STATUS_OK ||
       machine == NULL) {
     if (machine != NULL) t64_machine_destroy(machine);
     return NULL;
@@ -498,7 +501,8 @@ static bool collect_trace(t64_machine *machine, input_trace *inputs,
   bool drop_saturated = false;
   size_t i;
 
-  if (t64_machine_trace_drain(machine, records, T64_TRACE_RECORD_CAPACITY,
+  if (t64_machine_trace_drain(machine, records,
+                              (uint32_t)sizeof(t64_trace_record), T64_TRACE_RECORD_CAPACITY,
                               &count, &dropped, &drop_saturated) !=
       T64_STATUS_OK) {
     return false;

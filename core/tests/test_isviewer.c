@@ -132,7 +132,10 @@ static t64_machine *create_machine_for_profile(
 
   if (t64_profile_lookup(profile_id, &profile) != T64_STATUS_OK ||
       profile == NULL ||
-      t64_machine_create(allocator, profile, &machine) != T64_STATUS_OK ||
+      t64_machine_create(
+          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+              allocator, profile),
+          &machine) != T64_STATUS_OK ||
       machine == NULL ||
       t64_machine_admit_rom(machine, image, image_length) != T64_STATUS_OK) {
     t64_machine_destroy(machine);
@@ -202,7 +205,10 @@ static t64_machine *create_unadmitted_machine(
   if (t64_profile_lookup("ntsc-cart-4m-openipl3-warm-v1", &profile) !=
           T64_STATUS_OK ||
       profile == NULL ||
-      t64_machine_create(allocator, profile, &machine) != T64_STATUS_OK ||
+      t64_machine_create(
+          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+              allocator, profile),
+          &machine) != T64_STATUS_OK ||
       machine == NULL) {
     t64_machine_destroy(machine);
     return NULL;
@@ -814,6 +820,7 @@ static void test_input_trace_order_and_observer_invariance(
         "post-advance drain also leaves the canonical digest unchanged");
 
   check_status(t64_machine_trace_drain(traced, records,
+                                       (uint32_t)sizeof(t64_trace_record),
                                        T64_TRACE_RECORD_CAPACITY,
                                        &record_count, &dropped, &saturated),
                T64_STATUS_OK, "traced input records drain successfully");
@@ -836,6 +843,7 @@ static void test_input_trace_order_and_observer_invariance(
         "trace identifies input source and kind at tick in submission order");
   record_count = 99u;
   check_status(t64_machine_trace_drain(untraced, records,
+                                       (uint32_t)sizeof(t64_trace_record),
                                        T64_TRACE_RECORD_CAPACITY,
                                        &record_count, &dropped, &saturated),
                T64_STATUS_OK, "disabled trace drain succeeds");

@@ -429,6 +429,7 @@ static bool drain_guest_observers(t64_machine *machine,
   t64_output_drain_result output = T64_OUTPUT_DRAIN_RESULT_INIT;
   size_t available = RSP_CAPTURE_LIMIT - report->capture_length;
   if (t64_machine_trace_drain(machine, trace,
+                              (uint32_t)sizeof(t64_trace_record),
                               sizeof trace / sizeof trace[0], &count,
                               &dropped, &saturated) != T64_STATUS_OK ||
       dropped != 0u || saturated) {
@@ -504,7 +505,10 @@ static void execute_guest(int snapshot_fd, size_t rom_size,
       !read_snapshot(snapshot_fd, rom_size, rom_sha256, &rom)) goto done;
   if (t64_profile_lookup(RSP_PROFILE_ID, &profile) != T64_STATUS_OK ||
       profile == NULL ||
-      t64_machine_create(&allocator, profile, &machine) != T64_STATUS_OK ||
+      t64_machine_create(
+          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+              &allocator, profile),
+          &machine) != T64_STATUS_OK ||
       machine == NULL ||
       t64_machine_trace_set_enabled(machine, true) != T64_STATUS_OK ||
       t64_machine_admit_rom(machine, rom, rom_size) !=

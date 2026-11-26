@@ -111,7 +111,10 @@ static bool fixture_init_profile(fixture *value, const char *profile_id) {
   if (t64_profile_lookup(profile_id, &profile) !=
           T64_STATUS_OK ||
       profile == NULL ||
-      t64_machine_create(&value->allocator, profile, &value->machine) !=
+      t64_machine_create(
+          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+              &value->allocator, profile),
+          &value->machine) !=
           T64_STATUS_OK ||
       value->machine == NULL) {
     return false;
@@ -139,8 +142,10 @@ static bool fixture_create_profile(fixture *value, const char *profile_id) {
       test_allocate, test_release, value);
   lookup_status = t64_profile_lookup(profile_id, &profile);
   create_status = lookup_status == T64_STATUS_OK && profile != NULL
-                      ? t64_machine_create(&value->allocator, profile,
-                                           &value->machine)
+                      ? t64_machine_create(
+                            &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                                &value->allocator, profile),
+                            &value->machine)
                       : lookup_status;
   if (create_status != T64_STATUS_OK || value->machine == NULL) {
     fprintf(stderr, "RSP profile setup failed: lookup=%u create=%u\n",
@@ -151,7 +156,7 @@ static bool fixture_create_profile(fixture *value, const char *profile_id) {
 }
 
 static bool fixture_enable_synthetic_image(fixture *value) {
-  t64_host_storage storage = {NULL, 0u, 0u};
+  t64_host_storage storage = {0};
 
   if (value == NULL || value->machine == NULL ||
       !test_allocate(value, 2u, 1u, &storage)) {
@@ -1117,6 +1122,7 @@ static bool pending_queue_and_source_visibility_test(void) {
     passed = false;
   }
   if (t64_machine_trace_drain(value.machine, records,
+                              (uint32_t)sizeof(t64_trace_record),
                               T64_TRACE_RECORD_CAPACITY, &record_count,
                               &dropped_records, &drop_count_saturated) !=
           T64_STATUS_OK ||
@@ -1399,6 +1405,7 @@ static bool equal_tick_pi_sp_fifo_test(void) {
                            &pending) != T64_STATUS_OK ||
       pending != UINT32_C(0x10) ||
       t64_machine_trace_drain(value.machine, records,
+                              (uint32_t)sizeof(t64_trace_record),
                               T64_TRACE_RECORD_CAPACITY, &record_count,
                               &dropped, &saturated) != T64_STATUS_OK ||
       dropped != 0u || saturated) {
