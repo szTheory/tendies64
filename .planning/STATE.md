@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 11
 current_phase_name: Installed Consumer and Freeze Candidate
 status: executing
-stopped_at: Completed 11-15-PLAN.md
-last_updated: "2026-11-26T01:48:21.551Z"
+stopped_at: Completed 11-26-PLAN.md (executed out of wave order after 11-15; next plan stays 11-16)
+last_updated: "2026-11-26T02:08:25.252Z"
 last_activity: 2026-11-25
 last_activity_desc: Phase 11 execution started
-state_head: 7f076ccdd6456a19f9e57203e929b91dc95d9e65
+state_head: ea049a88c0bab8dfa32b004659c77238e16cc2b0
 progress:
   total_phases: 3
   completed_phases: 1
-  total_plans: 46
-  completed_plans: 36
+  total_plans: 47
+  completed_plans: 37
   percent: 33
 ---
 
@@ -33,6 +33,7 @@ Phase: 11 (Installed Consumer and Freeze Candidate) — EXECUTING
 Plan: 16 of 25
 Status: Ready to execute
 Last activity: 2026-11-25 — Phase 11 execution started
+Note: plan 11-26 (SHAPE defect fixes S-01 to S-03) was executed early, right after 11-15 and out of wave order; the next plan stays 11-16.
 
 Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 
@@ -96,6 +97,7 @@ Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 | Phase 11 P13 | 31 min | 3 tasks | 16 files |
 | Phase 11 P11-14 | 22 min | 2 tasks | 13 files |
 | Phase 11 P15 | 27min | 3 tasks | 3 files |
+| Phase 11 P26 | 17min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -232,6 +234,7 @@ Progress: [███░░░░░░░] 33% (0 of 3 v1.2 phases complete)
 - [Phase 11]: 11-14: bound commit e66625a closed DEV-11-01; PINNED_REQUEST_SHA256 e131cbe7... to 75f2b651... identity-only, local_decision blocked; a gate run that redirects its output must write outside the clone tree (PII scan reads untracked files)
 - [Phase 11]: 11-15 SHAPE review: no blocking finding; warnings S-01 (header text), S-02 (masked inconsistency branches), S-03 (state-container NULL-machine wording) need a new numbered plan (placement before 11-23 is the orchestrator's call)
 - [Phase 11]: Install base 06e31ecab5b84c08996aba79cb3ab6e29bb021cc; first Phase 11 push 167a084..43b31e2, hosted run 45736981784 green (gate-macos 445 s warm, gate-linux 251 s); cold projections 757-810 s, margin warning under 120 s
+- [Phase 11]: 11-26: an output-observer inconsistency that state import already rejects (drain cursor or capture length, ring head or count out of range) is a defect site at the call that finds it: poison, INTERNAL_DEFECT, outputs untouched; T64_API header text promises no visibility attribute, the t64i_ prefix and the archive symbol check are the enforced property — SHAPE review S-01 and S-02, AMBIG-A/B; text and two defect branches only, sweep 0 differences, no sealed body moved
 
 ### Pending Todos
 
@@ -257,8 +260,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-26T01:48:21.416Z
-Stopped at: Completed 11-15-PLAN.md
+Last session: 2026-11-26T02:08:24.973Z
+Stopped at: Completed 11-26-PLAN.md (executed out of wave order after 11-15; next plan stays 11-16)
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
@@ -277,8 +280,8 @@ exact tested artifacts remain retained locally; full privacy and the final gate
 pass. This approval applies to that specific repair, not future private values.
 
 ### Blockers
-None
 
 - Owner approval 2026-11-25 (answer "Approve call-site-only rebind", Phase 11 plan-phase): Phase 11 may perform an identity-only, orchestrator-only rebind of the Phase 7 oracle request after API call-site-only edits to the nine bound test files (core/tests/test_rdp{,_copy,_triangles,_texture,_combiner,_blender,_depth}.c, test_vi.c, test_video_output.c, runner/tests/test_rdp_video.c): reproduce the old pinned hash first, change only those call sites and the derived hashes and PINNED_REQUEST_SHA256, keep local_decision blocked, isolate in one commit. No oracle, rights or publication authority granted.
   - Planner note 2026-11-25 (plan check item I-1; not owner text, the approval above is unchanged): the approval says "nine" and lists ten paths. Phase 11 reads it as nine API-using files edited (the seven test_rdp files, test_vi.c, test_video_output.c) and runner/tests/test_rdp_video.c listed but not edited (it needs no call-site change and keeps its hash); recorded as DR-27 in plan 11-01 and applied by plan 11-14.
 - Owner approval 2026-11-25 (answer "A: Extend approval to this initializer", Phase 11 execution, plan 11-01 checkpoint): the 2026-11-25 call-site-only rebind approval also covers the single value-neutral initializer update core/tests/test_rdp.c:486 (t64_host_storage image = {NULL, 0u, 0u} becomes {0}), same identity-only, orchestrator-only, one-isolated-commit, local_decision-blocked terms; no expected value, check, case name, sizeof pin or control-flow edit in any bound file is covered. t64_host_storage keeps its leading struct_size.
+- gov.pii.repo fails at HEAD (gate 274 of 275, preflight pii step): two P-PRIVATE-PATH hits in the history of commit 47f37eb (11-26-PLAN.md added with absolute home paths in its execution_context; the tree is fixed by 766d20a). History is immutable for an executor: the orchestrator must repair the unpublished range or obtain an owner waiver (tools/rights/pii-history-waivers.tsv) before any push
