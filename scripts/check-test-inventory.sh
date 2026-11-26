@@ -304,7 +304,9 @@ repo.consumer-include-guard
 repo.consumer-include-guard-selftest
 repo.abi-layout
 install.abi-header
-install.abi-layout'
+install.abi-layout
+install.abi-symbols
+install.abs-paths'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

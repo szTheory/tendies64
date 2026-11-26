@@ -236,3 +236,36 @@ set_tests_properties(install.abi-layout PROPERTIES
   COST 0.3
   FIXTURES_REQUIRED t64_install
   ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
+# install.abi-symbols (plan 11-17, API-03): the defined global symbols of the
+# installed archive (nm -P -g --defined-only, Darwin underscore stripped) that
+# do not start with t64i_ equal docs/abi/public-symbols.txt (the 35 public
+# functions), every other global starts with t64i_, and no data symbol exists.
+add_test(NAME install.abi-symbols
+  COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/check-abi.py symbols
+          --check ${CMAKE_SOURCE_DIR}/docs/abi/public-symbols.txt
+          --lib "${T64_INSTALL_MOVED_PREFIX}/lib/libt64_core.a"
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(install.abi-symbols PROPERTIES
+  LABELS "install;phase11"
+  TIMEOUT 60
+  COST 0.11
+  FIXTURES_REQUIRED t64_install
+  ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
+# install.abs-paths (plan 11-17, T-11-33): no file of the installed tree and no
+# byte of the archive contains the source root, the build root or a per-user
+# path prefix. The two roots exist only on this command line; a finding names
+# them by position (#1 is the source root, #2 the build root), never by value.
+add_test(NAME install.abs-paths
+  COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/check-abi.py abspaths
+          --prefix "${T64_INSTALL_MOVED_PREFIX}"
+          --forbid "${CMAKE_SOURCE_DIR}" "${CMAKE_BINARY_DIR}"
+                   /Users/ /home/ /private/ /var/folders
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(install.abs-paths PROPERTIES
+  LABELS "install;phase11"
+  TIMEOUT 60
+  COST 0.07
+  FIXTURES_REQUIRED t64_install
+  ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
