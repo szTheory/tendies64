@@ -29,3 +29,19 @@ The finding text below is kept as found.
   and add an aliasing row to `ops-advance` and to the generator (`op_advance`, a variant that points the result into
   `g->fx->ledger.slots[0]`) with the expected `INVALID_ARGUMENT` and an unchanged machine digest. The probe that found
   it is recorded in PIN-IMPACT "Install steps", plan 11-20. Class table row 1 (`INVALID_ARGUMENT`) needs no change.
+
+## Preflight `head-ci` cannot pass while the plan under way is the one that repairs the red head (found by plan 11-28)
+
+- **Observed.** `scripts/preflight-phase11.sh` ends its `head-ci` step in `FAILED` when the newest hosted `ci.yml` run of
+  `origin/main` completed with a failure, and the script exits there, so `timeout-audit`, `pii`, `linux-compile` and the
+  post-gate replay never run. That is the designed guard against long native work on a red head (F-107 lesson). A
+  numbered plan whose purpose is to push the repair of a red head (11-28) cannot reach a green preflight by the script as
+  written.
+- **What plan 11-28 did.** The script was not edited (it is not in the plan's file list). The real script was run once to
+  show the failure, the remaining steps ran from a scratch copy without the single `step head-ci` line (ignored build
+  tree, `ROOT` fixed), and the real script passed `head-ci` again on the green head after the push. Recorded in
+  PIN-IMPACT "11-28".
+- **Why deferred.** An escape (for example a `--allow-red-head` flag that prints the red head and continues, restricted to
+  the case where `HEAD` is a descendant of the red head) changes a Phase 11 guard script and needs a plan that names it.
+- **Suggested plan.** Low priority: only if another red-head repair plan is expected. Otherwise a future plan of this kind
+  states "preflight green except `head-ci`, run from a copy" in its Task 3 wording.
