@@ -724,6 +724,15 @@ static bool seq_drain_all(seq *g) {
   return true;
 }
 
+/* One classified advance that must end with the given stop reason. */
+static void seq_expect_stop(seq *g, uint32_t kind, uint64_t value, uint32_t reason,
+                            const char *label) {
+  t64_stop_result stop = T64_STOP_RESULT_INIT;
+  t64_status status = seq_do_advance(g, SEQ_ANY, kind, value, label, &stop);
+
+  seq_check(g, status == T64_STATUS_OK && stop.reason == reason, label);
+}
+
 /* After a stall: drain everything, then the same advance must move on. */
 static void seq_resume_after_drain(seq *g) {
   bool drained;
@@ -1804,6 +1813,24 @@ static void seq_milestone(seq *g) {
   seq_note_admit(g, status);
   seq_unbracketed_mutation(g);
   seq_check(g, t64c_queue_literal_inputs(g->fx), "the milestone queues the two literal inputs");
+  /* the other two stop reasons, from the fresh machine: an instruction-count limit
+   * stops with INSTRUCTION_COUNT and a larger one resumes; a frame-event limit of 0
+   * stops at once with FRAME_EVENT_COUNT at the tick bound just reached */
+  seq_expect_stop(g, T64_STOP_INSTRUCTION_COUNT, 1000u, T64_STOP_REASON_INSTRUCTION_COUNT,
+                  "milestone: stop at an instruction count");
+  guard = (unsigned)g->tick;
+  seq_expect_stop(g, T64_STOP_INSTRUCTION_COUNT, 3000u, T64_STOP_REASON_INSTRUCTION_COUNT,
+                  "milestone: resume to a larger instruction count");
+  seq_check(g, g->tick > (uint64_t)guard, "a larger instruction count limit makes progress");
+  for (guard = 0u; guard < 64u && !g->abort; guard++) {
+    status = seq_do_advance(g, SEQ_ANY, T64_STOP_GUEST_TICK, 5000u,
+                            "milestone: advance to tick 5000", &stop);
+    if (status != T64_STATUS_OK || stop.reason == T64_STOP_REASON_BOUND) {
+      break;
+    }
+  }
+  seq_expect_stop(g, T64_STOP_FRAME_EVENT_COUNT, 0u, T64_STOP_REASON_FRAME_EVENT_COUNT,
+                  "milestone: stop at a frame-event count");
   for (guard = 0u; guard < 2048u && !g->abort; guard++) {
     status = seq_do_advance(g, SEQ_ANY, T64_STOP_GUEST_TICK, T64C_RUN_BOUND,
                             "milestone: advance to the run bound", &stop);
