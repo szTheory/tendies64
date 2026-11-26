@@ -942,7 +942,7 @@ add_test(NAME unit.core.api.struct-size
 set_tests_properties(unit.core.api.struct-size PROPERTIES
   LABELS "unit;phase11"
   TIMEOUT 60
-  COST 1
+  COST 2
   ENVIRONMENT "T64_TEST_IPL3_PATH=${T64_BOOT_FIXTURE_DIR}/ipl3_compat.z64;T64_BOOT_FIXTURES_DIR=${T64_BOOT_FIXTURE_DIR}")
 
 # Descriptor 13 family (plan 10-09): the four registered si-v2 ids with their
