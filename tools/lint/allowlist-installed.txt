@@ -1,0 +1,11 @@
+# Installed-archive allowlist (plan 11-17, DR-19, ADR-0006 amendment 2026-11-25).
+# The undefined names the shipped libt64_core.a may reference when its members are
+# checked as the installed object set by scripts/check-api04.sh (lint-objects.sh
+# --allow tools/lint/allowlist-installed.txt --objects <members>). Format as in
+# allowlist.txt: name|why|ADR/date|os, os is "any" or the output of uname -s. It is
+# used for that run only; the source allowlist allowlist.txt and the lint's own
+# compile (-fno-stack-protector) do not change, so these names never appear in the
+# per-file source lint. Exactly three rows: a fourth needs an ADR amendment.
+__stack_chk_fail|stack-protector pair: compiler runtime, no host service, abort only|ADR-0006 amendment 2026-11-25|any
+__stack_chk_guard|stack-protector pair: compiler runtime, no host service, abort only|ADR-0006 amendment 2026-11-25|any
+_GLOBAL_OFFSET_TABLE_|position-independent-code artifact on ELF: a linker-defined address symbol, not a host service|ADR-0006 amendment 2026-11-25 (CONTEXT revised after the plan check)|Linux

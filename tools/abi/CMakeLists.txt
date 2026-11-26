@@ -269,3 +269,25 @@ set_tests_properties(install.abs-paths PROPERTIES
   COST 0.07
   FIXTURES_REQUIRED t64_install
   ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
+# API-04 on the shipped objects (plan 11-17, T-11-31, T-11-32). The determinism
+# lint compiles core sources with its own flags (-fno-stack-protector, no PIC),
+# so only the members of the installed archive show what ships. api04.members
+# extracts the archive from its own path (the moved prefix, a path with a space:
+# RESEARCH Open Question 6) with ar x into a space-free temporary directory, runs
+# tools/lint/lint-objects.sh --allow tools/lint/allowlist-installed.txt over all
+# members in one invocation, and compares the archive-level undefined set with
+# the recorded per-OS rows of docs/abi/installed-undefined.txt, so a new import
+# fails even if its name is allowlisted; the control without the installed
+# allowlist must name exactly the stack-protector pair on macOS. COST is the
+# measured native seconds at host load 15 (two lint runs side by side); TIMEOUT
+# is far above 3.5 times the hosted figure (F-108).
+add_test(NAME api04.members
+  COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/check-api04.sh members
+          --lib "${T64_INSTALL_MOVED_PREFIX}/lib/libt64_core.a"
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(api04.members PROPERTIES
+  LABELS "api04;phase11"
+  TIMEOUT 180
+  COST 6.5
+  FIXTURES_REQUIRED t64_install)

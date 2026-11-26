@@ -23,6 +23,12 @@
 # Usage:
 #   lint-objects.sh [-I DIR|-D MACRO]... [--] FILE.c...   compile, then check
 #   lint-objects.sh --objects OBJ...             check precompiled objects only
+#   lint-objects.sh --allow FILE ... (either form)  also honor the rows of FILE
+# --allow FILE merges the rows of FILE (same name|why|ADR/date|os format, OS
+# column honored) with allowlist.txt for that run only; without it the
+# allowlist is allowlist.txt alone. It must come before --objects and the files.
+# The installed-archive check (scripts/check-api04.sh) passes
+# allowlist-installed.txt this way; the per-file source lint never does.
 # Output: "RULE-ID path: message (hint: ...)" per violation. Exit 0 clean,
 # 1 violations, 2 usage or tool error. Include paths must not contain spaces.
 set -eu
@@ -35,9 +41,10 @@ RULES="$LINT_DIR/rules.txt"
 ALLOW="$LINT_DIR/allowlist.txt"
 OS=$(uname -s)
 NVIOL=0
+EXTRA_ALLOW=
 
 usage() {
-  echo "usage: lint-objects.sh [-I DIR]... [--] FILE.c... | --objects OBJ..." >&2
+  echo "usage: lint-objects.sh [--allow FILE] [-I DIR]... [--] FILE.c... | [--allow FILE] --objects OBJ..." >&2
   exit 2
 }
 
@@ -57,6 +64,7 @@ DEFFLAGS=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --objects) MODE=objects; shift; break ;;
+    --allow) [ $# -ge 2 ] || usage; EXTRA_ALLOW="$2"; shift 2 ;;
     -I) [ $# -ge 2 ] || usage; INCFLAGS="$INCFLAGS -I$2"; shift 2 ;;
     -D) [ $# -ge 2 ] || usage; DEFFLAGS="$DEFFLAGS -D$2"; shift 2 ;;
     --) shift; break ;;
@@ -75,6 +83,10 @@ for _tool in nm $_secttool ${CC:-cc}; do
   fi
 done
 [ -f "$RULES" ] && [ -f "$ALLOW" ] || { echo "lint-objects: rules.txt or allowlist.txt missing" >&2; exit 2; }
+if [ -n "$EXTRA_ALLOW" ] && [ ! -f "$EXTRA_ALLOW" ]; then
+  echo "lint-objects: --allow file not found: $EXTRA_ALLOW" >&2
+  exit 2
+fi
 
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/t64lint.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
@@ -105,10 +117,10 @@ done
 # Allowlist for this OS, sorted. A malformed row is a tool error.
 awk -F'|' -v os="$OS" '
   /^[ \t]*#/ || /^[ \t]*$/ { next }
-  NF != 4 { print "lint-objects: malformed allowlist row " NR ": " $0 > "/dev/stderr"; bad = 1; next }
+  NF != 4 { print "lint-objects: malformed allowlist row " FNR ": " $0 > "/dev/stderr"; bad = 1; next }
   { n = $1; o = $4; gsub(/[ \t]/, "", n); gsub(/[ \t]/, "", o)
     if (o == "any" || o == os) print n }
-  END { exit bad }' "$ALLOW" > "$TMP/allow.raw" || exit 2
+  END { exit bad }' "$ALLOW" ${EXTRA_ALLOW:+"$EXTRA_ALLOW"} > "$TMP/allow.raw" || exit 2
 sort -u "$TMP/allow.raw" > "$TMP/allow.sorted"
 
 : > "$TMP/def.all"

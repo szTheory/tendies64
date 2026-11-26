@@ -1,0 +1,27 @@
+# Recorded archive-level undefined set of the installed libt64_core.a (Phase 11,
+# plan 11-17, API-04, DR-19). Row format: os|name|origin. os is the output of
+# uname -s. The set is "undefined minus defined" over every member of the archive
+# (nm -P, Darwin underscore stripped). scripts/check-api04.sh members fails when
+# the set of the running OS differs from its rows in either direction, so a new
+# import fails even when its name is allowlisted. A change is a reviewed edit of
+# this file together with the allowlist row that justifies it.
+#
+# Darwin rows: measured from the installed archive by plan 11-17 (Apple clang,
+# Release, the platform default stack protector).
+Darwin|__stack_chk_fail|stack protector (platform default); allowlist-installed.txt
+Darwin|__stack_chk_guard|stack protector canary; allowlist-installed.txt
+Darwin|bzero|Apple clang rewrites memset(p,0,n); allowlist.txt
+Darwin|memcmp|libc block function; allowlist.txt
+Darwin|memcpy|libc block function; allowlist.txt
+Darwin|memset|libc block function; allowlist.txt
+#
+# Linux rows: copied from the act-image measurement of plan 11-16 Task 3 (PIN-IMPACT
+# "Install steps", "Linux undefined set (act image, object compile)": gcc 13.3.0,
+# 86 objects, x86_64 under emulation), not measured by this plan. They are NOT yet
+# confirmed by a hosted gate-linux run: the hosted run of plan 11-21 confirms or
+# refutes them, and a mismatch there is a finding for a new numbered plan.
+Linux|_GLOBAL_OFFSET_TABLE_|linker-defined address symbol of position-independent objects; allowlist-installed.txt (Linux only)
+Linux|__stack_chk_fail|stack protector (Ubuntu default); allowlist-installed.txt
+Linux|memcmp|libc block function; allowlist.txt
+Linux|memcpy|libc block function; allowlist.txt
+Linux|memset|libc block function; allowlist.txt
