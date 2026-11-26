@@ -65,7 +65,8 @@ static bool load_authored_rom(uint8_t *bytes, size_t capacity,
 }
 
 static t64_machine *create_test_machine(void) {
-  const t64_host_allocator allocator = {test_allocate, test_release, NULL};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, NULL);
   const t64_profile_descriptor *profile = NULL;
   t64_machine *machine = NULL;
   uint8_t rom[TEST_ROM_CAPACITY];
@@ -75,7 +76,10 @@ static t64_machine *create_test_machine(void) {
   if (rom_length == 0u) return NULL;
   T64_CHECK_INT(t64_profile_lookup(RDP_VI_PROFILE_ID, &profile), T64_STATUS_OK);
   if (profile == NULL) return NULL;
-  T64_CHECK_INT(t64_machine_create(&allocator, profile, &machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &allocator, profile),
+                    &machine),
                 T64_STATUS_OK);
   if (machine == NULL) return NULL;
   T64_CHECK_INT(t64_machine_admit_rom(machine, rom, rom_length),
@@ -117,7 +121,8 @@ static t64_status dispatch_rdp_at_current_tick(t64_machine *machine) {
 
 #ifndef T64_TEST_DP_TRANSPORT
 static void case_dpc_register_acceptance(void) {
-  const t64_host_allocator allocator = {test_allocate, test_release, NULL};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, NULL);
   const t64_profile_descriptor *profile = NULL;
   t64_machine *machine = NULL;
   uint32_t value = 0u;
@@ -125,7 +130,10 @@ static void case_dpc_register_acceptance(void) {
   T64_CHECK_INT(t64_profile_lookup(RDP_VI_PROFILE_ID, &profile), T64_STATUS_OK);
   T64_CHECK(profile != NULL);
   if (profile == NULL) return;
-  T64_CHECK_INT(t64_machine_create(&allocator, profile, &machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &allocator, profile),
+                    &machine),
                 T64_STATUS_OK);
   T64_CHECK(machine != NULL);
   if (machine == NULL) return;
@@ -481,15 +489,19 @@ static void case_zero_area_fill_is_noop(void) {
 #define DPC_TMEM_COUNTER UINT32_C(0x0410001c)
 
 static t64_machine *create_rsp_only_test_machine(void) {
-  const t64_host_allocator allocator = {test_allocate, test_release, NULL};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, NULL);
   const t64_profile_descriptor *profile = NULL;
-  t64_host_storage image = {NULL, 0u, 0u};
+  t64_host_storage image = {0};
   t64_machine *machine = NULL;
 
   if (t64_profile_lookup(RSP_FUNCTIONAL_PROFILE_ID, &profile) !=
           T64_STATUS_OK ||
       profile == NULL ||
-      t64_machine_create(&allocator, profile, &machine) != T64_STATUS_OK ||
+      t64_machine_create(
+          &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+              &allocator, profile),
+          &machine) != T64_STATUS_OK ||
       machine == NULL) {
     return NULL;
   }
@@ -534,9 +546,9 @@ static bool install_rsp_program(t64_machine *machine,
 
 static bool advance_to_tick(t64_machine *machine, uint64_t target_tick) {
   while (machine != NULL && machine->tick < target_tick) {
-    t64_stop_request request = {T64_STOP_GUEST_TICK,
-                                machine->tick + UINT64_C(1)};
-    t64_stop_result result = {0u, 0u};
+    t64_stop_request request =
+        T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, machine->tick + UINT64_C(1));
+    t64_stop_result result = T64_STOP_RESULT_INIT;
 
     if (t64_machine_advance(machine, &request, &result) != T64_STATUS_OK ||
         result.tick != request.value) {

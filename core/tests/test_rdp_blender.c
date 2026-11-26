@@ -77,7 +77,8 @@ static void test_release(void *context, t64_host_storage storage) {
 }
 
 static t64_machine *create_authored_machine_for(const char *profile_id) {
-  const t64_host_allocator allocator = {test_allocate, test_release, NULL};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, NULL);
   const char *path = getenv("T64_TEST_RDP_FILL_PATH");
   const t64_profile_descriptor *profile = NULL;
   uint8_t rom[TEST_ROM_CAPACITY];
@@ -101,7 +102,10 @@ static t64_machine *create_authored_machine_for(const char *profile_id) {
   T64_CHECK_INT(t64_profile_lookup(profile_id, &profile), T64_STATUS_OK);
   T64_CHECK(profile != NULL);
   if (profile == NULL) return NULL;
-  T64_CHECK_INT(t64_machine_create(&allocator, profile, &machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &allocator, profile),
+                    &machine),
                 T64_STATUS_OK);
   if (machine == NULL) return NULL;
   T64_CHECK_INT(t64_machine_admit_rom(machine, rom, (size_t)length),
@@ -599,8 +603,8 @@ static void case_fetched_overlap_and_coverage_sidecar_edges(void) {
   const t64_profile_descriptor *profile = NULL;
   t64_profile_descriptor odd_profile;
   test_allocator_stats allocator_stats = {0u, 0u};
-  const t64_host_allocator allocator = {test_allocate, test_release,
-                                         &allocator_stats};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, &allocator_stats);
   t64_machine *odd = NULL;
   uint32_t custom_granule;
 
@@ -679,7 +683,10 @@ static void case_fetched_overlap_and_coverage_sidecar_edges(void) {
     (void)memset(odd_profile.profile_id, 0, sizeof odd_profile.profile_id);
     (void)memcpy(odd_profile.profile_id, "test-blender-odd-span", 22u);
     odd_profile.rdram_bytes = UINT32_C(4097);
-    T64_CHECK_INT(t64_machine_create(&allocator, &odd_profile, &odd),
+    T64_CHECK_INT(t64_machine_create(
+                      &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                          &allocator, &odd_profile),
+                      &odd),
                   T64_STATUS_OK);
     T64_CHECK(odd != NULL);
     if (odd != NULL) {
@@ -994,7 +1001,7 @@ static bool capture_raw_vi(t64_machine *machine, uint8_t *bytes,
       {UINT32_C(0x34), UINT32_C(1024)},
       {UINT32_C(0x00), control},
   };
-  t64_video_packet_info info = {0};
+  t64_video_packet_info info = T64_VIDEO_PACKET_INFO_INIT;
   size_t i, step;
 
   for (i = 0u; i < sizeof writes / sizeof writes[0]; i++)

@@ -40,7 +40,8 @@ static void test_release(void *context, t64_host_storage storage) {
 }
 
 static t64_machine *create_authored_machine(void) {
-  const t64_host_allocator allocator = {test_allocate, test_release, NULL};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, NULL);
   const char *path = getenv("T64_TEST_RDP_FILL_PATH");
   const t64_profile_descriptor *profile = NULL;
   t64_machine *machine = NULL;
@@ -64,7 +65,10 @@ static t64_machine *create_authored_machine(void) {
   T64_CHECK_INT(t64_profile_lookup(TEST_PROFILE_ID, &profile), T64_STATUS_OK);
   T64_CHECK(profile != NULL);
   if (profile == NULL) return NULL;
-  T64_CHECK_INT(t64_machine_create(&allocator, profile, &machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &allocator, profile),
+                    &machine),
                 T64_STATUS_OK);
   if (machine == NULL) return NULL;
   T64_CHECK_INT(t64_machine_admit_rom(machine, rom, (size_t)length),
@@ -326,7 +330,7 @@ static bool configure_vi_and_copy(t64_machine *machine, uint32_t width,
   };
   size_t i;
   size_t step;
-  t64_video_packet_info info = {0};
+  t64_video_packet_info info = T64_VIDEO_PACKET_INFO_INIT;
 
   for (i = 0u; i < sizeof writes / sizeof writes[0]; i++)
     T64_CHECK_INT(t64_machine_bus_write(machine, VI_BASE + writes[i].offset,

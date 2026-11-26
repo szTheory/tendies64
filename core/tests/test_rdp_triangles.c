@@ -39,7 +39,8 @@ static void test_release(void *context, t64_host_storage storage) {
 }
 
 static t64_machine *create_authored_machine_for(const char *profile_id) {
-  const t64_host_allocator allocator = {test_allocate, test_release, NULL};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, NULL);
   const char *path = getenv("T64_TEST_RDP_FILL_PATH");
   const t64_profile_descriptor *profile = NULL;
   t64_machine *machine = NULL;
@@ -64,7 +65,10 @@ static t64_machine *create_authored_machine_for(const char *profile_id) {
                 T64_STATUS_OK);
   T64_CHECK(profile != NULL);
   if (profile == NULL) return NULL;
-  T64_CHECK_INT(t64_machine_create(&allocator, profile, &machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &allocator, profile),
+                    &machine),
                 T64_STATUS_OK);
   if (machine == NULL) return NULL;
   T64_CHECK_INT(t64_machine_admit_rom(machine, rom, (size_t)length),
@@ -263,7 +267,8 @@ static void case_triangle_shade_all_fields(void) {
 }
 
 static void case_triangle_custom_profile_alignment(void) {
-  const t64_host_allocator allocator = {test_allocate, test_release, NULL};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, NULL);
   const t64_profile_descriptor *base = NULL;
   t64_profile_descriptor profile;
   t64_machine *machine = NULL;
@@ -272,7 +277,10 @@ static void case_triangle_custom_profile_alignment(void) {
   profile = *base;
   (void)strcpy(profile.profile_id, "authored-odd-rdram");
   profile.rdram_bytes--;
-  T64_CHECK_INT(t64_machine_create(&allocator, &profile, &machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &allocator, &profile),
+                    &machine),
                 T64_STATUS_OK);
   if (machine == NULL) return;
   T64_CHECK(machine->rdp_triangle_coverage != NULL);

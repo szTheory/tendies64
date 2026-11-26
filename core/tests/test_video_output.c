@@ -75,7 +75,8 @@ static t64_machine *create_output_machine(void) {
       UINT16_C(0xf801), UINT16_C(0x07c1), UINT16_C(0x003f),
       UINT16_C(0xffff),
   };
-  const t64_host_allocator allocator = {test_allocate, test_release, NULL};
+  const t64_host_allocator allocator =
+      T64_HOST_ALLOCATOR_INIT(test_allocate, test_release, NULL);
   const t64_profile_descriptor *profile = NULL;
   t64_machine *machine = NULL;
   uint8_t rom[TEST_ROM_CAPACITY];
@@ -87,7 +88,10 @@ static t64_machine *create_output_machine(void) {
   T64_CHECK_INT(t64_profile_lookup(TEST_PROFILE_ID, &profile),
                 T64_STATUS_OK);
   if (profile == NULL) return NULL;
-  T64_CHECK_INT(t64_machine_create(&allocator, profile, &machine),
+  T64_CHECK_INT(t64_machine_create(
+                    &(t64_machine_create_info)T64_MACHINE_CREATE_INFO_INIT(
+                        &allocator, profile),
+                    &machine),
                 T64_STATUS_OK);
   if (machine == NULL) return NULL;
   T64_CHECK_INT(t64_machine_admit_rom(machine, rom, rom_length),
@@ -133,11 +137,14 @@ static bool advance_one_field(t64_machine *machine) {
   size_t attempt;
   for (attempt = 0u; attempt < 512u; attempt++) {
     const t64_event *event = find_vi_event(machine);
-    t64_stop_result stop = {UINT32_MAX, UINT64_MAX};
+    t64_stop_result stop = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
     t64_status status;
     if (event == NULL) return false;
     status = t64_machine_advance(
-        machine, &(t64_stop_request){T64_STOP_GUEST_TICK, event->tick}, &stop);
+        machine,
+        &(t64_stop_request)T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK,
+                                                 event->tick),
+        &stop);
     if (status != T64_STATUS_OK) return false;
     if (machine->vi.field != field) return true;
     if (stop.reason == T64_STOP_REASON_RESOURCE_LIMIT &&
@@ -157,14 +164,16 @@ static bool advance_two_fields(t64_machine *machine) {
 }
 
 static bool advance_guest_bound(t64_machine *machine, uint64_t target) {
-  t64_stop_result stop = {UINT32_MAX, UINT64_MAX};
+  t64_stop_result stop = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
   t64_status status;
   if (machine == NULL) {
     T64_CHECK(false);
     return false;
   }
   status = t64_machine_advance(
-      machine, &(t64_stop_request){T64_STOP_GUEST_TICK, target}, &stop);
+      machine,
+      &(t64_stop_request)T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK, target),
+      &stop);
   T64_CHECK_INT(status, T64_STATUS_OK);
   T64_CHECK_INT(stop.reason, T64_STOP_REASON_BOUND);
   T64_CHECK_INT(stop.tick, target);
@@ -199,7 +208,7 @@ static bool fill_queue_and_block(t64_machine *machine, t64_event *pending) {
   if (period == 0u) return false;
   for (attempt = 0u; attempt < 512u; attempt++) {
     const t64_event *event = find_vi_event(machine);
-    t64_stop_result stop = {UINT32_MAX, UINT64_MAX};
+    t64_stop_result stop = T64_STOP_RESULT_INIT_WITH(UINT32_MAX, UINT64_MAX);
     t64_event before;
     t64_status status;
     const bool is_field_boundary =
@@ -207,7 +216,9 @@ static bool fill_queue_and_block(t64_machine *machine, t64_event *pending) {
     if (event == NULL) return false;
     before = *event;
     status = t64_machine_advance(
-        machine, &(t64_stop_request){T64_STOP_GUEST_TICK, before.tick},
+        machine,
+        &(t64_stop_request)T64_STOP_REQUEST_INIT(T64_STOP_GUEST_TICK,
+                                                 before.tick),
         &stop);
     if (status != T64_STATUS_OK || machine->vi.field != field) return false;
     if (is_field_boundary &&
@@ -263,7 +274,7 @@ static void case_output_full_pending_boundary(void) {
 static void case_output_resume_exactly_once(void) {
   t64_machine *machine = create_output_machine();
   t64_event pending = {0};
-  t64_video_packet_info info = {0};
+  t64_video_packet_info info = T64_VIDEO_PACKET_INFO_INIT;
   uint8_t packet[TEST_PACKET_BYTES];
   if (machine == NULL) return;
   if (!fill_queue_and_block(machine, &pending) ||
@@ -304,7 +315,7 @@ static void case_output_resume_exactly_once(void) {
 static void case_output_no_overwrite_loss(void) {
   t64_machine *machine = create_output_machine();
   t64_event pending = {0};
-  t64_video_packet_info info = {0};
+  t64_video_packet_info info = T64_VIDEO_PACKET_INFO_INIT;
   uint8_t packet[TEST_PACKET_BYTES];
   size_t copy_count = 0u;
   if (machine == NULL) return;
@@ -402,7 +413,7 @@ static void case_output_invalid_overlap_span(void) {
 static void case_output_drain_cadence_equal(void) {
   t64_machine *drain_each = create_output_machine();
   t64_machine *batch = create_output_machine();
-  t64_video_packet_info info = {0};
+  t64_video_packet_info info = T64_VIDEO_PACKET_INFO_INIT;
   uint8_t packet[TEST_PACKET_BYTES];
   uint8_t each_digest[T64_DIGEST_SIZE];
   uint8_t batch_digest[T64_DIGEST_SIZE];
@@ -482,8 +493,8 @@ static void case_output_whole_split(void) {
   }
   T64_CHECK(memcmp(whole_digest, split_digest, sizeof whole_digest) == 0);
   for (i = 0u; i < 2u; i++) {
-    t64_video_packet_info whole_info = {0};
-    t64_video_packet_info split_info = {0};
+    t64_video_packet_info whole_info = T64_VIDEO_PACKET_INFO_INIT;
+    t64_video_packet_info split_info = T64_VIDEO_PACKET_INFO_INIT;
     uint8_t whole_packet[TEST_PACKET_BYTES];
     uint8_t split_packet[TEST_PACKET_BYTES];
     if (!copy_oldest(whole, &whole_info, whole_packet) ||
