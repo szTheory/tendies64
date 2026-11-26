@@ -352,6 +352,12 @@ repo.abi-freeze-record
 repo.abi-freeze-selftest
 harness.phase11-qualification'
 
+# Phase 12 names (minimal host, title and final bind): every name also carries the
+# extra CTest label phase12, which sh scripts/preflight-phase12.sh compares with this
+# block. One name per line, closing quote on the last name; each later plan appends
+# the names it registers.
+PHASE12_TESTS='harness.title-oracle'
+
 CPU_COVERAGE_OPCODES='ADD
 ADDU
 SUB
@@ -453,7 +459,7 @@ expected_names() {
     *) echo "unsupported preset: $_preset" >&2; return 2 ;;
   esac
   {
-    printf '%s\n' "$BASELINE_CORE" "$BASELINE_CONTROLS" "$PHASE02_TESTS" "$PHASE03_TESTS" "$PHASE04_TESTS" "$PHASE05_TESTS" "$PHASE06_TESTS" "$PHASE07_TESTS" "$PHASE08_TESTS" "$PHASE09_TESTS" "$PHASE10_TESTS" "$PHASE11_TESTS" "$_extra"
+    printf '%s\n' "$BASELINE_CORE" "$BASELINE_CONTROLS" "$PHASE02_TESTS" "$PHASE03_TESTS" "$PHASE04_TESTS" "$PHASE05_TESTS" "$PHASE06_TESTS" "$PHASE07_TESTS" "$PHASE08_TESTS" "$PHASE09_TESTS" "$PHASE10_TESTS" "$PHASE11_TESTS" "$PHASE12_TESTS" "$_extra"
   } | awk 'NF' | sort
 }
 

@@ -767,6 +767,20 @@ add_test(NAME harness.composite-oracle
 set_tests_properties(harness.composite-oracle PROPERTIES
   LABELS "harness;phase10" TIMEOUT 60 ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
 
+# Phase 12 title oracle (plan 12-02, API-06): the standard-library-only oracle runs its
+# selftest, then regenerates fixtures/title/title.expected.json and compares it byte for
+# byte, so every later title check reads values this script derived from
+# fixtures/title/title-spec.md and never from the guest, the core or the runner. COST is
+# the measured native seconds rounded up to two decimals (two interpreter starts' worth
+# of work, no build output read). TIMEOUT by the F-108 rule: a literal of at least 3.5
+# times the native figure and at least twice the COST; 60 s is more than 1,000 times the
+# native figure (the Python interpreter start dominates).
+add_test(NAME harness.title-oracle
+  COMMAND python3 -B ${CMAKE_SOURCE_DIR}/fixtures/title/title_oracle.py --selftest
+    --check ${CMAKE_SOURCE_DIR}/fixtures/title/title.expected.json)
+set_tests_properties(harness.title-oracle PROPERTIES
+  LABELS "harness;phase12" TIMEOUT 60 COST 0.03 ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
 # Phase 10 container format strings in the runner contract (plan 10-15,
 # CORE-06): the closed set {v1, v2} at the supervisor and the runner parser, the
 # profile pairing (v1 with state 25, v2 with state 26) at the runner prelaunch,

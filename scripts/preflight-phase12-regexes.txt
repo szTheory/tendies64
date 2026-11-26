@@ -29,7 +29,7 @@
 # row in the same commit as its registration and extends the PHASE12_TESTS block of
 # scripts/check-test-inventory.sh.
 # plan 12-02: harness.title-oracle has no fixture requirement (one name).
-0	^harness\.title-oracle$
+1	^harness\.title-oracle$
 # plan 12-04: runner.title-two-run (one name, no CTest fixture closure; the runner names follow
 # runner.composite-two-run).
 0	^runner\.title-two-run$

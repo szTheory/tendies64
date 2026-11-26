@@ -1,0 +1,49 @@
+{
+  "blank_bytes": 49152,
+  "blank_sha256": "2aae7dc846aaf25f1cadf55f1666862046c6db9d65d84bdc07fa039dac405606",
+  "boundaries": [
+    550000,
+    1592709,
+    2635417,
+    3678126,
+    4720834,
+    5763543,
+    6806251,
+    7848960,
+    8891668,
+    9934377,
+    10977085,
+    12019794,
+    13062502,
+    14105211,
+    15147919
+  ],
+  "constants": {
+    "background_rgba": "203060ff",
+    "boundary_margin_ticks": 200000,
+    "field_cycles": 812175,
+    "frame_bytes": 49152,
+    "h_sync": 3093,
+    "height": 96,
+    "max_x": 112,
+    "max_y": 80,
+    "origin_ticks_nominal": 550000,
+    "save_bytes": 32768,
+    "square_rgba": "f0c020ff",
+    "square_size": 16,
+    "start_x": 56,
+    "start_y": 40,
+    "tick_rate": 62500000,
+    "v_sync": 525,
+    "vi_clock": 48681812,
+    "width": 128
+  },
+  "neutral_frame": {
+    "sha256": "8227044b9a781c302a8d3130fc67645289acd2c5bc9fd79805f3be6fedca79d3",
+    "x": 56,
+    "y": 40
+  },
+  "schema": "t64.title-oracle",
+  "schema_version": 1,
+  "spec": "fixtures/title/title-spec.md"
+}
