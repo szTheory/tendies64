@@ -1,21 +1,22 @@
 # C API contract of the installed library
 
-Status: 0.x freeze candidate. The Phase 11 freeze record
-(`docs/abi/FREEZE-CANDIDATE.md`) binds it, and only defect-driven amendments with
-evidence may change it before the final bind at the end of Phase 12 (section 14). This document is not a release
-statement: no tag, package channel or version promise is made, and installing
-the package is a local act.
+Status: bound at ABI 1.0 (package 1.0.0). The freeze record
+(`docs/abi/FREEZE-CANDIDATE.md`) binds it. The final bind confirmed the earlier
+0.x freeze candidate with no amendment, and from the bind on a bound element
+changes only by an additive change with its recorded steps (sections 13 and
+14). This document is not a release statement: no tag, package channel or
+release version is made or promised, and installing the package is a local act.
 
 ## 1. Scope and evidence tier
 
 This document is the written contract of the public C API declared in
 `core/include/tendies64/t64_machine.h` (installed as `tendies64/t64_machine.h`)
 and implemented by the static archive `libt64_core.a`. It describes the code as
-it is at the freeze candidate. The statements about status order and out
+it is at the bind. The statements about status order and out
 parameters were read from the code of each entry; section 16 lists the CTest
 names that pin them, and section 15 lists the known limits.
 
-The candidate is a software-interface claim only, authored scope. It states
+The bound contract is a software-interface claim only, authored scope. It states
 what each call does to the instance and to the caller's memory, which status it
 returns and in what order it checks. It states no emulation compatibility, no
 accuracy and no hardware claim: the guest results the API reports are
@@ -41,11 +42,12 @@ the disagreement is a defect to repair by a numbered plan.
 
 ### 2.1 Version constants
 
-`T64_ABI_VERSION_MAJOR` is 0 and `T64_ABI_VERSION_MINOR` is 1. `T64_ABI_VERSION`
-is `(major << 16) | minor` (0x00000001), and `t64_abi_version()` returns that
+`T64_ABI_VERSION_MAJOR` is 1 and `T64_ABI_VERSION_MINOR` is 0. `T64_ABI_VERSION`
+is `(major << 16) | minor` (0x00010000), and `t64_abi_version()` returns that
 value for the library built from the same sources, so a host can assert that
-the header it compiled against and the library it linked agree.
-`t64_build_identity()` returns a string of the form `t64-build-v1-` followed by
+the header it compiled against and the library it linked agree. The number is
+an ABI identity: it names the binary interface a host compiles against and is
+not a release version. `t64_build_identity()` returns a string of the form `t64-build-v1-` followed by
 64 hexadecimal digits, a fingerprint of the project version, the compiler and
 build settings and the hashes of the production sources, headers and build
 inputs; it holds no timestamp and no local path. `t64_source_revision()` is the
@@ -58,15 +60,23 @@ checks the package against the library with `t64_build_identity()` equal to the
 
 The create-info carries the `abi_version` the caller compiled against
 (`T64_MACHINE_CREATE_INFO_INIT` fills it with `T64_ABI_VERSION`).
-`t64_machine_create` accepts a caller whose major equals the library major and,
-while the major is 0, whose minor equals the library minor. After a major bump
-the coded rule accepts a caller minor at most the library minor; no major bump
-has happened, so that branch is not exercised. Any other value is refused with
-`T64_STATUS_ABI_MISMATCH`, `*machine_out` is NULL and nothing was allocated.
+`t64_machine_create` accepts a caller whose major equals the library major and
+whose minor is at most the library minor (the coded rule of
+`abi_version_is_accepted`). Any other value is refused with
+`T64_STATUS_ABI_MISMATCH`, `*machine_out` is NULL and nothing was allocated: a
+caller minor above `T64_ABI_VERSION_MINOR` (a header newer than the library it
+links) and any other major are refused, and major 0 is refused too. The exact
+minor match that applied at major 0, before the bind, is history. At the bind
+the library minor is 0, so the exercised cases are the accepted equality and the
+refusals of a caller minor one above and of another major
+(`unit.core.api.struct-size`; `unit.core.api.abi-version` checks the
+constants); accepting a caller minor below the library minor cannot be
+exercised until a first additive minor exists.
 
-Before the final bind the minor increments on every change of a bound golden
-(section 14). While the major is 0 a consumer is therefore rebuilt against the
-header of the library it links.
+After the bind the minor increments on every additive change of a bound golden
+(section 14). A host compiled against an older minor of major 1 therefore keeps
+working with a later library of major 1, and a host compiled against a newer
+header than the library it links is refused at create.
 
 ### 2.3 The package
 
@@ -74,16 +84,19 @@ The package is named `tendies64` and is installed in the install component
 `Development` as six files: `lib/libt64_core.a`,
 `include/tendies64/t64_machine.h` and
 `lib/cmake/tendies64/tendies64{Config,ConfigVersion,Targets,Targets-<config>}.cmake`
-(the library directory follows `GNUInstallDirs`). The package version is the
-ABI candidate number 0.1.0 with `COMPATIBILITY SameMinorVersion`:
-`find_package(tendies64 0.1 CONFIG REQUIRED)` accepts it, while a request for
-0.2 or for 0.1.5 is refused (`installed.controls.version-mismatch-minor` and
-`installed.controls.version-mismatch-patch`). `project(VERSION)` stays 0.0.0 and
-is not a release version; "version mismatch" in this document always means an
-ABI constant. The imported target is `tendies64::core`. The configuration
-records `tendies64_BUILD_ID` and `tendies64_BUILD_TYPE` for the one built
-configuration, and the package is relocatable (a moved prefix, including a path
-with spaces, is exercised by `installed.controls.relocated-spaces`).
+(the library directory follows `GNUInstallDirs`). The package version is the ABI
+number 1.0.0 with `COMPATIBILITY SameMajorVersion`:
+`find_package(tendies64 1.0 CONFIG REQUIRED)` accepts it, and so does a request
+of major 1 that is not above the package version, while a request for 1.1 (a
+minor above the package's) or for 1.0.5 (a patch above) is refused, as is a
+request of another major (`installed.controls.version-mismatch-minor` and
+`installed.controls.version-mismatch-patch` run the first two).
+`project(VERSION)` stays 0.0.0 and is not a release version; "version mismatch"
+in this document always means an ABI constant. The imported target is
+`tendies64::core`. The configuration records `tendies64_BUILD_ID` and
+`tendies64_BUILD_TYPE` for the one built configuration, and the package is
+relocatable (a moved prefix, including a path with spaces, is exercised by
+`installed.controls.relocated-spaces`).
 
 ### 2.4 The installed header set
 
@@ -399,7 +412,14 @@ classes are in the class table; in words:
   masked handler status from a closed whitelist (any other handler status
   poisons the instance and advance answers `INTERNAL_DEFECT`). The host drains
   the rings (or simply calls advance again after the budget stop) and
-  continues. A stall with no progress after a full drain is permanent.
+  continues. A masked handler status consumes its event: the scheduler pops the
+  event and moves the guest tick to the event's tick before the handler runs,
+  so the instance stays resumable and the next advance continues past that
+  event; a stop at the tick of the previous stop is therefore not by itself a
+  stall. The permanent stall is the ring-backpressure case: an event that waits
+  for a full video or audio ring keeps its place, and the same stop repeats
+  until the host copies a packet out (section 9.1). The class table's sentence
+  about a stall with no progress after a full drain names that case only.
 - `CPU_UNSUPPORTED`: terminal. The CPU met an instruction it does not
   implement. It neither poisons the instance nor claims that the guest chose to
   stop: it is an emulator limitation, and `t64_machine_cpu_stop_detail`
@@ -642,7 +662,7 @@ refusal changes nothing except what the row names.
 | `t64_machine_admit_rom` | Installs or replaces the image as one commit and resets the guest to its first-admit state (section 7.2); previous image released after the new one is installed | NULL span, length outside the profile interval or not divisible by four, wrapping span, overlap with the instance or its image, or an input the profile refuses (order, payload, header): `INVALID_ROM`; `ALLOCATION_FAILED`; `BAD_STORAGE`; stored profile digest mismatch or failing reset after the swap: `INTERNAL_DEFECT` (poisons). A refusal leaves the previous image and the whole guest state | `INVALID_ARGUMENT` | `POISONED` | no (it creates it) |
 | `t64_machine_reset` | Returns the guest to the state right after the first admission of the same image; no allocator callback (section 7.3) | `NOT_READY`; failure after state was touched: `INTERNAL_DEFECT` (poisons) | `INVALID_ARGUMENT` | `POISONED` | yes |
 | `t64_machine_unload` | Releases the image block, clears the guest state and the image members; the instance answers like one that never admitted an image (section 7.4) | `NOT_READY` | `INVALID_ARGUMENT` | `POISONED` | yes |
-| `t64_machine_advance` | Runs the guest to the requested bound or another stop and writes the stop reason and tick (section 8) | request and result spans (NULL or overlapping the instance): `INVALID_ARGUMENT`; either `struct_size` below v1: `STRUCT_TOO_SMALL`; `NOT_READY`; unknown kind: `INVALID_ARGUMENT`; `TIME_REVERSED` (tick bound behind the guest tick); `LIMIT_REVERSED` (counter limit behind the counter); handler status outside the whitelist: `INTERNAL_DEFECT` (poisons). The result struct is untouched on every refusal | `INVALID_ARGUMENT` | `POISONED` | yes |
+| `t64_machine_advance` | Runs the guest to the requested bound or another stop and writes the stop reason and tick (section 8) | request and result spans (NULL or overlapping the instance): `INVALID_ARGUMENT`; either `struct_size` below v1: `STRUCT_TOO_SMALL`; `NOT_READY`; unknown kind: `INVALID_ARGUMENT`; `TIME_REVERSED` (tick bound behind the guest tick); `LIMIT_REVERSED` (counter limit behind the counter); two sources of `INTERNAL_DEFECT` (poisons): a handler status outside the whitelist, and a corrupt CP0 count phase found by the guest-time synchronization during the call. The result struct is untouched on every refusal | `INVALID_ARGUMENT` | `POISONED` | yes |
 | `t64_machine_content_digest` | Writes the 32-byte SHA-256 of the normalized (big-endian) image | NULL or overlapping `digest_out`: `INVALID_ARGUMENT`; `NOT_READY` | `INVALID_ARGUMENT` | `POISONED` | yes |
 | `t64_machine_rom_size` | Writes the admitted image size in bytes | NULL or overlapping `size_out`: `INVALID_ARGUMENT`; `NOT_READY` | `INVALID_ARGUMENT` | `POISONED` | yes |
 | `t64_machine_rom_header` | Copies the 64 normalized header bytes and writes their length | NULL `length_out`, NULL buffer with a non-zero capacity, spans that overlap each other or the instance: `INVALID_ARGUMENT`; `NOT_READY`; NULL buffer or capacity below 64: `BUFFER_TOO_SMALL` with `*length_out` 64 and the bytes intact | `INVALID_ARGUMENT` | `POISONED` | yes |
@@ -672,13 +692,14 @@ record of every entry's answer is the `unit.core.api.not-ready-table` case.
 
 ## 13. The additive-extension rule
 
-This section is the frozen-record voice for what may change without breaking a
-host built against this candidate. A change outside it is a recorded amendment
-with its cost (section 14), not a silent edit.
+This section is the rule after the final bind: what may change without breaking
+a host built against ABI 1.0. An additive change follows the steps of section 14.
+A break is a new major with its own record and is never made under this one.
 
 The following are additive. Each is made in a commit that also updates the bound
-goldens, adds the class row where a value is new, and raises the ABI minor
-(section 2.2):
+goldens, adds the class row where a value is new, raises the ABI minor and the
+minor of the package version (section 2.2) and adds a dated amendment row to the
+record (section 14):
 
 - New trailing struct fields, guarded by `struct_size`. A new field is appended
   after the last member, never inserted. A caller built against the older layout
@@ -720,11 +741,13 @@ State blobs are outside the promise (section 10.4): a state serialization
 version may change with a build without any compatibility path. The profile
 registry and the state formats grow only through the additive profiles above.
 
-## 14. Candidate, final bind and amendments
+## 14. The bound record, the rule after the bind and amendments
 
-Phase 11 binds a freeze candidate; Phase 12 ends with the final bind. The
-candidate is bound by four generated or checked goldens and one record that
-recomputes them:
+ABI 1.0 is bound by four generated or checked goldens and one record that
+recomputes them. Phase 11 bound the 0.x freeze candidate (ABI 0.1); the final
+bind of Phase 12 confirmed it with no amendment and set the version to 1.0
+(package 1.0.0) in one commit that settled the header text and rewrote the
+goldens.
 
 | Golden | Path |
 | --- | --- |
@@ -744,36 +767,45 @@ scripts/check-abi.py symbols --write docs/abi/public-symbols.txt --lib
 <archive>`; the class table is edited by hand and checked by
 `repo.abi-status-classes`; `header.sha256` and the block are written by
 `python3 -B scripts/check-abi.py freeze --write` (the record gives the full
-re-bind procedure).
+change procedure).
 
-From the record until the final bind, a change to a golden is an amendment and
-only a defect-driven one: it needs evidence of the defect, a re-run of the
-installed-consumer suite against the amended installed tree and a minor
-increment, recorded in the record's amendment log. The Phase 12 final bind is a
-separate act that either confirms the candidate or lists the amendments; this
-document does not promise a 1.0 version, a tag or a release.
+From the bind on, a change to a golden is an additive change in the sense of
+section 13 and nothing else. It needs the evidence or reason for the change, a
+re-run of the installed-consumer suite against the changed installed tree, an
+increment of the ABI minor and of the package version's minor (1.1 and 1.1.0
+follow 1.0 and 1.0.0) and a dated row in the record's amendment log; the check
+requires the ABI minor to equal the minor at the bind plus the amendment rows
+made after it, so a commit that skips a step fails `repo.abi-freeze-record`. An
+incompatible change is a new major with its own record. The number 1.0 is an ABI
+identity: this document promises no release version, tag or package channel,
+and the record carries that as an owner-review item.
 
-The candidate evidence is the installed-consumer suite on both hosted operating
-systems (section 16). It is a software-interface claim only: nothing in the
-suite or the record says that a profile is compatible with, or as accurate as,
-a console or an emulator.
+The evidence for the bind is the installed-consumer suite of section 16, which
+the record's "Evidence for the bind" cites by run. It is a software-interface
+claim only: nothing in the suite or the record says that a profile is
+compatible with, or as accurate as, a console or an emulator.
 
-## 15. Limits of this candidate
+## 15. Limits of the bound contract
 
-These are known and accepted for the candidate; each is a candidate amendment or
-a Phase 12 final-bind question, not a hidden behavior.
+These are known and accepted at the bind (the record's "Accepted limits at the
+bind" lists the first two); none is an open amendment and none is a hidden
+behavior.
 
 - The `value_out` span of `t64_machine_bus_read` is not judged against the
-  instance (section 10.1). Judging it narrows the accepted inputs (section 13)
-  and needs an edit of a sealed RSP path, so it is an open amendment.
+  instance (section 10.1; review item I-05). Judging it narrows the accepted
+  inputs (section 13), which is a break, and needs an edit of a sealed RSP path,
+  so it stays an accepted limit of ABI 1.0.
 - Six public structs contain implicit alignment padding on the exercised
   64-bit targets (`t64_host_storage`, `t64_host_allocator`,
   `t64_cpu_stop_detail`, `t64_output_drain_result`, `t64_audio_packet_info`,
   `t64_state_import_report`); `t64_output_status` has an explicit `reserved0`.
   Copy-out builds each record in a zeroed local, so no stack byte leaks. The
   offsets are fixed by each platform ABI and `docs/abi/layout.c` pins them for
-  targets with 64-bit pointers only; explicit reserved members are a final-bind
-  question.
+  targets with 64-bit pointers only. Turning a hole into an explicit reserved
+  member inserts a member, which is not an additive change (section 13), so the
+  eight holes of the record stay as bound (review item S-05).
+- A caller minor below the library minor is accepted by the coded create rule
+  (section 2.2) but cannot be exercised while the library minor is 0.
 - The frame-event counter and `T64_STOP_FRAME_EVENT_COUNT` are defined with no
   public way to advance the counter (section 8.2).
 - `T64_STATUS_UNSUPPORTED_ROM_ORDER` and `T64_STOP_REASON_HALT` are reserved
@@ -791,7 +823,7 @@ a Phase 12 final-bind question, not a hidden behavior.
 | --- | --- |
 | classes, the single table, the header compiles alone | `repo.abi-header`, `repo.abi-status-classes`, `repo.abi-selftest`, `install.abi-header` |
 | layout and constants | `repo.abi-layout`, `install.abi-layout` |
-| the bound freeze-candidate record and its seeded incompatible changes | `repo.abi-freeze-record`, `repo.abi-freeze-selftest` |
+| the bound freeze record and its seeded incompatible changes | `repo.abi-freeze-record`, `repo.abi-freeze-selftest` |
 | public symbols, the `t64i_` prefix, API-04 | `install.abi-symbols`, `repo.abi-prefix`, `api04.members`, `api04.disasm`, `api04.headers`, `api04.seeded`, `installed.controls.symbol-collision` |
 | ABI version, handshake, `struct_size` | `unit.core.api.abi-version`, `unit.core.api.handshake`, `unit.core.api.struct-size`, `installed.consumer.ops-handshake`, `installed.consumer.ops-struct-size` |
 | poison, reentrancy, NULL machine, refusals never poison, defect sites | `unit.core.api.poison`, `unit.core.api.reentrant`, `unit.core.api.null-machine`, `unit.core.api.refusals-never-poison`, `unit.core.api.defect-sites`, `installed.consumer.ops-poison-query` |

@@ -1059,8 +1059,8 @@ static const t64_profile_descriptor
  * Phase 9 composite family (descriptor 12, model 20, state 25): the Phase 8
  * machine plus the SI/PIF standard controller and an explicit save device
  * selected by save_kind. The four ids share one body; only profile_id and
- * save_kind differ. Provisional until the Phase 11 freeze candidate (final ABI
- * bind at the end of Phase 12).
+ * save_kind differ. A registered id keeps its descriptor under ABI 1.0
+ * (docs/spec/api.md section 13).
  */
 #define T64_SI_FAMILY_COMMON_FIELDS \
         .console_target = "NUS-CPU-03", \

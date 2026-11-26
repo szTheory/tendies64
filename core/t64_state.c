@@ -7,8 +7,8 @@
 #include <string.h>
 
 /*
- * State container export (plan 09-08, provisional until the Phase 11 freeze
- * candidate, final ABI bind at the end of Phase 12).
+ * State container export (plan 09-08; format-versioned, outside the ABI
+ * promise, docs/spec/api.md section 10.4).
  *
  * Export is a planning pass followed by an emit pass over the one canonical
  * walker (t64_digest_stream). The planning pass streams into a counting sink,
@@ -458,8 +458,8 @@ t64_status t64_machine_state_export(const t64_machine *machine,
 
 
 /*
- * State import (plan 09-09, provisional until the Phase 11 freeze candidate,
- * final ABI bind at the end of Phase 12).
+ * State import (plan 09-09; format-versioned, outside the ABI promise,
+ * docs/spec/api.md section 10.4).
  *
  * The importer is a validate pass over the whole blob followed by one
  * infallible commit. Every section has exactly one reader function used in
