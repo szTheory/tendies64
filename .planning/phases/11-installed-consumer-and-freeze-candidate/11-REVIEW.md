@@ -310,3 +310,40 @@ dispositions, in finding order:
 
 Open after these resolutions: no blocking finding and no open warning. The reviewer's remaining notes are the accepted
 info rows I-05, I-06, I-08, I-09 and I-10.
+
+### Task 3 completed: second push, green hosted pair, check (l) hosted
+
+Plan 11-21 resumed after the 11-28 repair (origin/main `0e6b96d`, hosted run 45770631197 green) and the 11-29 text fixes
+(local). Head of this push: `4b13a9032dabfe1e00a8b86808cb7501504b100d`, the 11-28 head plus nine docs-only commits
+(the 11-28 and 11-29 records, the comment-only header edit and the machine-contract.md text of 11-29, F-133 and the
+resolutions above). Before the push, in the shared tree with a clean committed tree at that head:
+
+- `sh scripts/preflight-phase11.sh` (full, with replay): `[preflight] PASS` in 88 s (oracle-authority, ctest-counts 21
+  rows 0 mismatches, abi-cheap 14 names, guards, head-ci ok on `0e6b96d`, timeout-audit 177 TIMEOUTs 0 too low with
+  lowest ratio 2.9, pii, linux-compile 233 units with the act image cc 13.3.0, post-gate-replay 11 `ci.yml` steps).
+- `sh scripts/gate.sh`: `[gate] PASS`, 324 of 324, ctest 86 s, total 145 s (load 6 to 12; no limit widened).
+- `sh scripts/pii-scan.sh --tree` (1425 files) and `--range origin/main..HEAD` (9 commits): 0 findings;
+  `sh scripts/rights-scan.sh --tree --range origin/main..HEAD`: `tree=1425 history=15 findings=0`.
+
+Push: `git push origin 4b13a9032dabfe1e00a8b86808cb7501504b100d:refs/heads/main`, a fast-forward from `0e6b96d` (no
+force, no tag, no other branch). Hosted run 45775107983 (`ci.yml`, event push; Binutils cache hit on both jobs, so a
+warm sample; no rerun): conclusion success.
+
+- gate-macos success, job 592 s (Gate 525 s, ctest 317 s, `100% tests passed out of 324`, test-inventory-selftest
+  74 s; cmake 4.5.0). gate-linux success, job 240 s (Gate 197 s, ctest 128 s, `100% tests passed, 0 tests failed out
+  of 324`; cmake 3.31.6, gcc 13.3.0).
+- (l) hosted, result: gate-linux of run 45775107983 reports `api04.members` Passed 7.84 s (the earlier runs 45750585142
+  and 45766004142 also passed it, 6.88 s and 7.41 s). The check compares the archive-level undefined set with
+  `docs/abi/installed-undefined.txt` in both directions (an `unrecorded import` or a `recorded import gone` fails), so a
+  pass on the hosted Ubuntu runner confirms the five Linux rows (`_GLOBAL_OFFSET_TABLE_`, `__stack_chk_fail`, `memcmp`,
+  `memcpy`, `memset`) by a hosted measurement. No mismatch, so no finding for a new numbered plan. The Linux install
+  path passed: `install.setup` 0.04 s, the three `install.abi-*` names and `install.abs-paths`, `api04.disasm`,
+  `.headers` and `.seeded`, every `installed.consumer` name and the 10 controls, among them the two version rows that failed in
+  F-130 (0.19 s and 0.18 s) and `installed.controls.doctored-header-abi` (0.33 s). Check (l) no longer reads pending.
+- `docs/ci-reviews/LOG.md`: Runs rows for 45772586364 (the cold dispatch) and 45775107983, finding F-133 (the measured
+  cold gate-macos run, 731 s, margin 169 s, supersedes every cold projection) and finding F-134 (this pair: seconds,
+  per-wave hosted sums, the 105 s warm spread, the sensitivity note). PIN-IMPACT "Gate-growth ledger" has the INSTALL
+  row; the Freeze base is recorded in PIN-IMPACT "Wave bases" by its own commit after the records.
+
+Result of the review: zero blocking findings and no open warning; the INSTALL wave is reviewed in a scratch clone,
+repaired where the review found defects (11-28, 11-29), pushed, and green on both hosted operating systems.
