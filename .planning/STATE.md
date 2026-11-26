@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 12
 current_phase_name: Minimal Host, Playable Homebrew and Final Bind
 status: executing
-stopped_at: Phase 11 complete, ready to plan Phase 12
-last_updated: "2026-11-26T16:02:43.370Z"
+stopped_at: Completed 12-01-PLAN.md (preflight, pin maps, decision record DR-01 to DR-33; no production edit; next plan 12-02)
+last_updated: "2026-11-26T16:17:37.811Z"
 last_activity: 2026-11-26
-last_activity_desc: Phase 11 complete, transitioned to Phase 12
-state_head: 00c13bcf856a42465d18791523571956c233ae24
+last_activity_desc: Plan 12-01 complete (preflight, pin maps, decision record)
+state_head: 64506afc095d0537ca7c15c931a221536346f850
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 68
-  completed_plans: 50
+  completed_plans: 51
   percent: 67
 ---
 
@@ -25,15 +25,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-23)
 
 **Core value:** Every Tendies64 support claim is backed by evidence: a named profile, a pinned build and a reproducible, rights-cleared guest result.
-**Current focus:** Phase 11 — Installed Consumer and Freeze Candidate
+**Current focus:** Phase 12 — Minimal Host, Playable Homebrew and Final Bind
 
 ## Current Position
 
-Phase: 12 (Minimal Host, Playable Homebrew and Final Bind) — READY TO EXECUTE
-Plan: Not started
+Phase: 12 (Minimal Host, Playable Homebrew and Final Bind) — EXECUTING
+Plan: 2 of 18
 Status: Ready to execute
-Last activity: 2026-11-26 — Phase 11 complete, transitioned to Phase 12
-Note: plan 11-25 is complete: final independent audit in a scratch clone (11-REVIEW.md FINAL, zero blocking findings), Qualification base 9b17d8106ce6d1479fd29587931c06136bae66c4, final native record 20261126T091014977323Z-aa393c22 (first attempt, verified), docs/claims/phase11.md and docs/evidence/phase11-qualification.md; origin/main is dc247faaa3f5ceda17870c5e66b7ec181c767637 with a green warm hosted pair (run 45792136442, gate-macos 539 s, gate-linux 271 s, 329 of 329), no tag. Pending (orchestrator): the cold gate-macos run of the final set and the Phase 11 verification; the local commits after dc247fa are records only.
+Last activity: 2026-11-26 — Plan 12-01 complete (preflight, pin maps, decision record)
+Note: plan 12-01 is complete (Wave 0, no production edit): Wave 0 base 60b9e3c34fc0efc0ff64296cfa31415565b847b2, `sh scripts/preflight-phase12.sh` PASS in 39 s, PIN-IMPACT.md holds the registration map (18 R rows), the bind pin-site map (35 B rows), the LibFuturo pin (a local unpublished SHA), the decision record DR-01 to DR-33 (ABI 1.0 / package 1.0.0 owner confirmed as an ABI identity), the carry-in triage (G3 count 5, at the limit) and the Phase 12 G4 exception for owner review (baseline cold gate-macos 729 s of 900 s). origin/main is dc247faaa3f5ceda17870c5e66b7ec181c767637 (hosted green); the local commits after it are records and Phase 12 work, nothing is pushed (the first push a plan names is 12-06). Next: plan 12-02 (title spec and the independent oracle).
 
 Progress: [███████░░░] 67% (0 of 3 v1.2 phases complete)
 
@@ -111,6 +111,7 @@ Progress: [███████░░░] 67% (0 of 3 v1.2 phases complete)
 | Phase 11 P23 | 12min | 3 tasks | 9 files |
 | Phase 11 P24 | 23 min | 3 tasks | 7 files |
 | Phase 11 P25 | 43 min | 4 tasks | 5 files |
+| Phase 12 P01 | 13 min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -266,6 +267,9 @@ Progress: [███████░░░] 67% (0 of 3 v1.2 phases complete)
 - [Phase 11]: 11-23: the freeze candidate (ABI 0.1, package 0.1.0) is bound by docs/abi/FREEZE-CANDIDATE.md and docs/abi/header.sha256; repo.abi-freeze-record recomputes the LF-normalised header manifest, the 35 public symbols, the regenerated layout pins and the status classes from the installed tree and compares each golden, each golden's own SHA-256, the counts, the versions, the amendment rows (ABI minor must equal 1 plus the rows) and the eight S-05 padding holes; repo.abi-freeze-selftest has 21 seeded cases (RED by nine blinded checker copies); the record is a candidate only, the final bind is the last plan of Phase 12; API-03 stays open for 11-24 and 11-25; gate 328/328, 0.86 s of COST added
 - [Phase 11]: 11-24: the Phase 11 qualifier is a thin delta of the Phase 10 qualifier with twelve stages; the installed suite stage is the phase11 label with JUnit; core, installed_core and installed_consumer must carry one build id; claims are compared as the JSON value false (0 == False defect fixed in the copy only); the two evidence documents are excluded from the bound inputs; VER-05 and API-03 stay open for 11-25
 - [Phase 11]: Plan 11-25: final audit of Phase 11 in a scratch clone (zero blocking, four info rows FN-01 to FN-04); Qualification base 9b17d81; final native record 20261126T091014977323Z-aa393c22 passed on the first attempt and verifies after every later commit; docs/claims/phase11.md (four unit-tested software-interface blocks, runner-recorded pins never called independent) and docs/evidence/phase11-qualification.md; origin/main dc247fa with a green warm pair (run 45792136442, gate-macos 539 s, gate-linux 271 s), no tag; the qualifier's derivation constants stay unrefreshed by orchestrator ruling; cold gate-macos with the final set is pending, orchestrator-only
+- [Phase 12]: Plan 12-01: Wave 0 base 60b9e3c34fc0efc0ff64296cfa31415565b847b2; title fixed (profile ntsc-cart-4m-openipl3-rdram-b-t1-si-v2-s32k, 128x96, polled MI VI pending frame lock, runner at most 3 fields under the 4,000,000-tick cap, oracle first); host layout and pump API names recorded (DR-01 to DR-21)
+- [Phase 12]: Plan 12-01: final bind DR-25 as ABI 1.0 / package 1.0.0 SameMajorVersion, an ABI identity not a release version (owner confirmed 2026-11-26); four plans 12-13 to 12-16; S-05 and I-05 kept as accepted limits; route B (libdragon) a documented costly non-goal
+- [Phase 12]: Plan 12-01: Phase 12 G4 exception for owner review (no equal-time offset; baseline cold gate-macos 729 s of 900 s, margin 171 s); reversal rule: a measured or projected cold above 900 s or a margin under 120 s moves non-essential names to a local lane first; LibFuturo pin 4177a43 is a local unpublished SHA
 
 ### Pending Todos
 
@@ -291,8 +295,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-26T09:45:24.166Z
-Stopped at: Phase 11 complete, ready to plan Phase 12
+Last session: 2026-11-26T16:17:37.595Z
+Stopped at: Completed 12-01-PLAN.md (preflight, pin maps, decision record DR-01 to DR-33; no production edit; next plan 12-02)
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
