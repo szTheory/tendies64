@@ -50,14 +50,21 @@ Self-test (CTest repo.abi-selftest):
            seeded breakages of temporary copies of the header and the table,
            each of which classes mode must report with its own finding text,
            and seeded layout, symbol-list and path cases.
+Freeze self-test (CTest repo.abi-freeze-selftest):
+  --selftest-prefix DIR with --freeze-selftest | --case freeze-NAME
+           seeded incompatible changes of temporary copies of the installed
+           tree, the goldens and the record; each must make freeze mode fail
+           with its own text, the clean control and the CRLF control must pass.
 
 Standard library only. Run as `python3 -B scripts/check-abi.py ...`.
 Exit codes: 0 clean, 1 a finding, 2 usage error or a missing tool.
 """
 
 import argparse
+import contextlib
 import difflib
 import hashlib
+import io
 import os
 import pathlib
 import platform
@@ -1330,6 +1337,357 @@ def run_extra_case(name):
     return EXTRA_CASES[name][1]()
 
 
+# ---- freeze self-test: seeded incompatible changes ----------------------------
+
+# Every case copies the installed headers and package version file of PREFIX, the
+# four goldens and the record into a scratch directory below build/, applies ONE
+# change, and runs freeze mode (through run_freeze, with an nm listing file, the
+# way the CTest name calls it). A case names the texts the output must contain,
+# the texts it must not contain and the exit status. The nm listing of the real
+# archive is taken once per process.
+
+_NM_CACHE = {}
+
+
+class FreezeScratch:
+    """One scratch copy of the installed tree, the goldens and the record."""
+
+    def __init__(self, prefix, base):
+        self.base = base
+        self.docs = base / "abi"
+        self.tree = base / "prefix"
+        self.record = self.docs / "FREEZE-CANDIDATE.md"
+        self.header = self.tree / "include" / DEFAULT_HEADER
+        self.docs.mkdir()
+        for name in [name for _element, name in GOLDEN_FILES] + [REAL_RECORD.name]:
+            shutil.copy(REAL_ABI_DIR / name, self.docs / name)
+        shutil.copytree(pathlib.Path(prefix) / "include", self.tree / "include")
+        version_file = self.tree / PACKAGE_VERSION_FILE
+        version_file.parent.mkdir(parents=True)
+        shutil.copy(pathlib.Path(prefix) / PACKAGE_VERSION_FILE, version_file)
+        if prefix not in _NM_CACHE:
+            _NM_CACHE[prefix] = nm_listing(pathlib.Path(prefix) / "lib" / "libt64_core.a",
+                                           os.environ.get("NM") or "nm")
+        self.nm = _NM_CACHE[prefix]
+
+    def edit(self, path, change):
+        path.write_text(change(path.read_text(encoding="utf-8")), encoding="utf-8")
+
+    def edit_header(self, change):
+        self.edit(self.header, change)
+
+    def edit_golden(self, name, change):
+        self.edit(self.docs / name, change)
+
+    def edit_record(self, change):
+        self.edit(self.record, change)
+
+    def run(self, write=False):
+        """Run freeze mode; return (exit status, printed text)."""
+        listing = self.base / "nm-listing.txt"
+        listing.write_text(self.nm, encoding="utf-8")
+        printed = io.StringIO()
+        with contextlib.redirect_stdout(printed):
+            status = run_freeze(argparse.Namespace(
+                record=str(self.record), prefix=str(self.tree), goldens=None,
+                nm_file=str(listing), write=write))
+        return status, printed.getvalue()
+
+
+def nm_without(listing, name):
+    """The nm listing without the lines that define NAME."""
+    kept = [line for line in listing.split("\n")
+            if line.split()[:1] not in ([name], ["_" + name])]
+    return "\n".join(kept)
+
+
+def seed_nm_without(name):
+    def seed(ctx):
+        ctx.nm = nm_without(ctx.nm, name)
+    return seed
+
+
+def seed_nm_added(ctx):
+    prefix = "_" if platform.system() == "Darwin" else ""
+    ctx.nm = ctx.nm.rstrip("\n") + f"\n{prefix}t64_machine_seeded T 0 0\n"
+
+
+def seed_header_edit(old, new):
+    def seed(ctx):
+        ctx.edit_header(lambda text: seed_replace(text, old, new))
+    return seed
+
+
+def seed_header_crlf(ctx):
+    ctx.header.write_bytes(ctx.header.read_bytes().replace(b"\n", b"\r\n"))
+
+
+def seed_header_added(ctx):
+    (ctx.tree / "include" / "tendies64" / "t64_extra.h").write_text(
+        "/* a second installed header */\n", encoding="utf-8")
+
+
+def seed_golden_edit(name, old, new):
+    def seed(ctx):
+        ctx.edit_golden(name, lambda text: seed_replace(text, old, new))
+    return seed
+
+
+def seed_layout_golden_offset(ctx):
+    def change(text):
+        edited, count = re.subn(
+            r"(offsetof\(t64_machine_create_info, allocator\) == )(\d+)u",
+            lambda m: f"{m.group(1)}{int(m.group(2)) + 8}u", text)
+        if count != 1:
+            raise ValueError(f"seed anchor occurs {count} times")
+        return edited
+    ctx.edit_golden("layout.c", change)
+
+
+def seed_header_golden_digit(ctx):
+    ctx.edit_golden("header.sha256",
+                    lambda text: ("0" if text[0] != "0" else "1") + text[1:])
+
+
+def seed_record_line(key, new_value):
+    def seed(ctx):
+        def change(text):
+            lines = text.split("\n")
+            hits = [i for i, line in enumerate(lines) if line.startswith(f"{key}: ")]
+            if len(hits) != 1:
+                raise ValueError(f"record line {key!r} occurs {len(hits)} times")
+            lines[hits[0]] = f"{key}: {new_value}"
+            return "\n".join(lines)
+        ctx.edit_record(change)
+    return seed
+
+
+def seed_record_hash_digit(key):
+    def seed(ctx):
+        def change(text):
+            lines = text.split("\n")
+            hits = [i for i, line in enumerate(lines) if line.startswith(f"{key}: ")]
+            if len(hits) != 1:
+                raise ValueError(f"record line {key!r} occurs {len(hits)} times")
+            value = lines[hits[0]].split(": ", 1)[1]
+            lines[hits[0]] = f"{key}: {'0' if value[0] != '0' else '1'}{value[1:]}"
+            return "\n".join(lines)
+        ctx.edit_record(change)
+    return seed
+
+
+def seed_record_drop_hole(ctx):
+    def change(text):
+        lines = text.split("\n")
+        hits = [i for i, line in enumerate(lines) if line.startswith("padding_hole: ")]
+        if not hits:
+            raise ValueError("the record has no padding_hole line")
+        del lines[hits[0]]
+        return "\n".join(lines)
+    ctx.edit_record(change)
+
+
+def seed_record_no_block(ctx):
+    ctx.edit_record(lambda text: text.replace(FREEZE_FENCE, "```text"))
+
+
+STOP_RESULT_TAIL = "  uint64_t tick;\n} t64_stop_result;"
+STOP_REQUEST_TAIL = "  uint32_t kind;\n  uint64_t value;\n} t64_stop_request;"
+COMMENT_LINE = "/* A stop request of the given T64_STOP_* kind and value. */"
+
+# name -> (what is seeded, seed or None, wanted texts, unwanted texts, exit status)
+FREEZE_CASES = {
+    "freeze-clean": (
+        "the committed record, goldens and installed tree", None,
+        ("check-abi: freeze findings=0", "abi-freeze: headers=1"), ("differs",), 0),
+    "freeze-crlf-canonical": (
+        "the installed header with CRLF line endings: the hash is of the LF form",
+        seed_header_crlf, ("check-abi: freeze findings=0",), ("differs",), 0),
+    "freeze-member-removed": (
+        "the last member of t64_stop_result removed",
+        seed_header_edit(STOP_RESULT_TAIL, "} t64_stop_result;"),
+        ("freeze-record: layout differs", "freeze-record: header_sha256 differs"), (), 1),
+    "freeze-member-reordered": (
+        "two members of t64_stop_request swapped",
+        seed_header_edit(STOP_REQUEST_TAIL,
+                         "  uint64_t value;\n  uint32_t kind;\n} t64_stop_request;"),
+        ("freeze-record: layout differs", "freeze-record: header_sha256 differs"), (), 1),
+    "freeze-status-renumbered": (
+        "T64_STATUS_POISONED moved from 37 to 40",
+        seed_header_edit("#define T64_STATUS_POISONED UINT32_C(37)",
+                         "#define T64_STATUS_POISONED UINT32_C(40)"),
+        ("freeze-record: classes differs: renumbered: T64_STATUS_POISONED header=40 table=37",
+         "freeze-record: layout differs"), (), 1),
+    "freeze-function-removed": (
+        "t64_machine_unload missing from the archive listing",
+        seed_nm_without("t64_machine_unload"),
+        ("freeze-record: public_symbols differs: missing public symbol: t64_machine_unload",),
+        ("header_sha256 differs", "layout differs"), 1),
+    "freeze-function-added": (
+        "a public function t64_machine_seeded in the archive listing",
+        seed_nm_added,
+        ("freeze-record: public_symbols differs: unexpected global: t64_machine_seeded",),
+        ("header_sha256 differs", "layout differs"), 1),
+    "freeze-unclassified-status": (
+        "a new T64_STATUS_SEED the class table does not list",
+        seed_header_edit("#define T64_STATUS_INTERNAL_DEFECT UINT32_C(38)\n",
+                         "#define T64_STATUS_INTERNAL_DEFECT UINT32_C(38)\n"
+                         "#define T64_STATUS_SEED UINT32_C(39)\n"),
+        ("freeze-record: classes differs: unclassified: T64_STATUS_SEED",
+         "freeze-record: header_sha256 differs"), (), 1),
+    "freeze-comment-edit": (
+        "one comment line of the installed header changed",
+        seed_header_edit(COMMENT_LINE, COMMENT_LINE[:-3] + " (seeded edit). */"),
+        ("freeze-record: header_sha256 differs",),
+        ("layout differs", "classes differs", "public_symbols differs"), 1),
+    "freeze-header-added": (
+        "a second file below the installed include directory", seed_header_added,
+        ("freeze-record: header_sha256 differs",), ("layout differs",), 1),
+    "freeze-class-changed": (
+        "the class of T64_STATUS_QUEUE_FULL changed from refused to defect in the table",
+        seed_golden_edit("status-classes.txt", "T64_STATUS_QUEUE_FULL :: 11 :: refused ::",
+                         "T64_STATUS_QUEUE_FULL :: 11 :: defect ::"),
+        ("freeze-record: status_classes_sha256 differs",), ("classes differs",), 1),
+    "freeze-symbols-golden-edited": (
+        "t64_machine_unload removed from the public symbol golden",
+        seed_golden_edit("public-symbols.txt", "t64_machine_unload\n", ""),
+        ("freeze-record: public_symbols_sha256 differs",
+         "freeze-record: public_symbols differs: unexpected global: t64_machine_unload"),
+        (), 1),
+    "freeze-layout-golden-edited": (
+        "one offset of the layout golden edited", seed_layout_golden_offset,
+        ("freeze-record: layout_sha256 differs",
+         "freeze-record: layout differs: docs/abi/layout.c does not match"), (), 1),
+    "freeze-header-golden-edited": (
+        "the first digit of the header manifest golden changed", seed_header_golden_digit,
+        ("freeze-record: header_sha256 differs: the installed headers do not hash",
+         "freeze-record: header_sha256 differs: (the golden file hashes to"), (), 1),
+    "freeze-count-edited": (
+        "public_function_count of the record changed from 35 to 34",
+        seed_record_line("public_function_count", "34"),
+        ("freeze-record: public_function_count differs",), ("public_symbols differs",), 1),
+    "freeze-record-hash-edited": (
+        "one digit of layout_sha256 in the record changed", seed_record_hash_digit("layout_sha256"),
+        ("freeze-record: layout_sha256 differs",), ("layout differs",), 1),
+    "freeze-amendment-missing": (
+        "the ABI minor of the installed header raised with no amendment row",
+        seed_header_edit("#define T64_ABI_VERSION_MINOR UINT32_C(1)",
+                         "#define T64_ABI_VERSION_MINOR UINT32_C(2)"),
+        ("freeze-record: amendments differs: ABI minor 2 of the installed header needs 1 "
+         "amendment row(s)", "freeze-record: abi_version differs"), (), 1),
+    "freeze-padding-record-edited": (
+        "one padding_hole row dropped from the record", seed_record_drop_hole,
+        ("freeze-record: padding_hole differs: measured",), (), 1),
+    "freeze-record-block-missing": (
+        "the machine-read block removed from the record", seed_record_no_block,
+        ("freeze-record: record malformed:",), (), 1),
+}
+
+
+def case_freeze_write_idempotent(prefix):
+    """--write over the committed record and goldens reproduces them byte for byte."""
+    scratch = scratch_dir("abi-freeze-selftest-")
+    try:
+        ctx = FreezeScratch(prefix, scratch)
+        before = {name: (ctx.docs / name).read_bytes() for _e, name in GOLDEN_FILES}
+        before[ctx.record.name] = ctx.record.read_bytes()
+        status, printed = ctx.run(write=True)
+        if status != 0:
+            return f"--write exited {status}: {printed.strip().splitlines()[-1:]}"
+        for name, data in before.items():
+            if (ctx.docs / name).read_bytes() != data:
+                return f"--write changed {name} of an already bound tree"
+        status, printed = ctx.run()
+        if status != 0:
+            return f"the check failed after --write: {printed.strip().splitlines()[-1:]}"
+        return None
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+
+def case_freeze_write_refuses(prefix):
+    """--write binds nothing while another golden does not match the installed tree."""
+    scratch = scratch_dir("abi-freeze-selftest-")
+    try:
+        ctx = FreezeScratch(prefix, scratch)
+        ctx.edit_golden("status-classes.txt",
+                        lambda text: seed_drop_line(text, "T64_STATUS_QUEUE_FULL ::"))
+        ctx.edit_header(lambda text: seed_replace(
+            text, COMMENT_LINE, COMMENT_LINE[:-3] + " (seeded edit). */"))
+        record_before = ctx.record.read_bytes()
+        manifest_before = (ctx.docs / "header.sha256").read_bytes()
+        status, printed = ctx.run(write=True)
+        if status != 1 or "unclassified: T64_STATUS_QUEUE_FULL" not in printed:
+            return f"--write over an unclassified status exited {status}: {printed.strip()[-120:]}"
+        if ctx.record.read_bytes() != record_before:
+            return "--write changed the record although it refused"
+        if (ctx.docs / "header.sha256").read_bytes() != manifest_before:
+            return "--write changed header.sha256 although it refused"
+        return None
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+
+FREEZE_SPECIAL = {
+    "freeze-write-idempotent": (
+        "--write over the committed bound tree changes nothing",
+        case_freeze_write_idempotent),
+    "freeze-write-refuses": (
+        "--write with an unclassified status binds nothing", case_freeze_write_refuses),
+}
+
+
+def run_freeze_case(name, prefix):
+    """Run one freeze case; return a problem text or None."""
+    if prefix is None or not pathlib.Path(prefix, "include").is_dir():
+        raise UsageError(f"check-abi: {name} needs --selftest-prefix with an installed tree")
+    prefix = str(prefix)
+    if name in FREEZE_SPECIAL:
+        return FREEZE_SPECIAL[name][1](prefix)
+    _what, seed, wanted, unwanted, want_exit = FREEZE_CASES[name]
+    scratch = scratch_dir("abi-freeze-selftest-")
+    try:
+        ctx = FreezeScratch(prefix, scratch)
+        if seed is not None:
+            try:
+                seed(ctx)
+            except ValueError as error:
+                return f"seed did not apply: {error}"
+        status, printed = ctx.run()
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+    if status != want_exit:
+        return f"freeze mode exited {status}, wanted {want_exit}: {printed.strip()[-200:]}"
+    missing = [text for text in wanted if text not in printed]
+    present = [text for text in unwanted if text in printed]
+    if missing:
+        return f"output lacks {missing}: {printed.strip()[:300]}"
+    if present:
+        return f"output holds {present}: {printed.strip()[:300]}"
+    return None
+
+
+def run_freeze_selftest(prefix):
+    failed = 0
+    names = list(FREEZE_CASES) + list(FREEZE_SPECIAL)
+    for name in names:
+        problem = run_freeze_case(name, prefix)
+        if problem is None:
+            if name in FREEZE_SPECIAL:
+                seen = FREEZE_SPECIAL[name][0]
+            else:
+                _what, _seed, wanted, _unwanted, want_exit = FREEZE_CASES[name]
+                seen = ("fails with: " + "; ".join(text.replace("freeze-record: ", "")
+                                                     for text in wanted)
+                        if want_exit else "passes")
+            print(f"selftest {name}: ok ({seen})")
+        else:
+            print(f"selftest {name}: FAILED: {problem}")
+            failed += 1
+    print(f"check-abi: freeze selftest cases={len(names)} failed={failed}")
+    return 1 if failed else 0
+
+
 def run_selftest():
     failed = 0
     for name in CASES:
@@ -1358,6 +1716,10 @@ def build_parser():
                         help="run one self-test case")
     parser.add_argument("--selftest", action="store_true",
                         help="run every self-test case")
+    parser.add_argument("--freeze-selftest", action="store_true",
+                        help="run every freeze self-test case (needs --selftest-prefix)")
+    parser.add_argument("--selftest-prefix", metavar="DIR",
+                        help="the installed tree the freeze self-test cases copy")
     modes = parser.add_subparsers(dest="mode")
     header = modes.add_parser("header", help="compile public headers alone")
     header.add_argument("--include", required=True, metavar="DIR",
@@ -1423,14 +1785,19 @@ def main(argv):
     args = parser.parse_args(argv)
     try:
         if args.list_cases:
-            for name in list(CASES) + list(EXTRA_CASES):
+            for name in list(CASES) + list(EXTRA_CASES) + list(FREEZE_CASES) + list(FREEZE_SPECIAL):
                 print(name)
             return 0
+        if args.freeze_selftest:
+            return run_freeze_selftest(args.selftest_prefix)
         if args.case is not None:
-            if args.case not in CASES and args.case not in EXTRA_CASES:
+            if args.case in FREEZE_CASES or args.case in FREEZE_SPECIAL:
+                problem = run_freeze_case(args.case, args.selftest_prefix)
+            elif args.case not in CASES and args.case not in EXTRA_CASES:
                 raise UsageError(f"check-abi: unknown case {args.case}")
-            problem = (run_case(args.case) if args.case in CASES
-                       else run_extra_case(args.case))
+            else:
+                problem = (run_case(args.case) if args.case in CASES
+                           else run_extra_case(args.case))
             if problem is None:
                 print(f"selftest {args.case}: ok")
                 return 0

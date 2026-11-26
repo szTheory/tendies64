@@ -348,7 +348,8 @@ api04.headers
 api04.seeded
 unit.core.state.v26-z-product-bound
 repo.installed-case-map
-repo.abi-freeze-record'
+repo.abi-freeze-record
+repo.abi-freeze-selftest'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

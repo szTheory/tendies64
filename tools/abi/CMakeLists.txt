@@ -281,6 +281,27 @@ set_tests_properties(repo.abi-freeze-record PROPERTIES
   FIXTURES_REQUIRED t64_install
   ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
 
+# repo.abi-freeze-selftest (plan 11-23): the freeze check can fail on every kind of
+# incompatible change. Each seeded case copies the installed headers, the four
+# goldens and the record into a scratch directory below build/, applies one change
+# (a removed or reordered struct member, a renumbered or unclassified status, a
+# removed or added public function, an edited header comment, a second installed
+# header, an edited class row, an edited golden, an edited count, a raised ABI
+# minor with no amendment row, a dropped padding row, a missing block) and must
+# make freeze mode fail with its own text; the clean control and the CRLF control
+# must pass, and --write must change nothing on the bound tree and refuse on a
+# mismatching golden. The nm listing of the installed archive is taken once.
+add_test(NAME repo.abi-freeze-selftest
+  COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/check-abi.py --freeze-selftest
+          --selftest-prefix "${T64_INSTALL_MOVED_PREFIX}"
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(repo.abi-freeze-selftest PROPERTIES
+  LABELS "repo;phase11"
+  TIMEOUT 60
+  COST 0.7
+  FIXTURES_REQUIRED t64_install
+  ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
 # install.abs-paths (plan 11-17, T-11-33): no file of the installed tree and no
 # byte of the archive contains the source root, the build root or a per-user
 # path prefix. The two roots exist only on this command line; a finding names
