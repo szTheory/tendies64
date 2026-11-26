@@ -304,3 +304,58 @@ Same severity scale as the TITLE section. The reviewer fixes nothing.
 Result before the push: zero blocking findings, two warnings (HR-04, HR-06) and four info rows. The HOST wave is
 independently confirmed check by check, the full mutant run kills all 12 mutants with both controls as expected, and
 the wave moved no digest (check (i)).
+
+### Task 3: push, hosted pair, HOST ledger row and the Bind base
+
+Before the push, in the shared tree with a clean committed tree at `de21fcf7d5c30d8de59bde3d49143ab5dbb75faf`
+(the reviewed head plus the two 12-REVIEW.md commits of Tasks 1 and 2):
+
+- `sh scripts/gate.sh`: `[gate] PASS`, 351 of 351, ctest 90 s, total 148 s (load about 10; no limit widened).
+- `sh scripts/preflight-phase12.sh` (full, with replay): `[preflight] PASS` in 65 s (oracle-authority, ctest-counts
+  23 rows 0 mismatches, `phase12 label: 22 tests carry the label phase12, matching the PHASE12_TESTS block`,
+  abi-cheap 16 names, host-cheap 7 names, guards including `check-host-includes.sh`, host-load WARN at 10.2,
+  head-ci `884153a` completed success, timeout-audit 204 TIMEOUTs 0 too low with lowest ratio 2.9, pii, linux-compile
+  234 units with the act image cc 13.3.0 in 37 s, post-gate-replay 11 `ci.yml` steps in 17 s).
+- `sh scripts/pii-scan.sh --tree` (1516 files) and `--range origin/main..HEAD` (29 commits): 0 findings;
+  `sh scripts/rights-scan.sh --tree --range origin/main..HEAD`: `tree=1516 history=105 findings=0`; no tag points at
+  the head.
+
+Push: `git push origin de21fcf7d5c30d8de59bde3d49143ab5dbb75faf:refs/heads/main`, a fast-forward from `884153a`
+(29 commits; no force, no tag, no other branch). Hosted run 45904452436 (`ci.yml`, event push; Binutils cache hit on
+both jobs with key `69d0bfd4`, so a warm sample; no rerun): conclusion success.
+
+- gate-macos success, job 572 s (Gate 504 s, ctest 312 s, `100% tests passed out of 351`, test-inventory-selftest
+  84 s, build 32 s, boot-evidence-selftest 32 s, core-lint 23 s, lint-selftest 13 s; cmake 4.5.0, AppleClang 21.0.0).
+- gate-linux success, job 306 s (Gate 252 s, ctest 175 s, `100% tests passed, 0 tests failed out of 351`,
+  test-inventory-selftest 22 s, build 26 s; cmake 3.31.6, GNU 13.3.0).
+- The 15 HOST-wave names, first hosted run, all passed, macOS then Linux: `host.pump.title-two-speeds` 9.94 and
+  10.61 s, `repo.host-policy-selftest` 7.46 and 1.16 s, `repo.api07-evaluation` 6.89 and 1.20 s,
+  `repo.host-include-guard-selftest` 5.86 and 1.39 s, `host.pump.stall` 4.57 and 4.39 s, `repo.host-isolation` 3.78 and
+  0.98 s, `host.pump.script` 2.83 and 1.33 s, `host.pump.build` 2.61 and 1.13 s, `host.pump.drain-order` 0.85 and
+  1.36 s, `repo.host-policy` 0.25 and 0.08 s, `repo.host-include-guard` 0.21 and 0.06 s, `host.pump.clock` 0.19 and
+  0.15 s, `repo.p12-mutant-anchors` 0.09 and 0.05 s, `host.pump.frames` 0.04 and 0.01 s, `host.pump.input-map` 0.03 and
+  0.01 s (45.60 s and 23.91 s). This is the first Linux build and run of `host/` against the moved prefix (gcc 13.3,
+  cmake 3.31), the first hosted run of the host guards and their selftests (awk and `git init` trees on Linux) and of
+  the SDL-free host build on both operating systems: no mismatch, so HR-05 needs no plan. The seven TITLE names took
+  18.82 s on macOS and 20.43 s on Linux.
+- Delta against the TITLE pair (F-137, 336 names): gate-macos job -10 s and ctest -11 s for 15 more names whose
+  hosted seconds sum 45.60 s, test-inventory-selftest +8 s: this runner was faster than the TITLE sample (warm spread
+  on identical code up to 105 s, F-134), so the growth is read from the name seconds, not from the job delta.
+  gate-linux job +43 s, ctest +26 s.
+- Cold position (projections, never a cold figure; the cold run after the 12-18 push is orchestrator-only): (1) this
+  warm job plus the F-136 cold cost of 190 s is 762 s, margin 138 s; (2) the measured cold baseline 729 s plus the
+  hosted macOS seconds of the 22 Phase 12 names and the inventory-selftest growth since F-135 (+17 s) is 816 s,
+  margin 84 s; (3) the TITLE warm sample plus the HOST names, the inventory growth since it and the cold cost is 826 s,
+  margin 74 s. None is above 900 s, so the trigger of this plan is not reached and the plan goes on to the Bind base;
+  the additive projections are under the 120 s warning level (HR-04 below).
+- `docs/ci-reviews/LOG.md`: Runs row for 45904452436 and finding F-138. PIN-IMPACT "Gate-growth ledger": the HOST
+  row's final seconds, hosted columns and margins are filled; the Bind base is recorded in "Wave bases" by its own
+  commit after these records.
+
+| id | severity | file:line | finding | disposition |
+|----|----------|-----------|---------|-------------|
+| HR-04 | warning | PIN-IMPACT "Gate-growth ledger" HOST row; `docs/ci-reviews/LOG.md` F-138 | Measured hosted cost of the HOST wave: 45.60 s on gate-macos for 15 names (a multiplier of about 4.0 on their 11.51 s of COST) plus +8 s of inventory selftest. The additive cold projections are 816 s (margin 84 s) and 826 s (margin 74 s), under the 120 s warning level and not above 900 s; with the names still to come (the two of 12-16 and the 12-17 qualifier, about 23 s hosted by its Phase 11 analogue) projection 2 reaches about 842 s, margin about 58 s. The warm job of this run (572 s) is faster than the TITLE sample, which shows the runner spread, not a smaller gate | not blocking (no projection above 900 s; the plan's stop condition is not met). The warning branch of the ledger's reversal rule applies: a new numbered plan appended after 12-18 (the next free number, 12-19) is recommended to move `installed.consumer.title-persist` and the two host selftests (`repo.host-policy-selftest`, `repo.host-include-guard-selftest`; about 18 to 21 s hosted macOS together) to a non-gating local lane and to repeat the measurement; `host.pump.title-two-speeds` stays because it is the SC2 evidence. Whether that plan runs before the bind (the rule's "before anything else") or after the orchestrator's final cold measurement is an orchestrator decision; the reviewer writes no plan |
+
+Result after the push: zero blocking findings, two warnings (HR-04 with its hosted numbers, HR-06) and four info rows;
+the HOST wave is reviewed in a scratch clone with the full mutant run, pushed, and green on both hosted operating
+systems.
