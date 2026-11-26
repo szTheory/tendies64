@@ -803,3 +803,45 @@ version 1.0.0 of the installed configuration is that ABI number, not a release v
 (D6). No tag or release was made. The owner confirmed the 1.0 numbers on 2026-11-26 as an ABI
 identity and may later choose release versioning independently; the record lists this as its
 "Owner-review item (D6)".
+
+Text settle (plan 12-15, after the bind; no bound hash moved): three commits on the bind head.
+Task 1 `1256a082aac530cf7103cc61657e7f5a5e58aab0`: the four B-31 comments of `core/t64_internal.h`
+(1), `core/t64_machine.c` (1) and `core/t64_state.c` (2) are relabeled outside every function
+body with their line counts kept (`git show --numstat`: 2/2, 2/2 and 4/4; the sealed-body digests
+of `check-rsp-no-hle.py` are unchanged, the check printed the same output), and `docs/spec/api.md`
+states the bound values (status, 2.1 to 2.3: constants 1.0, create rule at major 1 with a caller
+minor above the library's refused, `find_package(tendies64 1.0)` with `SameMajorVersion`), the H-03
+correction in 8.1 (a masked handler status consumes its event and the next advance continues; the
+permanent stall is the ring-backpressure case), the FN-02 text in the advance row of section 12
+(the CP0 corrupt-phase `INTERNAL_DEFECT` source) and sections 13 to 16 for the rule after the bind,
+the bound record and the accepted limits (S-05, I-05, the unexercised older-minor case). Task 2
+`0a8c63b2e45e4aa5650a19a5ba88124741773a49`: the 13 B-32 lines of six `docs/spec` files are relabeled
+(a public-surface rule says "bound by ABI 1.0", a runner or format detail says "runner-internal" or
+"format-versioned" and "outside the ABI promise"; the joined-text scan of `docs/spec` prints 0).
+Task 3 `c5a8ff774cbd9e9717e3cd736443bb47f66ceed3`: `docs/abi/FREEZE-CANDIDATE.md` carries "Evidence
+for the bind" (FN-04; prose only) and `scripts/check-stale-freeze-text.sh` has the deny phrases
+`until (the )?Phase 11` and `the API is Phase 11`, the scan paths `docs/spec` and `docs/abi`, the
+header-scoped `provisional` rule and the header joined-text rule, 14 new seeds (23 seeds and the
+empty-scan check, 24 selftest lines; `seeded-header-joined` among them) and the clean-relabel seed
+rewritten; three mutants of the guard (no space-run collapse, the facade exemption removed, the
+`not a frozen ABI yet` phrase removed) each turn a seed red; the new guard on the tree of the 12-13
+head reports 44 findings (27 in the installed header: 13 `provisional` lines, 12 deny-phrase lines,
+the `the API is Phase 11` line and the joined finding; 17 outside it: 13 in `docs/spec`, 4 in
+`core`). One plan deviation: `t64_facade.h` holds two "PROVISIONAL, in-tree only"
+lines (M-1), the file is not installed and `core/include` is bound (an edit would break the
+bound-diff invariant), so the `provisional` word rule skips that one file by exact name (a seed
+proves a differently named header is still caught) while the deny phrases and the joined rule
+still scan it. After the settle: command 6 over `core runner tools docs/spec docs/abi` prints 0,
+the only file holding `until (the )?Phase 11` is the guard itself (5 lines, its own phrase list
+and seeds), `repo.stale-freeze-text` 0.92 s and its selftest 0.75 s (COST 1 each, no CTest edit),
+`python3 -B scripts/check-abi.py freeze` without `--write` prints `abi-freeze: headers=1 abi=1.0
+package=1.0.0 symbols=35 layout=14/165/190 holes=8 statuses=39 stop_reasons=8` with `findings=0`,
+`git diff` of the bind commit against the head over `core/include` and the four goldens is empty,
+and no `key: value` line of the record changed. The preflight (`--no-replay`) passed (81 s) and the
+full `ctest --preset gate` passed 351 of 351 (166 s at load 6 to 9). The build identity string of
+the library differs from the bind commit's, because the relabeled production comments are build
+inputs; no code and no golden changed. Observation, not a bind site: the comment of
+`core/include/tendies64/t64_facade.h` still calls the public header "a 0.x freeze candidate bound
+by Phase 11 (final ABI bind at the end of Phase 12)"; the file is not installed and not in the
+freeze record, but `core/include` is covered by the plan's bound-diff invariant, so the text stays
+for a plan that may edit `core/include` for a non-installed header.
