@@ -301,7 +301,10 @@ install.setup
 installed.consumer.build
 installed.consumer.smoke
 repo.consumer-include-guard
-repo.consumer-include-guard-selftest'
+repo.consumer-include-guard-selftest
+repo.abi-layout
+install.abi-header
+install.abi-layout'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

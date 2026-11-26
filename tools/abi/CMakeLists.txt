@@ -182,3 +182,57 @@ set_tests_properties(repo.consumer-include-guard-selftest PROPERTIES
   LABELS "repo;phase11"
   TIMEOUT 60
   COST 1.01)
+
+# Cheap-first ABI checks (plan 11-17, API-03; CONTEXT "Order of work"): each of
+# these runs in well under a second and runs before the consumer suite. The
+# generated pins of docs/abi/layout.c (sizeof of every public struct, offsetof
+# of every member, every integer T64_* constant, the size of every string
+# constant) are compiled against the source headers (repo.abi-layout) and
+# against the installed headers (install.abi-layout) as C99, C11 and C++17 with
+# the pedantic warning set and -Werror, and regenerated and diffed. The
+# install.* names require the t64_install fixture of install.setup and read the
+# moved prefix of scripts/check-install.sh (BUILD/install-check/moved prefix, a
+# path with a space, passed as one argument). COST is the measured native
+# seconds (W-11); TIMEOUT stays far above 3.5 times the hosted figure (F-108).
+set(T64_INSTALL_MOVED_PREFIX "${CMAKE_BINARY_DIR}/install-check/moved prefix")
+
+add_test(NAME repo.abi-layout
+  COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/check-abi.py layout
+          --check ${CMAKE_SOURCE_DIR}/docs/abi/layout.c
+          --include ${CMAKE_SOURCE_DIR}/core/include
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(repo.abi-layout PROPERTIES
+  LABELS "repo;phase11"
+  TIMEOUT 60
+  COST 0.3
+  ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
+# install.abi-header: the installed public header compiles alone as C99 and
+# C++17 (pedantic, -Werror), so the shipped file, not only the source one,
+# is self-contained.
+add_test(NAME install.abi-header
+  COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/check-abi.py header
+          --include "${T64_INSTALL_MOVED_PREFIX}/include"
+          --header tendies64/t64_machine.h
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(install.abi-header PROPERTIES
+  LABELS "install;phase11"
+  TIMEOUT 60
+  COST 0.15
+  FIXTURES_REQUIRED t64_install
+  ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
+# install.abi-layout: the same pins hold against the installed header, so the
+# installed header cannot drift from the source header in any size, offset or
+# constant.
+add_test(NAME install.abi-layout
+  COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/check-abi.py layout
+          --check ${CMAKE_SOURCE_DIR}/docs/abi/layout.c
+          --include "${T64_INSTALL_MOVED_PREFIX}/include"
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+set_tests_properties(install.abi-layout PROPERTIES
+  LABELS "install;phase11"
+  TIMEOUT 60
+  COST 0.3
+  FIXTURES_REQUIRED t64_install
+  ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
