@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 12
 current_phase_name: Minimal Host, Playable Homebrew and Final Bind
 status: executing
-stopped_at: Completed 12-08-PLAN.md (host input mapping, strict scripted source, frame helpers, two-speed equality on the title, mutant driver; gate 348/348)
-last_updated: "2026-11-26T21:15:33.724Z"
+stopped_at: Completed 12-09-PLAN.md (SDL3 dependency audit, optional SDL shell, local sdl lane PASS, repo.host-policy; gate 350/350)
+last_updated: "2026-11-26T21:42:31.263Z"
 last_activity: 2026-11-26
-last_activity_desc: "Plan 12-08 complete (input mapping table, strict t64.input reader and scripted source, frame helpers, two-speed equality on the title at 240 Hz and 3 Hz, mutant driver, DR-36)"
-state_head: 16cd072ce9f0c334803cb9c86b80afff9bb73bd6
+last_activity_desc: "Plan 12-09 complete (SDL3 dependency audit, optional SDL3 shell on the pump, local sdl lane PASS with a virtual gamepad under dummy drivers, repo.host-policy, DR-37)"
+state_head: 5490b2f828f5883f76604acf8b73f0968461d904
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 68
-  completed_plans: 58
+  completed_plans: 59
   percent: 67
 ---
 
@@ -30,10 +30,10 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 ## Current Position
 
 Phase: 12 (Minimal Host, Playable Homebrew and Final Bind) — EXECUTING
-Plan: 9 of 18
+Plan: 10 of 18
 Status: Ready to execute
-Last activity: 2026-11-26 — Plan 12-08 complete (HOST: input mapping table, strict t64.input reader and scripted source, frame helpers, two-speed equality on the title, mutant driver)
-Note: plan 12-08 is complete: the title's short and long input scripts run through the pump's scripted source with a fake clock at 240 Hz and 3 Hz of fake time and give byte-identical frames, audio packets and stream, transcript, exported save and final digest at both speeds, equal to `title.expected.json` and to the headless pins (runner for short: completion tick 3,693,938, final digest `57b683df...`; consumer for long: tick 13,078,313, `151bf840...`); `scripts/check-host-title.py` is the comparator (seeded selftest first, scratch pin overrides by `T64_TITLE_PINS` and `T64_TITLE_EXPECTED`). New in `host/pump`: `t64h_script` (strict t64.input v1 reader, one rule name per refusal, and the scripted source: lazy queueing, QUEUE_FULL deferral by lowering the bound, nothing queued after a terminal stop), `t64h_input` (the DR-12 mapping table, vertical axis by complement), `t64h_frames` (stride-honoring RGBA8 copy with checks before the first write, S16BE swap); the pump input hook now takes `uint64_t *bound` (DR-36). Five new names in the gate: `host.pump.title-two-speeds` (COST 3.00, the heaviest host name), `host.pump.script`, `host.pump.input-map`, `host.pump.frames` and `repo.p12-mutant-anchors` (`scripts/p12-mutants.py`: 8 pump and 4 title mutants and 2 controls; `--run` is 12-12's and was not executed here, a scratch emulation on a copy of HEAD gave every expected class). Full local gate 348/348 in 149 s (ctest 89 s); the 12 host names cost 8.49 s of COST (HOST ledger row in PIN-IMPACT: projected cold margin about 89 to 101 s, under the 120 s warning level, for 12-12 to measure). API-05 and API-06 stay pending (SDL shell and lane in 12-09, API-07 and the final audit later); observations O-4 and O-5 for the 12-10 triage are in the 12-08 SUMMARY (no defect). Next: plan 12-09 (SDL shell, host policy guard, SDL lane). Earlier: plan 12-07 built the standalone host project and the pure-C pump (DR-35); plan 12-06 reviewed the TITLE wave, pushed `884153a` (hosted pair green) and recorded the Host base `0836e40f583f8b47486ee93b0de36889e5626f0b`.
+Last activity: 2026-11-26 — Plan 12-09 complete (HOST: SDL3 dependency audit, optional SDL3 shell, local sdl lane, host policy scan)
+Note: plan 12-09 is complete: `docs/evidence/sdl3-host-dependency-audit.md` records the link-only system SDL3 (zlib license, Homebrew core formula, no candidate on ubuntu-24.04, no vendoring, committed before the first `host/sdl` line); `scripts/check-host-policy.sh` (12 rules, 30-case selftest) is the gate names `repo.host-policy` and `repo.host-policy-selftest` (COST 0.08 and 1.60); `host/sdl` holds the optional SDL3 shell (static library, executable `t64h_sdl --rom PATH [--scale N]`, headless smoke), built only with `-DT64H_SDL=ON` by the local lane `sh scripts/check-host.sh sdl` (never a CTest name, workflow step or gate stage; a recorded skip line when SDL3 is absent; sanitized output only). The lane printed `[host-sdl] PASS` on this host (SDL 3.4.10, macOS 26.6.2, dummy drivers, 30 mapping rows, title ok, blit ok, frames 8, audio ok), so the SC2 virtual-joystick clause is CLOSED (a skip elsewhere stays the distinct state not closed); the tier is self-checking host glue only. DR-19 fit test: the host-side save file does not fit and is omitted. Full local gate 350/350 in 186 s (ctest 110 s); the 14 host names cost 10.17 s of COST (HOST ledger row: projected cold margin about 81 to 96 s, under the 120 s warning level, for 12-12 to measure; `repo.host-policy-selftest` is a further reversal candidate). Observation for the owner checklist of 12-18: the unthrottled pump ran about 12.5 million guest ticks per CPU second here against 62.5 million for a real-time guest, so a real-window run would be well below real time (information only; no real-time claim anywhere). API-05 and API-06 stay pending (owner checklist for a real window and a physical controller in 12-18, API-07 and the final audit). Next: plan 12-10 (LibFuturo fit evaluation and host-found API defect triage). Earlier: plan 12-08 gave two-speed equality of the title through the pump (DR-36); plan 12-07 built the standalone host project and the pure-C pump (DR-35); plan 12-06 reviewed the TITLE wave and pushed `884153a`; Host base `0836e40f583f8b47486ee93b0de36889e5626f0b`.
 
 Progress: [███████░░░] 67% (0 of 3 v1.2 phases complete)
 
@@ -119,6 +119,7 @@ Progress: [███████░░░] 67% (0 of 3 v1.2 phases complete)
 | Phase 12 P06 | 31min | 3 tasks | 3 files |
 | Phase 12 P07 | 33 min | 3 tasks | 15 files |
 | Phase 12 P08 | 33 min | 4 tasks | 17 files |
+| Phase 12 P09 | 24 min | 3 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -286,6 +287,8 @@ Progress: [███████░░░] 67% (0 of 3 v1.2 phases complete)
 - [Phase 12]: 12-07: a sink refusal keeps the packet in the pump and movement while a packet is held is not progress, so a refusing sink ends in T64H_STALL after one retry and loses nothing (DR-35)
 - [Phase 12]: 12-07: the pump bound is origin-relative ns/16 capped by max_ticks and never behind the guest tick; the drain runs at every step end and every backpressure stop; the caller owns the buffers (DR-35)
 - [Phase 12]: DR-36: the pump input hook takes uint64_t *bound and may lower it to the tick of an event refused with QUEUE_FULL (a deferred event the guest already reached is an input error); the vertical axis is inverted by complement so +32767 reaches -128; the 4,096-event cap of the t64.input reader is pinned through raised byte limits (unreachable at 65,536 bytes)
+- [Phase 12]: DR-37: the SDL shell is a static library linked by the executable and the smoke; a packet the host cannot show is counted and consumed, never held; QUEUE_FULL on the live pad does not lower the bound; repo.host-policy has twelve rules; the sdl lane probes with a scratch find_package project and a found SDL3 never skips
+- [Phase 12]: 12-09: SC2 virtual-joystick clause closed by a PASS of the local sdl lane (SDL 3.4.10, macOS 26.6.2, dummy drivers, 30 mapping rows, 8 title frames; self-checking host glue only); DR-19 fit test: the host-side save file does not fit and is omitted; API-05 stays pending for the owner checklist of 12-18
 
 ### Pending Todos
 
@@ -311,8 +314,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-26T21:15:33.238Z
-Stopped at: Completed 12-08-PLAN.md (host input mapping, strict scripted source, frame helpers, two-speed equality on the title, mutant driver; gate 348/348)
+Last session: 2026-11-26T21:42:30.772Z
+Stopped at: Completed 12-09-PLAN.md (SDL3 dependency audit, optional SDL shell, local sdl lane PASS, repo.host-policy; gate 350/350)
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
