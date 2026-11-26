@@ -4,6 +4,14 @@ Out-of-scope discoveries logged by executors (GSD scope boundary): not fixed by 
 
 ## F-20-A (found by plan 11-20): `t64_machine_advance` has no span check on its request and result
 
+**RESOLVED by plan 11-27** (fix commit d3d3570; consumer rows, the bus decision and the header text 6e6bf36; the two
+hand-built white-box tests 18c5219; records in PIN-IMPACT "Install steps", 11-27). `t64_machine_advance` judges the spans of
+its request and its result first (before either `struct_size`, before the admission answer) and answers
+`INVALID_ARGUMENT` with nothing read or written; review candidate (g) of 11-13 is closed by the same change. The
+bus-read `value_out` case is decided: it is not span-checked and the header says so ("The value_out span of
+t64_machine_bus_read is the caller's responsibility"), with the reason and the way to reverse it recorded in PIN-IMPACT.
+The finding text below is kept as found.
+
 - **Header promise.** `core/include/tendies64/t64_machine.h` (the check order of every entry that takes a struct, before
   `t64_host_storage`) says a struct span that wraps or overlaps the machine is `T64_STATUS_INVALID_ARGUMENT` before the
   struct is read, and names `t64_machine_advance` among the entries that check their request and result this way.
