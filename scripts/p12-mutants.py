@@ -94,20 +94,23 @@ PUMP_H = "host/pump/t64h_pump.h"
 INPUT_C = "host/pump/t64h_input.c"
 FRAMES_C = "host/pump/t64h_frames.c"
 
-# The post-advance hook call of the "queue after advance" mutant: the pump's own text with
-# the call moved behind the advance (the events then reach a guest that has already passed
-# them: the core answers TIME_REVERSED and the step ends in INPUT_ERROR).
+# The "queue after the advance" mutant: the hook call moves from before each advance to the
+# end of the step, behind every advance of it. A step that spans many events (the 3 Hz clock
+# of the two-speed case jumps over the whole run) then runs the guest past events it never
+# saw, and the late call reaches a machine that has already passed them (TIME_REVERSED, the
+# step ends in INPUT_ERROR); a small step is late by less than the gap to the next poll and
+# does not show it.
 LATE_HOOK = (
-    "    pump->counters.advances++;\n"
-    "    if (pump->config.input != NULL) {\n"
-    "      uint64_t late = bound;\n"
+    "  if (pump->config.input != NULL) {\n"
+    "    uint64_t late = bound;\n"
     "\n"
-    "      if (pump->config.input(pump->config.input_context, pump->machine, stop.tick, &late) != 0) {\n"
-    "        result->message = \"the input hook failed\";\n"
-    "        return T64H_INPUT_ERROR;\n"
-    "      }\n"
+    "    if (pump->config.input(pump->config.input_context, pump->machine, pump->tick, &late) != 0) {\n"
+    "      result->message = \"the input hook failed\";\n"
+    "      return T64H_INPUT_ERROR;\n"
     "    }\n"
-    "    moved = stop.tick > pump->tick;\n"
+    "  }\n"
+    "  return drain_pass(pump, &delivered, result);\n"
+    "}\n"
 )
 
 # One table. Anchors are the shortest unique multi-line strings of the committed source; the
@@ -130,7 +133,7 @@ MUTANTS = [
         "kind": "pump",
         "expect": "KILLED",
         "test": "host.pump.title-two-speeds",
-        "title": "the input hook called after the advance instead of before it (events reach a guest that already passed them)",
+        "title": "the input hook called once at the end of a step instead of before each advance (a large step runs past events it never saw)",
         "edits": [
             (
                 PUMP_C,
@@ -140,7 +143,7 @@ MUTANTS = [
             ),
             (
                 PUMP_C,
-                "    pump->counters.advances++;\n    moved = stop.tick > pump->tick;\n",
+                "  return drain_pass(pump, &delivered, result);\n}\n",
                 LATE_HOOK,
             ),
         ],
