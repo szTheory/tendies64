@@ -18,6 +18,7 @@ the context. Later labels ("Host base" by plan 12-06, "Bind base" by plan 12-12,
 reference HEAD as a base.
 
 - Wave 0 base: 60b9e3c34fc0efc0ff64296cfa31415565b847b2
+- Host base: 0836e40f583f8b47486ee93b0de36889e5626f0b
 
 ## Registration map
 
