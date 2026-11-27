@@ -364,3 +364,126 @@ systems.
 
 HR-04 (gate growth): resolved by measurement, LOG F-139: cold gate-macos 547 s (run 45906047013, "Cache not found" confirmed), margin 353 s; no trim plan. HR-06: plan 12-15 now carries the H-03 sentence for docs/spec/api.md section 8.1 (truth and Task 1 action).
 
+## FINAL (12-01 to 12-17, final independent audit by plan 12-18)
+
+| Item | Value |
+|------|-------|
+| Bases | Wave 0 `60b9e3c34fc0efc0ff64296cfa31415565b847b2`, Host `0836e40f583f8b47486ee93b0de36889e5626f0b`, Bind `49d41ac9e1966bd9cdb9e953b61d0355a1178554` (PIN-IMPACT "Wave bases", base idiom: exactly one 40-hex line each, an existing commit, an ancestor of the head); bind commit `03ccb01c28179522d357d866c1e21aebfade7b0a` (PIN-IMPACT "Bind steps") |
+| Audited head | `18636c8aa35870628e5f99d50e8ab350d623c680` (87 commits after the Wave 0 base: plans 12-01 to 12-17 and their records; 78 files changed outside `.planning/`; `origin/main` `9f4e39a3caa6d1cd1f3ff2399b3fc3d89251904a` plus the three 12-17 documentation commits) |
+| Host | Darwin arm64 (macOS 26.6.2), Apple clang 21.0.0, cmake 4.4.3, ninja 1.13.2, Python 3.15.2; 1-minute load 8.5 at the start of the scratch gate (after a bounded wait for it to fall under 9) and 7.5 at its end, from unrelated processes; no limit was widened |
+
+### Method and mechanical checks
+
+Method (the 12-12 form with the T-05 procedure note): `git clone --no-checkout` of the main repository into
+`build/12-review/final/src`, `git checkout --detach 18636c8aa35870628e5f99d50e8ab350d623c680`, the clone's fetch URL set to
+the public repository with its push URL disabled and `origin/main` fetched (`9f4e39a`), and a copy (not a symlink) of
+`build/tools/install` into the clone's `build/tools/install`; `.DS_Store` is in the clone-local `.git/info/exclude`, as in
+the main repository since 12-16 (no tracked file changes). `git archive` of the head in the clone and in the main
+repository have the same SHA-256 (`f99c6e73373defbc0886af32484c37d568f4017ddaa79ba064fc9d84f5405381`), so the audited tree
+is exactly the committed head; `git status --short` of the clone is empty before and after every check below. Outputs
+were written outside the clone tree (`build/12-review/final/*.out`, ignored, not committed).
+
+| Check | Command or method | Result |
+|-------|-------------------|--------|
+| (F1) full gate | `sh scripts/gate.sh` in the clone, default environment | `[gate] PASS`, `[gate] total 216s`, exit 0. Steps in seconds: sh-n 0, lint-selftest 4, fixture-qualification 2, configure 0, build 9, boot-evidence-selftest 14, test-inventory-selftest 48, test-inventory 0, ctest 126 (`100% tests passed out of 354`, `Total Test time (real) = 126.05 sec`), core-lint 13. No name excluded. `ctest -N -L phase12 -FA .` lists 25 names, equal to the `PHASE12_TESTS` block; the preset has 354 names |
+| (F2) digest sweep | the base idiom on the Wave 0 line, then `python3 -B scripts/digest-sweep.py --base 60b9e3c34fc0efc0ff64296cfa31415565b847b2 --head HEAD` | `sweep: 1599 shared lines, 0 differences, 0 head-only lines`, exit 0, 63 s: the phase moved no digest of the 21 shipped ids, the bind and its text settle included (no amendment predicts a difference; 12-11 was not triggered) |
+| (F3) bound record against a fresh install | `sh scripts/check-install.sh fresh-archive`, then `python3 -B scripts/check-abi.py freeze --record docs/abi/FREEZE-CANDIDATE.md --prefix "build/gate/fresh-archive/prefix with space"` | `archive of 18636c8aa35870628e5f99d50e8ab350d623c680 (1524 files)`, installed archive build id `t64-build-v1-06a20d33f9a16380b4f97721549b37dcf8ad39421459f7e702821e74dd897203`, `fresh-archive ok`; `abi-freeze: headers=1 abi=1.0 package=1.0.0 symbols=35 layout=14/165/190 holes=8 statuses=39 stop_reasons=8` and `check-abi: freeze findings=0`, exit 0 |
+| (F4) oracle authority | `python3 -B scripts/check-rdp-oracle-authority.py --expect-blocked`; `--require-approved` | exit 0 `authority record valid; blocked: no oracle operation is authorized`; exit 2; `git diff --name-only` of the Wave 0 base against the head over the checker and `docs/spec/phase09-cases.json` is empty |
+| (F5) claims | `sh scripts/check-claims.sh` | `claims: files=78 blocks=26 errors=0` (the Phase 12 claim file does not exist yet; Task 3 of this plan writes it) |
+| (F6) SDL lane | `sh scripts/check-host.sh sdl` in the clone (fresh `build/host-sdl`) | verbatim: `[host-sdl] sdl 3.4.10`, `[host-sdl] video-driver dummy`, `[host-sdl] audio-driver dummy`, `[host-sdl] mapping rows 30/30`, `[host-sdl] title ok`, `[host-sdl] blit ok`, `[host-sdl] frames 8`, `[host-sdl] audio ok`, `[host-sdl] PASS`, exit 0 |
+| (F7) PII over the phase | `sh scripts/pii-scan.sh --range 60b9e3c34fc0efc0ff64296cfa31415565b847b2..HEAD` | `pii-scan: tree_files=skipped commits=87 findings=0` |
+| (F8) bound and gate files | `git diff --name-only BIND_COMMIT..HEAD -- core/include docs/abi/header.sha256 docs/abi/layout.c docs/abi/public-symbols.txt docs/abi/status-classes.txt`; `git diff --name-only WAVE0..HEAD -- .github scripts/check-ci-yml.sh scripts/gate.sh CMakeLists.txt`; the same over `core` outside `core/tests`; `sh scripts/check-stale-freeze-text.sh` | empty; empty; `core/CMakeLists.txt` (title fixture target, package 1.0.0), `core/include/tendies64/t64_machine.h` (the bind), `core/t64_internal.h`, `core/t64_machine.c`, `core/t64_state.c` (the B-31 comment relabels of 12-15, outside every function body); `stale-freeze-text: files=344 findings=0`. `ctest -N` names no SDL test (0 matches) |
+| (F9) tags and releases | `git tag`; `git ls-remote --tags origin`; `gh release list`; `git tag --points-at HEAD` | three tags, all of Phase 9 (`phase09-f2`, `phase09-fh`, `phase09-fr`; none descends from the Wave 0 base), the same three on the remote, no GitHub release, no tag at the head; `project(tendies64 VERSION 0.0.0 ...)` unchanged |
+| (F10) gate evidence lines | the clone's `LastTest.log` (copied to `build/12-review/final/`) | `check-host-title: title.short.input.json: 3 and 240 Hz equal; 3 frames, 2 audio packets (stream), 20-byte transcript, save image, completion tick 3693938 and final digest equal the oracle and the runner pins` and the `title.long.input.json` line (12 frames, 4 audio packets, completion tick 13078313, the consumer pins): both scripts present (HR-02 holds by observation); `title: checks=99 failures=0`, `title-persist: checks=60 failures=0`, `title-refused: checks=25 failures=0`; the pin lines carry `runner-recorded pin, not independent`; `control refused-frame: refused-frame limit holds: capture-error/host-error at tick 4000000, no transcript, no bundle` |
+
+### Requirements and success criteria
+
+| Item | Evidence | Verdict |
+|------|----------|---------|
+| API-05 | Pure-C pump `host/pump` (clock, drain, input mapping, scripted source, frames) unit-tested in the required gate by the nine `host.pump.*` names (F1; fake clock only, no `clock_gettime`, `time(` or `SDL_` token in `host/pump`); optional SDL3 shell `host/sdl` under `option(T64H_SDL ... OFF)`, `find_package(SDL3 3.2.0 CONFIG REQUIRED)` only inside that branch (link-only, no vendored source, `repo.host-policy`), run only by the local lane (F6); the core is free of the host (`repo.host-isolation`, `repo.host-include-guard`, F8); 12-07 to 12-09 SUMMARYs, 12-REVIEW "HOST" (a), (b), (e), (f) | met. The physical-controller play-through is the owner-attested, non-blocking checklist `docs/evidence/phase12-host-manual.md`, never a must-have (CONTEXT); its template is written by Task 3 of this plan and stays "not run" |
+| API-06 | `fixtures/title/title.S` (522 non-empty lines, frozen at `7b962961fcb8e1c1600dc84dae8a67f0c88dce26`, 0 hits for `eret`, `syscall`, `0x80000180`, `tlbw`, `tlbp`, `tlbr`, `entryhi`, `entrylo`, `pagemask`, `wired`) built by `scripts/build-title-fixture.sh` with the pinned Binutils 2.45 and the open IPL3; manifest rows `phase12-title-s32k` and `phase12-title-refused-s32k` (authored-here, cleared, build-only, profile `ntsc-cart-4m-openipl3-rdram-b-t1-si-v2-s32k`, revision `7b96296`); headless through the runner (`runner.title-two-run`, the two `controls.real.title-*`) and the installed consumer (`installed.consumer.title`, `-persist`, `-refused`), in the minimal host through the pump (`host.pump.title-two-speeds`) and the SDL smoke (`title ok`, `frames 8`, F6); route B absent (deferred table) | met |
+| API-07 | `docs/evidence/phase12-libfuturo-fit.md` with `Pinned commit: 4177a43e67312e2db88ab21cba13aa7350063105` (local, unpublished, equal to PIN-IMPACT "API-07 pin"), conclusion "no adapter now"; `repo.api07-evaluation` passes (F1); `git grep -i -c libfuturo -- core runner host tools tests` prints nothing | met (completed by 12-10) |
+| SC1 | the manifest rows and the title scope of API-06; expected checkpoint digests from the independent oracle `fixtures/title/title_oracle.py` (`harness.title-oracle`), compared through the runner (3 frames, audio, transcript, the four pins labelled `runner-recorded pin, not independent`) and the installed consumer (short, long, shifted, persistence and the refused ROM's blank frames, consumer pins labelled `consumer-recorded pin, not independent`); frame lock by polling MI_INTERRUPT bit 0x08 cleared by a VI_CURRENT write (DR-03, 12-REVIEW "TITLE" (b)); F1, F10 | closed |
+| SC2 | the pump names in the gate (`host.pump.build`, `-clock`, `-drain-order`, `-stall`, `-input-map`, `-script`, `-frames`, `-title-two-speeds`; F1); scripted input at 3 Hz and 240 Hz of fake time gives byte-identical frames, audio, transcript and save equal to the oracle and the headless pins (F10); this audit's lane line, verbatim: `[host-sdl] PASS` (after `[host-sdl] sdl 3.4.10`, `video-driver dummy`, `audio-driver dummy`, `mapping rows 30/30`, F6), so a virtual gamepad under SDL's dummy drivers exercised the button and axis rows; host glue only, no rendering, timing or audio claim | closed |
+| SC3 | `T64H_SDL` defaults OFF; `host.pump.build` configures `host/` without SDL; no CTest name mentions SDL; the root `CMakeLists.txt` holds no `host` path and the gate build has no host target; the fresh-archive lane builds `t64_core` alone from `git archive` (F3); `repo.host-isolation` (no SDL name in `core`, `runner`, `tools`, `tests`, the root CMake file, the installed archive or `docs/abi/installed-undefined.txt`) | closed |
+| SC4 | the API-07 evaluation; the final bind at ABI 1.0 in the one coupled commit `03ccb01` (proven first in a scratch clone, PIN-IMPACT "Bind steps"), the bound record (`abi_version: 1.0`, `package_version: 1.0.0`, `bound_minor: 0`, `candidate_amendments: 0`, `amendments: 0`) recomputed from a fresh install with 0 findings (F3); no amendment was needed (PIN-IMPACT "Host-found API defects": 15 rows, 0 amend, `12-11 trigger: no`); the installed-consumer suite re-ran after the bind (12-16: `^(install\.|installed\.|api04\.)` 50 of 50) and runs in every gate (F1) | closed |
+
+### Decision-by-decision read (12-CONTEXT.md)
+
+| Decision | Where implemented | Evidence | Verdict |
+|----------|-------------------|----------|---------|
+| Locked: API-06 route A (authored assembly, pinned Binutils 2.45 and open IPL3, builder pattern, no committed ROM, rows authored-here / cleared / build-only; route B a non-goal) | title sources, builder, manifest rows (DR-01, DR-33) | `gov.manifest.*`, `gov.rights.*`, `harness.rdp-oracle-authority` in F1; `git ls-files` holds no ROM (12-REVIEW "TITLE" (c)) | implemented |
+| Locked: title scope cap (one screen, 16x16 square by D-pad or stick, one tone burst on A, one save slot, B resets, polled frame lock, about 600 lines, no Z, textures, RSP microcode, TLB or libultra, the composite profile) | `title.S`, `title-spec.md` (DR-02 to DR-04) | API-06 row; 12-REVIEW "TITLE" (b) | implemented |
+| Locked: API-05 split (pure-C pump in the gate with a fake clock; optional SDL3 shell OFF by default in a non-gating lane; the core builds with no SDL and without the host target) | `host/pump`, `host/sdl`, `scripts/check-host.sh` (DR-10, DR-11, DR-17, DR-35) | SC2 and SC3 rows | implemented |
+| Locked: SDL3 link-only via `find_package(SDL3 CONFIG)`, no vendoring or FetchContent; version and license recorded; window-surface blit, nearest or integer scale; neutral title "t64 minimal host (development)"; no icon, bundle, installer or product name (D4, D7) | `host/CMakeLists.txt` line 44, `host/sdl/t64h_sdl.c` (`SDL_BlitSurfaceScaled` with `SDL_SCALEMODE_NEAREST`, no renderer call), `T64H_SDL_TITLE` in `t64h_sdl.h`, `docs/evidence/sdl3-host-dependency-audit.md` (zlib license) | `repo.host-policy`, `repo.host-policy-selftest`; F6 `title ok` | implemented |
+| Locked: "plays" means correct, not real-time (no throughput, A/V sync or latency number; underrun is silence and counted; pacing a pure function of the injected clock) | `t64h_pump.c` (clock callback only), `t64h_sdl.h` counters `bad_frames`, `audio_dropped`, `underruns` | `host.pump.clock`, `host.pump.title-two-speeds`; PIN-IMPACT H-09 (12.5 million ticks per CPU second, information only, no claim) | implemented |
+| Locked: evidence tiers (scripted two-speed equality is the claim; the SDL smoke is host glue only; the physical checklist is owner-attested and non-blocking) | DR-21; PIN-IMPACT "Host steps" tier line | the claim is written by Task 3 at that tier; the checklist template too | implemented (the checklist file follows in Task 3) |
+| Locked: API-07 (written evaluation pinned to a SHA, published status stated, "no adapter now", no adapter code, no core change, no support claim) | `docs/evidence/phase12-libfuturo-fit.md` (DR-22) | API-07 row | implemented |
+| Locked: the final ABI bind is the last ABI-moving plan; amendments by numbered plan with evidence, re-run consumer suite and a log row; FN-03 header comments settled | `03ccb01` (DR-25, DR-28), `docs/abi/FREEZE-CANDIDATE.md` | SC4 row; `provisional` count in the installed header 0; `repo.stale-freeze-text` | implemented |
+| Locked: no host or adapter requirement changes the core API unless it is a postcondition defect | PIN-IMPACT "Host-found API defects" (DR-23) | 15 rows, 13 accept, 2 document, 0 amend | implemented |
+| Locked: process (4 tasks, about 45 minutes, no decimal plans, per-wave review plus this audit, parallelization false, `git.create_tag` false, cheap names with COST, SDL, sanitizer and fresh-archive lanes outside the hosted gate) | ROADMAP plan list 12-01 to 12-18; 12-REVIEW "TITLE", "HOST", "FINAL"; every `phase12` name with COST and TIMEOUT (12-REVIEW "HOST" (l) and 12-16/12-17 SUMMARYs) | F9 (no tag); F8 (no `ci.yml` or `gate.sh` edit) | implemented (the 18 plans exceed the G5 guide, DR-30, recorded in the ROADMAP G5 note) |
+| Autonomous: host layout under `host/` (not `tools/`) | DR-10 | `host.pump.build`; 12-REVIEW "HOST" (a) | implemented |
+| Autonomous: title builder copy, spec-derived oracle, wrong-input control, refused-packet control with a distinguishable blank screen | DR-01, DR-06, DR-08, DR-34 | `controls.real.title-wrong-input`, `controls.real.title-refused-frame`, `installed.consumer.title-refused` (F10) | implemented (the blank-frame assertion is the consumer's under DR-34) |
+| Autonomous: checkpoint digests, not long raw captures | DR-05, DR-06 | `harness.title-oracle`; consumer and pump compare checkpoint digests | implemented |
+| Autonomous: input mapping (stick scaled to -128..127 with a dead zone, D-pad and buttons to the standard mask, port 0 only, hotplug unsupported) | `host/pump/t64h_input.[ch]` (DR-12, DR-36 item 2) | `host.pump.input-map`; smoke `mapping rows 30/30` (F6) | implemented |
+| Autonomous: SDL lane manual, dummy drivers, virtual joystick, recorded skip when SDL3 is absent, the gate never builds SDL | `scripts/check-host.sh sdl` (DR-17, DR-31) | F6 (a PASS here); the skip line is pinned by the 12-17 hermetic case `sdl-lane-status` | implemented |
+| Autonomous: host-side save file omitted unless one atomic path fits one task | DR-19 fit test | PIN-IMPACT "Host steps" DR-19 line; no writing `fopen` in `host/` (only `"rb"` reads) | implemented as an omission |
+| Autonomous: one throwaway speed measurement, information only | DR-20 | 12-09 SUMMARY and PIN-IMPACT H-09 only; no evidence document states a speed | implemented |
+| Autonomous: LibFuturo re-pin from committed objects, published status stated | PIN-IMPACT "API-07 pin" | `repo.api07-evaluation` (pin match) | implemented |
+| Autonomous: review per wave in scratch clones plus the final audit | 12-06, 12-12, this section | this table | implemented |
+| Settled: S-05, keep the eight implicit padding holes | DR-24 | record block `padding_holes: 8` with its eight rows (F3) | implemented |
+| Settled and owner-confirmed 2026-11-26: ABI 1.0 / package 1.0.0 as an ABI identity, not a release version | DR-25; `T64_ABI_VERSION_MAJOR` 1, `MINOR` 0; `core/CMakeLists.txt` `VERSION 1.0.0 COMPATIBILITY SameMajorVersion` | F3; `project(VERSION)` 0.0.0 (F9) | implemented |
+| Settled: the 1.0 numbers are not a D6 versioning decision; owner-review item | `docs/abi/FREEZE-CANDIDATE.md` "Owner-review item (D6)"; PIN-IMPACT "Owner questions" | no tag, channel or release naming (F9) | implemented (carried as a recorded exception for owner review) |
+| Settled: keyboard fallback off | `host/sdl` (controller only) | `repo.host-policy` rule HP-KEYBOARD and its seeds | implemented |
+| Settled: qualification after the bind (the bind is the last ABI-moving plan; the qualifier binds the post-bind goldens) | DR-28; `scripts/qualify-phase12.py` `freeze_binding` | `harness.phase12-qualification` (F1); the final record of Task 2 | implemented |
+| Settled: Phase 12 G4 exception with the reversal rule | PIN-IMPACT "Gate-growth ledger" (DR-26) | ledger rows TITLE, HOST, BIND, BIND hosted; the measured cold run F-139 (547 s); no projection above 900 s | implemented (final warm row and the orchestrator's cold run follow this plan) |
+| Research facts adopted (profile, composite-derived builder, polled frame lock, 128x96 screen under the 69,632-byte capture limit, runner at most 3 fields, consumer and pump 10 or more, bound = ns / 16, host include guard, `check-api-init.py` roots, strict `t64.input` copy, local SDL lane script, dummy driver variables, no libsdl3 on ubuntu-24.04) | DR-01 to DR-17 | the TITLE and HOST review checks; PIN-IMPACT "Host steps" hosted-Linux line | implemented |
+| Discretion: names, colors, tone, decomposition, no SDL CI job | DR-04, DR-27, DR-30, DR-31 | no workflow file added (F8) | implemented |
+
+### Deferred ideas (12-CONTEXT.md "Deferred Ideas"), each confirmed absent
+
+| Deferred idea | Method | Verdict |
+|---------------|--------|---------|
+| libdragon route B | `git diff WAVE0..HEAD` outside `.planning` adds no line naming libdragon (the existing mentions in earlier tests, specs and manifest rows predate the phase); no libdragon toolchain, build, fixture or manifest row | absent |
+| GPU renderer | no `SDL_CreateRenderer`, GPU, OpenGL, Vulkan or Metal call in `host/` (`repo.host-policy` HP-RENDERER) | absent |
+| hotplug UX | no gamepad added/removed event handling in `host/`; `t64h_input.h` states hotplug is unsupported | absent |
+| remapping UI | the mapping is one fixed table function (`t64h_map_pad`); no remap code path | absent |
+| config files | no config reader in `host/` (the only `getenv` calls are the smoke's dummy-driver checks); the shell takes `--rom` and `--scale` only | absent |
+| rumble or controller pak | no rumble, pak or mempak token in `host/` | absent |
+| ports 1 to 3 | port 0 only: both queue calls pass port `0u` (`host/pump/t64h_script.c:488`, `host/sdl/t64h_sdl.c:175`) and the scripted reader refuses any other port (rule `port`) | absent |
+| fullscreen or scaling filters | no fullscreen call; the only scale mode is `SDL_SCALEMODE_NEAREST` at an integer scale | absent |
+| rewind | no rewind feature in `host/`, `runner/` or the consumer (the one hit, `runner/t64_verified_input.h:32`, is the file-position rewind of a verified input file) | absent |
+| save-state UI | no `t64_machine_state_export` or import call in `host/` | absent |
+| host-side save persistence | omitted by the DR-19 fit test; `host/` opens files for reading only | absent |
+| a LibFuturo adapter | `git grep -i -c libfuturo -- core runner host tools tests` prints nothing | absent |
+| VID-04 oracle evidence | oracle authority blocked (F4); no oracle material added; VID-04 stays deferred | absent |
+| any release, tag or packaging | F9; `project(VERSION)` untouched; no package channel | absent |
+| real microcode | the title has no RSP access (no SP register base, 12-REVIEW "TITLE" (b)); no microcode file added | absent |
+
+### Carry-in table check
+
+PIN-IMPACT "Carry-in triage" holds 11 rows, each with one disposition: FN-02 done (the `t64_machine_advance` row of
+`docs/spec/api.md` section 12 names the CP0 corrupt-phase `INTERNAL_DEFECT` source), FN-03 done (0 `provisional` lines in the
+installed header, the core and `docs/spec` relabels of 12-15, `stale-freeze-text: files=344 findings=0`), FN-04 done
+(`docs/abi/FREEZE-CANDIDATE.md` holds "Evidence for the bind"), FN-01 and S-05 accepted (S-05: the eight holes are bound),
+OIPL3 no action, and T1, T2, T5, T6 and DEF-W1-01 deferred with their reasons (five carried items, the G3 limit; none
+dropped). "Host-found API defects" is closed at 15 rows (13 accept, 2 document: C-1 in `docs/spec/api.md` 8.3 and H-03 in
+8.1, both present at the head; 0 amend). The HR-06 check: `docs/spec/api.md` 8.1 now says that a masked handler status
+consumes its event and that the permanent stall is the ring-backpressure case.
+
+### Findings
+
+Same severity scale as the TITLE and HOST sections. The reviewer fixes nothing.
+
+| id | severity | file:line | finding | disposition |
+|----|----------|-----------|---------|-------------|
+| FR-01 | info | `core/include/tendies64/t64_facade.h:8` | The comment of the non-installed facade header still calls the public header "a 0.x freeze candidate bound by Phase 11 (final ABI bind at the end of Phase 12)". The file is not installed and not in the bound record, but `core/include` is under the bound-diff invariant, so 12-15 left it (and `repo.stale-freeze-text` exempts the file by exact name for the `provisional` rule only) | accepted for this phase; carried to v1.3 as a text item for a plan that may edit a non-installed header under `core/include` |
+| FR-02 | info | `docs/spec/api.md` section 2.3 | The sentence on the version controls still speaks of the minor and patch requests; the major control of 12-16 (request 2.0) is exercised as well. The sentence is not wrong | accepted; a one-line text addition for a later text plan |
+| FR-03 | info | PIN-IMPACT "Bind steps" (`act-linux: SKIP`), "Qualification steps" (preflight) | The Docker engine on the planning host has not answered since 12-16, so the act Linux run and the preflight `linux-compile` step have no local Linux evidence for the 12-16 and 12-17 changes. This is an environmental limitation, not a pass; the hosted `gate-linux` job of the 12-17 push (run 45932117914, 354 of 354) is the Linux compile and run evidence, and the 12-18 push repeats it | accepted (environmental); no Docker service was started or restarted |
+| FR-04 | info | `host/pump/t64h_pump.h:29` (HR-01), `scripts/check-host-title.py` `judge` (HR-02) | The two HOST info items stay open as wording or set-check candidates; this audit observed both report lines of `host.pump.title-two-speeds` in the gate log (F10), so no current path drops a script | accepted (carried as candidates for any later plan that edits those files) |
+| FR-05 | info | PIN-IMPACT "Gate-growth ledger" | The Phase 12 G4 exception is recorded for owner review; the measured cold run of the HOST head is 547 s (F-139) and the 12-17 warm sample 527 s (cold projection 717 s, margin 183 s). The final warm row is written by Task 4 and the cold measurement of the final set is orchestrator-only after the push | accepted; recorded exception, not an approval |
+
+Result: zero blocking findings, zero warnings and five info rows. Every requirement (API-05, API-06, API-07), every
+success criterion (SC1 to SC4, SC2 closed by this audit's `[host-sdl] PASS`), every CONTEXT decision and every deferred
+idea has a row with its evidence and verdict; the final qualification may follow.
+
