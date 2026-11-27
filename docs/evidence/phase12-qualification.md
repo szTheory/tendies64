@@ -204,8 +204,7 @@ hosted runner's warm spread of up to 105 s dominates the cache effect). The BIND
 (three names, 33.30 s on hosted macOS) give 580 s from that measurement (margin 320 s) and a conservative
 717 s from the 12-17 warm sample plus the F-136 cold cost of 190 s (margin 183 s). The reversal rule of the
 Phase 12 G4 exception has not triggered (no measured or projected cold run above 900 s, no cancelled run,
-and since F-139 no projected margin under 120 s). The cold run with the final 354-name set is an
-orchestrator step after the push of plan 12-18 and is not claimed here; no projection is presented as a
+and since F-139 no projected margin under 120 s). The cold run with the final 354-name set was then measured by the orchestrator (run 45939090179, F-142: gate-macos job 606 s, margin 294 s to 900 s; gate-linux 306 s) and replaces every projection; no projection is presented as a
 measurement. Final warm sample (run 45937541960, the qualified head): `gate-macos` 559 s, margin 341 s to
 the 900 s limit; against the Phase 11 warm pair (F-135: 539 s, ctest 279 s on 329 names) the job grew by
 20 s and ctest by 42 s for the 25 Phase 12 names, which cost 97.63 s of hosted macOS ctest time in this
