@@ -17,6 +17,7 @@
 missing-package	configure-missing	-	text	Could not find a package configuration file provided by "tendies64"	configure with an empty CMAKE_PREFIX_PATH: no package, no consumer
 version-mismatch-minor	configure-version	1.1	text	compatible with requested version "1.1"	find_package(tendies64 1.1) against the 1.0.0 package: SameMajorVersion refuses a higher minor
 version-mismatch-patch	configure-version	1.0.5	text	compatible with requested version "1.0.5"	find_package(tendies64 1.0.5) against the 1.0.0 package: SameMajorVersion refuses a higher patch
+version-mismatch-major	configure-version	2.0	text	compatible with requested version "2.0"	find_package(tendies64 2.0) against the 1.0.0 package: SameMajorVersion refuses another major
 visible-source-tree	source-tree	clean	text	no repository path	compile_commands.json and build.ninja name nothing of the source tree but the consumer's own sources, build tree and the moved prefix
 visible-source-tree-seed	source-tree	seed	text	seed detected	the same scan finds an extra -I of the source include directory, so the clean row can fail
 doctored-header-abi	doctored	abi	status	34	a copied prefix whose header has T64_ABI_VERSION_MINOR plus one: create answers ABI_MISMATCH and machine_out stays NULL

@@ -21,7 +21,7 @@
 # installed.consumer.build (fixture closure included, Phase 11 lesson).
 8	^repo\.abi
 31	^installed\.consumer\.
-11	^installed\.controls\.
+12	^installed\.controls\.
 2	^repo\.stale-freeze-text
 2	^repo\.api-init-guard
 14	^unit\.core\.api\.

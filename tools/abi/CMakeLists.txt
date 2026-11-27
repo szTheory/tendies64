@@ -538,6 +538,7 @@ file(STRINGS "${T64_CONTROLS_TSV}" T64_CONTROL_LINES)
 set(T64_CONTROL_COST_missing-package 0.43)
 set(T64_CONTROL_COST_version-mismatch-minor 0.41)
 set(T64_CONTROL_COST_version-mismatch-patch 0.44)
+set(T64_CONTROL_COST_version-mismatch-major 0.38)
 set(T64_CONTROL_COST_visible-source-tree 0.44)
 set(T64_CONTROL_COST_visible-source-tree-seed 0.44)
 set(T64_CONTROL_COST_doctored-header-abi 0.55)
@@ -556,13 +557,20 @@ foreach(T64_CONTROL_LINE IN LISTS T64_CONTROL_LINES)
       "tests/installed-consumer/controls.tsv lists '${T64_CONTROL_ID}' with no "
       "measured COST (set T64_CONTROL_COST_${T64_CONTROL_ID} in tools/abi/CMakeLists.txt)")
   endif()
+  # The control of another major (plan 12-16, id ending in -major) is a Phase 12 name and
+  # carries the label phase12; every earlier row keeps phase11.
+  if(T64_CONTROL_ID MATCHES "-major$")
+    set(T64_CONTROL_LABELS "installed;controls;phase12")
+  else()
+    set(T64_CONTROL_LABELS "installed;controls;phase11")
+  endif()
   add_test(NAME installed.controls.${T64_CONTROL_ID}
     COMMAND sh ${CMAKE_SOURCE_DIR}/scripts/check-install.sh
             --build ${CMAKE_BINARY_DIR} control ${T64_CONTROL_ID}
             --rom "${T64_CONSUMER_ROM}"
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
   set_tests_properties(installed.controls.${T64_CONTROL_ID} PROPERTIES
-    LABELS "installed;controls;phase11"
+    LABELS "${T64_CONTROL_LABELS}"
     TIMEOUT 120
     COST ${T64_CONTROL_COST_${T64_CONTROL_ID}}
     FIXTURES_REQUIRED t64_install)

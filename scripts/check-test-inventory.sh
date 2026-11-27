@@ -378,7 +378,8 @@ repo.host-policy
 repo.host-policy-selftest
 repo.p12-mutant-anchors
 repo.api07-evaluation
-unit.core.api.abi-major-rule'
+unit.core.api.abi-major-rule
+installed.controls.version-mismatch-major'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU
