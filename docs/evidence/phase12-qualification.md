@@ -174,7 +174,7 @@ the measured cold run F-139, HR-06 by the H-03 sentence of plan 12-15).
 ## Hosted records
 
 Every hosted run of Phase 12 is a `ci.yml` run on `main` with the two jobs `gate-macos` and `gate-linux`;
-the rows of `docs/ci-reviews/LOG.md` (Runs table and findings F-137 to F-140) hold the measured seconds.
+the rows of `docs/ci-reviews/LOG.md` (Runs table and findings F-137 to F-141) hold the measured seconds.
 Seconds are job run times; "warm" means the Binutils cache was hit on both jobs.
 
 | Run | Plan | Head | Event | Result | `gate-macos` s | `gate-linux` s | names | LOG finding |
@@ -183,11 +183,17 @@ Seconds are job run times; "warm" means the Binutils cache was hit on both jobs.
 | 45904452436 | 12-12 (HOST review) | `de21fcf7d5c3` | push | success, warm | 572 | 306 | 351 | F-138 |
 | 45906047013 | cold dispatch (orchestrator) | `de21fcf7d5c3` | workflow_dispatch | success, **cold** (macOS cache entry deleted first) | **547** | 280 | 351 | F-139 |
 | 45932117914 | 12-17 (bind and qualifier head) | `9f4e39a3caa6` | push | success, warm | 527 | 277 | 354 | F-140 |
-The hosted pair of the qualified head is the push of plan 12-18 (a routine fast-forward of the pinned
-SHA, no tag): the first hosted run of the Qualification base and the three documents, and a second hosted
-Linux compile and run of the 12-16 and 12-17 changes. Its run id, its seconds and the final warm
-Gate-growth ledger row are written into this table, `docs/ci-reviews/LOG.md` and PIN-IMPACT by Task 4 of
-plan 12-18, after the run, as a change of the excluded documents.
+| 45937541960 | 12-18 (qualified head) | `f089171611d0` | push | success, warm | 559 | 286 | 354 | F-141 |
+The hosted pair of the qualified head is the push of plan 12-18: a routine fast-forward of the pinned SHA
+`f089171611d077fd2df8fe47f81ec61d0f0fb108` from `9f4e39a` (the commit of the three documents; no tag),
+after the full preflight passed (its `linux-compile` step was skipped because no C file changed since the
+12-17 head) and the range was scanned (`pii-scan.sh --range origin/main..HEAD`, `--tree` and
+`rights-scan.sh --tree --range origin/main..HEAD`, 0 findings each). Run 45937541960 (event push, Binutils
+cache hit on both jobs, so a warm sample; no rerun) passed: `gate-macos` 559 s (Gate 499 s, ctest
+320.69 s, `100% tests passed out of 354`, cmake 4.5.0) and `gate-linux` 286 s (Gate 234 s, ctest
+155.35 s, `100% tests passed, 0 tests failed out of 354`, cmake 3.31.6, gcc 13.3). The 25 `phase12` names
+took 97.63 s on hosted macOS and 43.92 s on Linux. This document was completed with these numbers after
+the run, as a change of an excluded document; the verifier still accepts the record.
 
 ### Gate growth against the 900-second limit
 
@@ -200,7 +206,11 @@ hosted runner's warm spread of up to 105 s dominates the cache effect). The BIND
 Phase 12 G4 exception has not triggered (no measured or projected cold run above 900 s, no cancelled run,
 and since F-139 no projected margin under 120 s). The cold run with the final 354-name set is an
 orchestrator step after the push of plan 12-18 and is not claimed here; no projection is presented as a
-measurement.
+measurement. Final warm sample (run 45937541960, the qualified head): `gate-macos` 559 s, margin 341 s to
+the 900 s limit; against the Phase 11 warm pair (F-135: 539 s, ctest 279 s on 329 names) the job grew by
+20 s and ctest by 42 s for the 25 Phase 12 names, which cost 97.63 s of hosted macOS ctest time in this
+run (parallel jobs). Cold projections from it: 749 s (this sample plus the F-136 cold cost of 190 s,
+margin 151 s) and 580 s (the F-139 measurement plus the three later names, margin 320 s).
 
 ## API-07: LibFuturo fit evaluation
 
@@ -253,7 +263,7 @@ the phase is the confirmation of the ABI 1.0 / package 1.0.0 numbers on 2026-11-
    exists, and the names are the required evidence of SC1 to SC4. The SDL lane, the sanitizer, TSan,
    fresh-archive and full mutant runs stay local; no `ci.yml`, `check-ci-yml.sh` or `gate.sh` edit was
    made. Measured: cold `gate-macos` 547 s of 900 s at 351 names (run 45906047013, F-139, margin 353 s) and 729 s at
-   the Phase 11 close (F-136); warm `gate-macos` 527 to 582 s over the phase's pushes (F-137, F-138, F-140). The reversal rule (a measured or projected cold run above 900 s, a cancelled run,
+   the Phase 11 close (F-136); warm `gate-macos` 527 to 582 s over the phase's pushes (F-137, F-138, F-140, F-141). The reversal rule (a measured or projected cold run above 900 s, a cancelled run,
    or a projected margin under 120 s moves non-essential names, `installed.consumer.title-persist` and the
    selftests first, to a local lane) has not triggered. The cold run with the final 354-name set is the
    orchestrator's, after the push of plan 12-18.
@@ -293,9 +303,10 @@ the phase is the confirmation of the ABI 1.0 / package 1.0.0 numbers on 2026-11-
 8. **Local Linux evidence limited by the environment (final audit FR-03).** The Docker engine of the
    planning host did not answer from plan 12-16 on, so the act Linux run of the three version controls is
    recorded as `act-linux: SKIP` and the preflight `linux-compile` step failed with "docker is unavailable"
-   before the pushes of plans 12-17 and 12-18; no engine was started or restarted. This is an
-   environmental limitation and not a pass: the Linux compile and run evidence is the hosted `gate-linux`
-   job of each push (run 45932117914 of plan 12-17 and the run of the 12-18 push recorded under "Hosted records").
+   before the push of plan 12-17 (before the 12-18 push the step was skipped, because no C file changed
+   after the 12-17 head); no engine was started or restarted. This is an environmental limitation and not
+   a pass: the Linux compile and run evidence is the hosted `gate-linux` job of each push (runs
+   45932117914 and 45937541960).
 9. **Accepted limits of the bound ABI (DR-24, review items S-05 and I-05).** The `value_out` span of
    `t64_machine_bus_read` stays the caller's responsibility, the eight implicit padding holes are bound
    and pinned for 64-bit pointers only, and the "an older minor is accepted" half of the create rule is
