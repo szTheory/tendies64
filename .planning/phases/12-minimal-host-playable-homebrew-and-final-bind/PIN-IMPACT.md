@@ -433,6 +433,7 @@ limit.
 | TITLE (stub written by plan 12-04, completed by plan 12-05; 12-06 fills the hosted columns and the final seconds) | 7: `harness.title-oracle` (12-02), `runner.title-two-run`, `controls.real.title-wrong-input`, `controls.real.title-refused-frame` (12-04), `installed.consumer.title`, `installed.consumer.title-persist`, `installed.consumer.title-refused` (12-05; the last added by DR-34) | 8.35 s of COST (0.09, 0.96, 0.62, 0.72, 2.72, 2.55 and 0.69; native at host load about 5.5 to 6, the three consumer names measured 2.69 to 2.73, 2.46 to 2.60 and 0.66 to 0.69 s); the full local gate of plan 12-05 passed 336 of 336 names in 254 s (ctest 163 s) at host load 8 to 13, and its `CTestCostData.txt` averages for the seven names are 0.10, 0.98, 0.63, 0.72, 2.83, 2.59 and 0.70 s (8.55 s); `installed.consumer.literals` COST 0.08 to 0.12 for the 17 title seeds; `installed.consumer.title-persist` costs 2.55 s, 1.65 s above the projection of 0.9 s, because the real save export needs the whole long run (the first candidate of the reversal rule below if the measured margin falls under 120 s). Final seconds of plan 12-06: the scratch-clone gate (336 of 336, 236 s, ctest 124 s, load 7 to 17) ran the seven names in 8.72 s and the shared-tree gate at the pushed head (336 of 336, 173 s, ctest 102 s, load about 10) in 6.09 s; the `CTestCostData.txt` averages are now 0.09, 0.95, 0.61, 0.70, 2.66, 2.46 and 0.67 s (8.14 s) | hosted run 45887012740 at `884153a` (warm, Binutils cache hit; F-137): gate-macos job 582 s, ctest 323 s on 336 names, against the baseline warm pair 539 s and 279 s on 329 names (F-135): job +43 s, ctest +44 s, of which the seven names sum 24.34 s on hosted macOS (`installed.consumer.title` 8.30, `title-persist` 7.30, `runner.title-two-run` 2.96, `title-refused` 2.20, the two controls 1.94 and 1.36, the oracle 0.28) and test-inventory-selftest +9 s (76 s); gate-linux job 263 s, ctest 149 s, the seven names 17.65 s | G4 exception of this ledger (no offset) | projected cold gate-macos, not a measurement: 582 s warm plus the F-136 cold cost of 190 s (729 s cold against 539 s warm on the same 329 names) = 772 s, margin 128 s (14.2 percent); the cold baseline plus the hosted TITLE names and the inventory-selftest growth (729 + 24 + 9) = 762 s, margin 138 s. Not above 900 s and not under the 120 s warning level, so the reversal rule is not triggered; 8 s above the warning level, with `installed.consumer.title-persist` the first candidate (12-12 re-measures with the HOST names; the final cold measurement after the 12-18 push is orchestrator-only) |
 | HOST (stub written by plan 12-07; plan 12-09 appended its names after those of 12-07 and 12-08; 12-12 fills the hosted columns and the final seconds) | 14 so far: `host.pump.build`, `host.pump.drain-order`, `host.pump.clock`, `host.pump.stall` (the pump cases) and `repo.host-include-guard`, `repo.host-include-guard-selftest`, `repo.host-isolation` (the guards), all of plan 12-07, and `host.pump.title-two-speeds`, `host.pump.script`, `host.pump.input-map`, `host.pump.frames` and `repo.p12-mutant-anchors` of plan 12-08, and `repo.host-policy` and `repo.host-policy-selftest` of plan 12-09 | 4.97 s of COST (0.50, 0.45, 0.12, 1.40, 0.05, 1.15 and 1.30); the full local gate of plan 12-07 passed 343 of 343 names in 190 s (ctest 106 s, 4 jobs, host load 8 to 12) and its `CTestCostData.txt` averages for the seven names are 0.57, 0.44, 0.11, 1.42, 0.05, 1.16 and 1.36 s (5.10 s); the heaviest are `host.pump.stall` (three runs of the real core, about 10 million guest ticks), `repo.host-isolation` (seeded trees and two seeded archives, about 1.0 s of its 1.3 s) and `repo.host-include-guard-selftest` (23 seeded copies of host/); plan 12-08 adds 3.52 s of COST (3.00, 0.38, 0.02, 0.02 and 0.10; native seconds at host load 6 to 11 were 2.81, 3.02 and 3.28 for `host.pump.title-two-speeds`, 0.34 to 0.40 for `host.pump.script`, 0.01 to 0.02 for `host.pump.input-map` and `host.pump.frames` and 0.07 for the anchors), so the host names sum 8.49 s of COST; the full local gate of plan 12-08 passed 348 of 348 names in 149 s (ctest 89 s, host load 6 to 11); the full local gate of plan 12-09 passed 350 of 350 names in 186 s (ctest 110 s, host load 8 to 12) with 1.68 s of COST added by `repo.host-policy` (0.08) and `repo.host-policy-selftest` (1.60; the `CTestCostData.txt` averages over four runs are 0.08 and 1.62 s, the selftest being 30 seeded copies of a small host template), so the host names sum 10.17 s of COST; `host.pump.title-two-speeds` is the new heaviest host name (four runs of the real core, about 33.5 million guest ticks: the short script at 3,693,938 and the long one at 13,078,313 ticks, each at 240 Hz and at 3 Hz; the 1.8 s of the research projection assumed fewer ticks). Final seconds of plan 12-12: the HOST wave holds 15 names, the 14 above and `repo.api07-evaluation` of plan 12-10 (COST 1.34, registered in `tools/hostcheck/CMakeLists.txt`), 11.51 s of COST; the scratch-clone gate (351 of 351, 193 s, ctest 111 s, load 6 to 16) ran them in 16.90 s and the shared-tree gate at the pushed head (351 of 351, 148 s, ctest 90 s, load about 10) passed | hosted run 45904452436 at `de21fcf` (warm, Binutils cache hit; F-138), the first hosted run of the 15 names: gate-macos job 572 s, ctest 312 s on 351 names, against the TITLE pair 582 s and 323 s on 336 names (F-137): job -10 s, ctest -11 s, test-inventory-selftest +8 s (84 s), a faster runner than the TITLE sample (warm spread up to 105 s, F-134), so the growth is read from the name seconds: the 15 names sum 45.60 s on hosted macOS (`host.pump.title-two-speeds` 9.94, `repo.host-policy-selftest` 7.46, `repo.api07-evaluation` 6.89, `repo.host-include-guard-selftest` 5.86, `host.pump.stall` 4.57, `repo.host-isolation` 3.78, `host.pump.script` 2.83, `host.pump.build` 2.61, the other seven 1.66), a hosted multiplier of about 4.0 on their COST; gate-linux job 306 s, ctest 175 s, the 15 names 23.91 s (the first Linux build and run of `host/`, all passed) | G4 exception of this ledger (no offset) | not a measurement: 5.1 s native times the hosted ratio 2.8 to 4.3 plus about 0.23 s of inventory selftest per name (7 names) is about +16 to +24 s on top of the TITLE projection (cold margin 128 s), so the cold margin could fall to 104 to 112 s, under the 120 s warning level; after plan 12-08 the same projection for 12 names and 8.49 s native is about +27 to +39 s (8.49 s times 2.8 to 4.3, plus about 0.23 s of inventory selftest per name), so the cold margin could fall to about 89 to 101 s (still above 0, under the 120 s warning level); after plan 12-09 the same projection for 14 names and 10.17 s native is about +32 to +47 s (10.17 s times 2.8 to 4.3, plus about 0.23 s of inventory selftest per name), so the cold margin could fall to about 81 to 96 s (still above 0, under the 120 s warning level; `repo.host-policy-selftest` is a further candidate of the reversal rule, as a local lane instead of a hosted name, and the SDL smoke is no name at all); plan 12-12 measures it and applies the reversal rule (`host.pump.title-two-speeds`, `host.pump.stall` and the two selftests are the candidates after `installed.consumer.title-persist`; `host.pump.title-two-speeds` is the evidence of success criterion 2, so its first reversal step would be fewer ticks, not removal: for example the short script at one speed, a decision for 12-12 and an amendment of this plan's claim). Plan 12-12 result, projections and not measurements: (1) the warm job of run 45904452436 plus the F-136 cold cost of 190 s = 762 s, margin 138 s; (2) the measured cold baseline 729 s plus the hosted macOS seconds of the 22 Phase 12 names (24.34 s TITLE, F-137, and 45.60 s HOST) and the inventory-selftest growth since F-135 (+17 s) = 816 s, margin 84 s (9.3 percent); (3) the TITLE warm sample 582 s plus the HOST names, the inventory growth since it (+8 s) and the cold cost = 826 s, margin 74 s. None is above 900 s, so the trigger of plan 12-12 (a projected cold run above 900 s, which would stop the plan before the bind) is not reached and the Bind base follows; projections 2 and 3 are under the 120 s warning level, so the warning branch of the reversal rule is reported here and as finding HR-04 of 12-REVIEW.md "HOST": a new numbered plan appended after 12-18 that moves `installed.consumer.title-persist` (5.39 to 7.30 s hosted macOS) and the selftests (`repo.host-policy-selftest` 7.46 s, `repo.host-include-guard-selftest` 5.86 s) to a local lane is recommended, its order (before the bind, as "before anything else" of the rule reads, or after the final cold measurement) is an orchestrator decision; `host.pump.title-two-speeds` stays (SC2 evidence). The names still to come (12-16 two names, the 12-17 qualifier, about 23 s hosted macOS by its Phase 11 analogue) would take projection 2 to about 842 s, margin about 58 s. The final cold measurement after the 12-18 push is orchestrator-only and replaces every projection |
 | BIND (stub written by plan 12-16; 12-18 completes the hosted columns and the final seconds) | 2, both in existing families: `unit.core.api.abi-major-rule` (core test, label `phase12`) and `installed.controls.version-mismatch-major` (control row, label `phase12`); plans 12-14 and 12-15 and the 12-17 qualifier register no CTest name of their own | 0.40 s of COST (0.02 and 0.38; native `abi-major-rule` 0.003 s mean over 20 runs, max 0.004 s, the control 0.37 to 0.38 s over five runs at host load 4 to 6), against the research projection of 1.6 s for the two controls; the full local gate of plan 12-16 is recorded in "Bind steps" | not yet measured: the first hosted run of both names is the push of plan 12-17; the controls family adds one configure of the consumer against the moved prefix (about 4 times the 0.40 s of COST on hosted macOS by the HOST-wave ratio, about 1.6 s) | G4 exception of this ledger (no offset) | not a measurement: the HR-04 projection of 12-12 (842 s, margin about 58 s, with the 12-16 names and the 12-17 qualifier included) stands; these two names add about 1.6 s of that figure, so the reversal-rule decision of the orchestrator is unchanged by plan 12-16; the final cold measurement after the 12-18 push is orchestrator-only and replaces every projection |
+| BIND hosted (plan 12-17, run 45932117914 at `9f4e39a`, F-140; completes the hosted columns of the stub row above, 12-18 adds the final seconds) | 3 since the HOST row: `unit.core.api.abi-major-rule` and `installed.controls.version-mismatch-major` (plan 12-16) and `harness.phase12-qualification` (plan 12-17, 28 hermetic cases); 25 names carry `phase12` and the gate preset has 354 | 16.40 s of COST in all (0.02, 0.38 and 16; native `harness.phase12-qualification` 15.3 to 15.6 s through CTest at host load 6 to 8, 16.3 s in process, against the 23 s hosted projection of 12-12 for the qualifier) | hosted run 45932117914 (warm, Binutils cache hit key 69d0bfd4; F-140): gate-macos job 527 s, ctest 303 s on 354 names, against the HOST pair 572 s and 312 s on 351 names (F-138): job -45 s, ctest -9 s, test-inventory-selftest -11 s (73 s); the three names sum 33.30 s on hosted macOS (`harness.phase12-qualification` 32.29, the control 1.00, the unit case 0.01), a hosted multiplier of about 2.1 on the qualifier test (the Phase 11 analogue 25.13 s in the same run); gate-linux job 277 s, ctest 157 s, the three names 6.39 s (the first Linux compile of the 12-16 changes: passed) | G4 exception of this ledger (no offset) | not a measurement: cold P = 717 s (this warm sample plus the F-136 cold cost of 190 s), margin 183 s (20.3 percent); the F-139 cold measurement of the HOST head (547 s, margin 353 s) plus the three names gives 580 s, margin 320 s. Both are under 900 s and above the 120 s warning level, so the reversal rule is not triggered and no gate-trim plan is written; the final cold measurement after the 12-18 push is orchestrator-only and replaces every projection |
 
 Phase 12 G4 position (DR-26) and exception for owner review. No offset is claimed and no
 equal-time offset exists. The new CTest names are the required evidence of Phase 12 success
@@ -920,3 +921,97 @@ before each task commit.
   compile of the changed C unit (`core/tests/test_api_surface.c`, public header and shared test header
   only) therefore has no local Linux evidence in this plan; the hosted gate-linux job of the 12-17
   push compiles it with gcc 13.3. `sh scripts/pii-scan.sh --tree`: 0 findings.
+
+## Qualification steps
+
+Written by plan 12-17 Task 3. The Phase 12 qualifier (`scripts/qualify-phase12.py`, a thin delta of
+the unmodified `scripts/qualify-phase11.py`) binds the post-bind tree: the four golden hashes of the
+bound record at ABI 1.0, package 1.0.0, `bound_minor` 0 and `candidate_amendments` 0, the PHASE12_TESTS
+inventory (25 names), the bases (Wave 0, Host, Bind; the Qualification base is appended by plan 12-18)
+and one build id. The record below is a REHEARSAL: this result is a rehearsal and not final evidence.
+The final record, the claims and the evidence documents belong to plan 12-18. No tag was made.
+
+- Rehearsal record id: 20261127T020322125432Z-9f4e39a3 (private record under
+  `build/gate/12-qualification-private/`, never committed; commit `9f4e39a3caa6d1cd1f3ff2399b3fc3d89251904a`;
+  `rehearsal: true`; statement "this result is a rehearsal and not final evidence"). The qualifier was
+  run as `python3 -B scripts/qualify-phase12.py --native --rehearsal` (exit 0) and then
+  `--verify RECORD --rehearsal` (exit 0, same output with the rehearsal statement).
+- sdl-lane status: pass (the lane printed `[host-sdl] PASS`; SDL 3.4.10, dummy video and audio drivers,
+  mapping rows 30/30, 8 frames), so the record field `sc2_virtual_joystick` reads `closed`. A skip would
+  record `skipped` and `not closed (skipped)`; the two are distinct values in the record and in the
+  `--verify` output, a skip never fails the record, and only a pass closes the SC2 virtual-joystick
+  clause. Self-checking host glue under SDL's dummy drivers only: no rendering, timing or audio claim.
+- Claims of the record: `hardware_accuracy`, `oracle_comparison`, `release`, `real_time` and
+  `libfuturo_adapter` false; `final_abi` true means only that the record is bound at ABI 1.0 as
+  `docs/abi/FREEZE-CANDIDATE.md` states (an ABI identity, package 1.0.0, not a release version).
+- Binding: 87 bound source inputs (changed since the Wave 0 base plus the stage tools); inventory 25
+  names equal to `ctest -N -L phase12 -FA .` (the label selection without the two fixture setups,
+  `install.setup` and `installed.consumer.build`, which the JUnit of a real run adds: 27 testcases,
+  61.62 s summed); one build id `t64-build-v1-06a20d33f9a16380b4f97721549b37dcf8ad39421459f7e702821e74dd897203`
+  shared by the core, the installed core of the fresh-archive lane, the installed consumer and the
+  host tests (the ASan core carries its own); the four golden hashes equal the block of the bound record.
+
+Per-stage seconds of the rehearsal (one attempt each, none retried; limit is the kill deadline, at
+least 2 times the measurement beside it in the stage table; host load 1-minute 8.9 at the start, 9.6 at
+the end and 8 to 19 in between from unrelated processes, no limit widened):
+
+| Stage | Seconds | Limit | Attempts | Result |
+|-------|---------|-------|----------|--------|
+| ci-scanner | 3.09 | 90 | 1 | ok (selftest 138 cases or more) |
+| inventory | 0.94 | 60 | 1 | ok (354 names) |
+| oracle | 0.23 | 60 | 1 | ok (blocked; approval refused with exit 2) |
+| abi-cheap | 12.90 | 720 | 1 | ok (build 4.68 s, 16 names 8.22 s) |
+| phase12-suite | 22.12 | 180 | 1 | ok (JUnit 27 testcases, 61.62 s summed) |
+| host | 6.78 | 180 | 1 | ok (`check-host.sh build` 0.96 s, 9 `host.pump` names 5.82 s) |
+| sdl-lane | 2.19 | 180 | 1 | pass |
+| gate | 295.29 | 600 | 1 | ok (`[gate] PASS`, ctest 186.59 s, gate total 295 s) |
+| sanitize-shipped | 116.27 | 300 | 1 | ok (every case of cases.txt, sequence 20,000 steps) |
+| sanitize-instrumented | 696.03 | 1200 | 1 | ok |
+| tsan | 12.72 | 120 | 1 | ok (both digests equal the pinned composite digest) |
+| fresh-archive | 8.01 | 120 | 1 | ok (consumer requests 1.0; smoke and composite) |
+| sweep | 63.33 | 300 | 1 | ok (1599 shared lines, 0 differences) |
+| freeze | 0.24 | 60 | 1 | ok (the bound record recomputed from the fresh prefix) |
+| mutants | 60.19 | 240 | 1 | ok (12 of 12 killed, equivalent control survived, non-compiling control invalid) |
+
+The record's total is 1301.36 s of monotonic (awake) time. The wall clock between the first and the last
+stage was 1 h 0 min 33 s: the host slept about 39 minutes during `sanitize-instrumented` (the qualifier's
+clock does not count sleep, so no stage limit was affected). The gate (295 s against 148 s in plan 12-16)
+and the shipped sanitizer lane (116 s against 54 to 59 s in Phase 11) ran at host load 8 to 19 from
+unrelated processes, and the instrumented lane (696 s against 288 to 299 s in Phase 11) at the same load;
+the final run of plan 12-18 should be started at a quiet host (limits 600, 300 and 1200 s are 2.0, 2.6 and
+1.7 times these figures).
+
+Tools and limits. The hermetic test `harness.phase12-qualification` (28 cases; COST 16, TIMEOUT 150;
+15.3 to 15.6 s through CTest at host load 6 to 8) passes in the gate; `harness.phase11-qualification`
+and the closed Phase 11 qualifier and its test are unchanged (`git diff` empty). Diff stat against
+the Phase 11 files (`git diff --no-index --stat`): the qualifier 324 insertions and 113 deletions (the
+docstring, the constants, the stage table, the artifact list, the bound-record binding, and the necessary
+Phase 12 additions listed in the 12-17 SUMMARY), the test 426 insertions and 95 deletions.
+
+Preflight (`sh scripts/preflight-phase12.sh --no-replay`, run at the rehearsed head with a stand-in
+`docker` that exits 1 at once, because the engine did not answer in plan 12-16 either): every step ok
+(ctest-counts 23 rows, 0 mismatches; 25 names carry `phase12` and equal the PHASE12_TESTS block; abi-cheap
+16; host-cheap 7; the four guards; head-ci `de21fcf` success; timeout-audit 207 TIMEOUTs, 0 too low,
+lowest ratio 2.9; pii) except `linux-compile`, which printed `docker is unavailable and a C change exists`:
+an environmental limitation, not a pass (no local Linux compile evidence; the hosted gate-linux job of the
+push below is the first Linux compile of the 12-16 and 12-17 changes).
+
+Hosted pair of the rehearsed head (plan 12-17; routine fast-forward push of the pinned SHA
+`9f4e39a3caa6d1cd1f3ff2399b3fc3d89251904a` from `de21fcf7d5c30d8de59bde3d49143ab5dbb75faf`, no tag; the
+range had been scanned: `sh scripts/pii-scan.sh --range origin/main..HEAD`, `--tree` and
+`sh scripts/rights-scan.sh` each 0 findings):
+
+- ci.yml run 45932117914 (event push), conclusion success, no rerun. gate-macos job 527 s (ctest 303.02 s,
+  354 names, Binutils cache hit so a warm sample, cmake 4.5.0), gate-linux job 277 s (ctest 156.87 s, 354
+  names, cmake 3.31.6). The first hosted run of the bound tree at ABI 1.0: every name of the `phase12` label
+  passed on both operating systems, including the first Linux run of `unit.core.api.abi-major-rule`,
+  `installed.controls.version-mismatch-major` and the relabeled `installed.consumer.ops-handshake`, which
+  plan 12-16 could not run locally (act image, Docker unresponsive). Hosted seconds of the three new names
+  (macOS then Linux): `harness.phase12-qualification` 32.29 and 6.24, `unit.core.api.abi-major-rule` 0.01
+  and 0.00, `installed.controls.version-mismatch-major` 1.00 and 0.15. LOG.md rows: the Runs row of run
+  45932117914 and finding F-140. The BIND row of the Gate-growth ledger above states the margin to the 900 s
+  limit (cold projection 717 s, margin 183 s; 580 s from the F-139 measurement) and the reversal rule is not
+  triggered.
+- The rehearsal record above was taken at the pushed head, so the hosted pair and the rehearsal bind the
+  same commit. The final qualification (plan 12-18) re-runs the qualifier without `--rehearsal` after the
+  Qualification base is recorded; this rehearsal is not final evidence.
