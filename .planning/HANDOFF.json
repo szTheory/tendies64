@@ -1,0 +1,36 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-11-27T15:24:23.087Z",
+  "phase": "none",
+  "phase_name": "milestone v1.2 closed; no active phase",
+  "phase_dir": null,
+  "plan": null,
+  "task": null,
+  "total_tasks": 0,
+  "status": "paused",
+  "completed_tasks": [
+    {"id": 1, "name": "Plans 12-16, 12-17, 12-18 executed; qualified head f089171 with green hosted pair", "status": "done", "commit": "f089171"},
+    {"id": 2, "name": "Cold gate-macos measured: 606 s of 900 s (F-142)", "status": "done", "commit": "411e9cf"},
+    {"id": 3, "name": "Phase 12 verified and completed", "status": "done", "commit": "d34fdc0"},
+    {"id": 4, "name": "Milestone v1.2 audited, archived, retrospective written, pushed", "status": "done", "commit": "5ddc11c"}
+  ],
+  "remaining_tasks": [
+    {"id": 5, "name": "Start milestone v1.3 (/gsd-new-milestone)", "status": "not_started"}
+  ],
+  "blockers": [
+    {"description": "D4, D5 (VID-04), D6 release channel, D7 name and D8 private lane are open owner decisions", "type": "human_action", "workaround": "None needed to start v1.3 planning; no release or tag"},
+    {"description": "Local Docker engine unresponsive", "type": "external", "workaround": "Hosted gate-linux is the Linux evidence; re-run the preflight linux-compile step once Docker answers"}
+  ],
+  "async_jobs": [],
+  "human_actions_pending": [
+    {"action": "Fill the Phase 12 host checklist and review the nine recorded exceptions", "context": "docs/evidence/phase12-host-manual.md and docs/evidence/phase12-qualification.md; owner-attested, non-blocking", "blocking": false}
+  ],
+  "decisions": [
+    {"decision": "ABI 1.0 / package 1.0.0 as an ABI identity, not a release", "rationale": "Lets the major-version rule work without choosing a release channel", "phase": "12"},
+    {"decision": "Phase directories 10-12 not archived", "rationale": "Live qualifier and consumer-literals scripts read their PIN-IMPACT records by path", "phase": "12"},
+    {"decision": "v1.2 audit tech_debt accepted", "rationale": "AUTONOMY prompt disposition; debt listed in the audit", "phase": "12"}
+  ],
+  "uncommitted_files": [],
+  "next_action": "Run /gsd-new-milestone for v1.3 (read .planning/.continue-here.md first)",
+  "context_notes": "Tree clean and origin/main equals local main (5ddc11c) before this handoff commit. No tag exists."
+}
