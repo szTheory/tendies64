@@ -875,15 +875,17 @@ set_tests_properties(harness.phase11-qualification PROPERTIES
 # the bound-record, SDL-lane and fixture-closure cases, hermetic python cases of
 # scripts/qualify-phase12.py in scratch git repositories with stub stage tables; no build and
 # no nested CTest run here (F-113). The closed Phase 11 qualifier and its test stay
-# unmodified and keep their own name. COST is the measured native seconds (W-11). TIMEOUT by
+# unmodified and keep their own name. COST is the measured native seconds rounded up (W-11):
+# 15.3 to 15.6 s through CTest at host load 6 to 8 for 28 cases, 16.3 s in process. TIMEOUT by
 # the F-108 rule: the same kind of work as the Phase 11 name (git and interpreter starts, not
 # instrumented code, so the sanitizer preset runs them at the same speed), so a hosted runner
-# at the multiplier 4.3 needs well under 60 s and 150 s is more than twice that.
+# at the multiplier 4.3 needs about 70 s and 150 s is more than twice that and 9.6 times the
+# native figure.
 add_test(NAME harness.phase12-qualification
   COMMAND python3 -B ${CMAKE_SOURCE_DIR}/scripts/tests/test_phase12_qualification.py
     --selftest)
 set_tests_properties(harness.phase12-qualification PROPERTIES
-  LABELS "harness;qualification;phase12" TIMEOUT 150 COST 11)
+  LABELS "harness;qualification;phase12" TIMEOUT 150 COST 16)
 
 # Publisher controls: the module is compiled with the testing hooks, like the
 # test twin of the runner, and never reaches the production runner.
