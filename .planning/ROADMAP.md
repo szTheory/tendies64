@@ -259,7 +259,7 @@ Plans:
   2. The host pump (ring draining, injected clock, input mapping, scripted input) is unit-tested in the required gate; scripted input gives byte-identical video, audio and save results to the headless run at two fake-clock speeds; a virtual joystick under SDL dummy drivers exercises button and axis mapping
   3. The SDL3 shell is optional, off by default and in a non-gating lane; the core builds and links with no SDL dependency and a build without the host target succeeds
   4. A written LibFuturo fit evaluation pinned to a commit SHA exists with an expected no-adapter-now conclusion, and the final ABI bind is made, or each defect-driven amendment is recorded with evidence and a re-run installed-consumer suite
-**Plans:** 15/18 plans executed (linear chain; phase-waves W0 12-01 (reviewed with TITLE by 12-06), TITLE 12-02 to 12-05 reviewed by 12-06, HOST 12-07 to 12-11 reviewed by 12-12, BIND 12-13 to 12-16 (12-14 is the one coupled bind commit and the last ABI-moving plan; 12-13 before it and 12-15, 12-16 after it move no bound hash), QUALIFY 12-17 and 12-18; 12-11 is a conditional amendment slot that closes with a one-line SUMMARY and no code unless 12-10 records a host-found API defect with disposition amend; the cold gate-macos run after the 12-18 push is orchestrator-only)
+**Plans:** 16/18 plans executed (linear chain; phase-waves W0 12-01 (reviewed with TITLE by 12-06), TITLE 12-02 to 12-05 reviewed by 12-06, HOST 12-07 to 12-11 reviewed by 12-12, BIND 12-13 to 12-16 (12-14 is the one coupled bind commit and the last ABI-moving plan; 12-13 before it and 12-15, 12-16 after it move no bound hash), QUALIFY 12-17 and 12-18; 12-11 is a conditional amendment slot that closes with a one-line SUMMARY and no code unless 12-10 records a host-found API defect with disposition amend; the cold gate-macos run after the 12-18 push is orchestrator-only)
 **UI hint**: no (a development window only; skip UI-SPEC and UI-review steps)
 
 Plans:
@@ -309,7 +309,7 @@ Plans:
 - [x] 12-15-PLAN.md — BIND text (no bound hash): production comment and spec relabels, api.md bound sections and FN-02, record "Evidence for the bind" (FN-04), stale-text guard extension
 
 **Wave 16** *(blocked on Wave 15 completion)*
-- [ ] 12-16-PLAN.md — BIND proofs (no bound hash): abi-major-rule unit case, version-mismatch-major control, sweep, oracle-authority, act Linux version controls or recorded skip
+- [x] 12-16-PLAN.md — BIND proofs (no bound hash): abi-major-rule unit case, version-mismatch-major control, sweep, oracle-authority, act Linux version controls or recorded skip
 
 **Wave 17** *(blocked on Wave 16 completion)*
 - [ ] 12-17-PLAN.md — QUALIFY: Phase 12 qualifier (thin delta), hermetic test, rehearsal, push and hosted pair of the bind head
@@ -347,4 +347,4 @@ Priority order. NEXT and NEAR items name their promotion evidence and blocking d
 |-------|-----------|----------------|--------|-----------|
 | 10. Carry-in Closure Before the Freeze | v1.2 | 21/21 | Complete    | 2026-11-25 |
 | 11. Installed Consumer and Freeze Candidate | v1.2 | 29/29 | Complete    | 2026-11-26 |
-| 12. Minimal Host, Playable Homebrew and Final Bind | v1.2 | 15/18 | In Progress | - |
+| 12. Minimal Host, Playable Homebrew and Final Bind | v1.2 | 16/18 | In Progress | - |
