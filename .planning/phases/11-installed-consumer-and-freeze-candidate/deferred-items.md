@@ -29,6 +29,7 @@ The finding text below is kept as found.
   and add an aliasing row to `ops-advance` and to the generator (`op_advance`, a variant that points the result into
   `g->fx->ledger.slots[0]`) with the expected `INVALID_ARGUMENT` and an unchanged machine digest. The probe that found
   it is recorded in PIN-IMPACT "Install steps", plan 11-20. Class table row 1 (`INVALID_ARGUMENT`) needs no change.
+  status: acknowledged
 
 ## Preflight `head-ci` cannot pass while the plan under way is the one that repairs the red head (found by plan 11-28)
 
@@ -45,3 +46,4 @@ The finding text below is kept as found.
   the case where `HEAD` is a descendant of the red head) changes a Phase 11 guard script and needs a plan that names it.
 - **Suggested plan.** Low priority: only if another red-head repair plan is expected. Otherwise a future plan of this kind
   states "preflight green except `head-ci`, run from a copy" in its Task 3 wording.
+  status: acknowledged
