@@ -5,16 +5,16 @@ milestone_name: Embeddable and Playable
 current_phase: 12
 current_phase_name: Minimal Host, Playable Homebrew and Final Bind
 status: executing
-stopped_at: Completed 12-17-PLAN.md
-last_updated: "2026-11-27T03:19:25.037Z"
-last_activity: 2026-11-26
-last_activity_desc: "Plan 12-17 complete (QUALIFY: scripts/qualify-phase12.py and harness.phase12-qualification added, native rehearsal 20261127T020322125432Z-9f4e39a3 passed with SDL lane pass (not final evidence), head 9f4e39a pushed with no tag and a green hosted pair, run 45932117914: gate-macos 527 s, gate-linux 277 s, 354 names; cold projection 717 s against 900 s)"
-state_head: c06fc001efd058dbb091a3fd57832f07b719af1d
+stopped_at: Completed 12-18-PLAN.md
+last_updated: "2026-11-27T04:16:00.094Z"
+last_activity: 2026-11-27
+last_activity_desc: "Plan 12-18 complete (QUALIFY final: 12-REVIEW FINAL 0 blocking with SC2 closed by [host-sdl] PASS; Qualification base 656dc00; final record 20261127T033336673294Z-40b7d2d9 passed 15 stages first attempt, sdl-lane pass; docs/claims/phase12.md, docs/evidence/phase12-qualification.md, docs/evidence/phase12-host-manual.md (not run); head f089171 pushed with no tag and a green hosted pair, run 45937541960: gate-macos 559 s, gate-linux 286 s, 354 names)"
+state_head: 75fe74ffb082e9241326f372f3e7b7441c931186
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 68
-  completed_plans: 67
+  completed_plans: 68
   percent: 67
 ---
 
@@ -30,9 +30,10 @@ See: .planning/PROJECT.md (updated 2026-11-23)
 ## Current Position
 
 Phase: 12 (Minimal Host, Playable Homebrew and Final Bind) — EXECUTING
-Plan: 17 of 18
-Status: Ready to execute
-Last activity: 2026-11-26 — Plan 12-17 complete (QUALIFY: qualifier, hermetic test, native rehearsal, push and hosted pair)
+Plan: 18 of 18
+Status: All 18 Phase 12 plans complete; phase verification and the orchestrator-only cold gate-macos measurement are next
+Last activity: 2026-11-27 — Plan 12-18 complete (QUALIFY final: audit, Qualification base, final qualification, claims and evidence, final push and hosted pair)
+Note: plan 12-18 is complete (commits `656dc00433b24629f88b01795e17ef55225adf64` (12-REVIEW FINAL), `40b7d2d9997452a32619b677eeed84b4d68ea660` (Qualification base line, the qualified commit H), `849920a310484ce7ff711e22322ec46bb7a59335` (final record lines), `f089171611d077fd2df8fe47f81ec61d0f0fb108` (the three Phase 12 documents; pushed head, origin/main, no tag), `75fe74ffb082e9241326f372f3e7b7441c931186` (LOG F-141, the hosted row of the evidence document, PIN-IMPACT FINAL warm ledger row; local)): the final independent audit in the scratch clone `build/12-review/final/src` at `18636c8` (gate 354/354, sweep 0 differences, bound record from a fresh install 0 findings, oracle blocked, claims errors=0, SDL lane `[host-sdl] PASS`, PII range 87 commits 0 findings) has 0 blocking findings, 0 warnings and info FR-01 to FR-05, and SC2 is closed; Qualification base `656dc00433b24629f88b01795e17ef55225adf64`; the one final native qualification `20261127T033336673294Z-40b7d2d9` passed all 15 stages on the first attempt (1304 s, sdl-lane pass, `sc2_virtual_joystick` closed, build id `t64-build-v1-06a20d33...`) and `--verify` passes after every later commit; `docs/claims/phase12.md` holds three unit-tested blocks (7, 8 and 12 names), `docs/evidence/phase12-qualification.md` the evidence and nine recorded exceptions for owner review, `docs/evidence/phase12-host-manual.md` the owner checklist template (not run, never filled by an agent). Hosted pair of f089171: run 45937541960 green, gate-macos 559 s (ctest 321 s), gate-linux 286 s, 354 names; warm margin 341 s; cold projections 749 s and 580 s. API-05 and API-06 marked complete. Orchestrator-only next: the cold gate-macos measurement of the final set (F-142 and the final cold ledger row) and phase verification. Local unpushed: `75fe74f` and the plan metadata commit.
 Note: plan 12-17 is complete (commits `830860661ff1c4c576b1767d4cf1ab1ac5195e7a`, `b282294629118ce9d1eac0701e032a9b46dedd59`, `9f4e39a3caa6d1cd1f3ff2399b3fc3d89251904a` (pushed head, origin/main, no tag), LOG rows `336b73d1325782beefefbeae607c42057598cf77`, PIN-IMPACT record `c06fc001efd058dbb091a3fd57832f07b719af1d`): `scripts/qualify-phase12.py` (a thin delta of the unmodified Phase 11 qualifier; closed Phase 11 tools unchanged) binds the post-bind tree at ABI 1.0 (package 1.0.0, bound_minor 0, four golden hashes, 25-name PHASE12_TESTS inventory, one build id for core, installed core, installed consumer and host tests); `harness.phase12-qualification` (28 hermetic cases, COST 16) passes in the gate; the SDL lane stage records `pass` or `skipped` as distinct values and `sc2_virtual_joystick` is `closed` only by a pass. Rehearsal record `20261127T020322125432Z-9f4e39a3` (15 stages, one attempt each, SDL lane pass, "this result is a rehearsal and not final evidence", `--verify --rehearsal` ok). Hosted pair of the pushed head 9f4e39a: ci.yml run 45932117914 green, gate-macos 527 s (ctest 303 s) and gate-linux 277 s on 354 names, first hosted Linux run of the 12-16 case and control; harness.phase12-qualification 32.29 s hosted macOS; cold projection 717 s against 900 s (margin 183 s; 580 s from the F-139 measurement), reversal rule not triggered (F-140). Preflight linux-compile failed only for the unresponsive Docker engine (environmental). Plan 12-18 (final audit, Qualification base, final native qualification, claims, evidence, final push) is next; run it at a quiet host. Local unpushed: the 12-17 documentation commits.
 Note: plan 12-16 is complete (commits `6601efc5c832a8be436851587f0d8d2fee9730f2`, `6cecbd2036f49007e0f13df7da825d3d5420ac06`, B-34 relabel `b06a1327564a6159997f79a710f18631096bef76`, PIN-IMPACT record `a2321c96d01f662e35d63b615a696249978b1842`; nothing pushed, no tag): `unit.core.api.abi-major-rule` (verification-only, 44 checks, COST 0.02) and `installed.controls.version-mismatch-major` (request 2.0, COST 0.38, seeded wrong-headline copy fails) are registered with the label phase12 and in PHASE12_TESTS; the digest sweep against the Wave 0 base prints 0 differences over 1599 lines, the oracle request is still blocked, the installed suite passes 50 of 50 and the full gate passes 353 of 353 (the first run failed `gov.rights.repo` only on Finder `.DS_Store` files; `.DS_Store` is now in the clone-local `.git/info/exclude`); the act Linux run is recorded as `act-linux: SKIP` (Docker engine unresponsive, the act image has no CMake) and the preflight `linux-compile` step fails for that same reason: re-run it when Docker answers; the first Linux and hosted run of the new names is the 12-17 push.
 Note: plan 12-15 is complete (commits `1256a082aac530cf7103cc61657e7f5a5e58aab0`, `0a8c63b2e45e4aa5650a19a5ba88124741773a49`, `c5a8ff774cbd9e9717e3cd736443bb47f66ceed3`, PIN-IMPACT record `98f8e9ec1643d21a45e38076cbb8f5ff6310c065`; nothing pushed, no tag): `core/include`, the four goldens and every block line of the record are unchanged since the bind commit `03ccb01` (the three bound diffs are empty, `check-abi.py freeze` without `--write` has 0 findings). The four B-31 core comments and the 13 B-32 `docs/spec` lines are relabeled; `docs/spec/api.md` states ABI 1.0 (constants, the major-1 create rule, `find_package(tendies64 1.0)` with `SameMajorVersion`), the H-03 correction in 8.1 (a masked handler status consumes its event and the next advance continues; the permanent stall is the ring-backpressure case), the FN-02 advance row, and sections 13 to 16 for the rule after the bind; `docs/abi/FREEZE-CANDIDATE.md` holds "Evidence for the bind" (FN-04, prose only; it says the hosted pair of the bound head comes with the next push); `repo.stale-freeze-text` now scans `docs/spec` and `docs/abi`, denies `until (the )?Phase 11` and `the API is Phase 11`, and has the header-scoped `provisional` rule (t64_facade.h exempt by exact name) and the header joined-text rule, with 14 new seeds including `seeded-header-joined`. Full `ctest --preset gate` 351/351 (166 s). For 12-16: the abi-major-rule unit case and `installed.controls.version-mismatch-major`; the B-34 test-comment relabels ("minor below the library's" in `ops.c`, `sequence.c`, `test_api_struct_size.c`) are owned by no plan; the stale facade comment ("0.x freeze candidate bound by Phase 11") needs a plan that may edit `core/include`. Earlier: plan 12-14 is complete (FINAL ABI BIND at 1.0 in one coupled commit 03ccb01, proven first in a scratch clone: gate 351/351, sweep 0 differences).
@@ -130,6 +131,7 @@ Progress: [███████░░░] 67% (0 of 3 v1.2 phases complete)
 | Phase 12 P15 | 14min | 3 tasks | 13 files |
 | Phase 12 P16 | 26min | 3 tasks | 9 files |
 | Phase 12 P17 | 92min | 3 tasks | 7 files |
+| Phase 12 P18 | 52 min | 4 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -312,6 +314,7 @@ Progress: [███████░░░] 67% (0 of 3 v1.2 phases complete)
 - [Phase 12]: 12-16 act-linux recorded as SKIP (Docker engine unresponsive, act image has no CMake); preflight linux-compile fails for the same environmental reason; first Linux run of the new control and test is the hosted gate-linux of the 12-17 push
 - [Phase 12]: 12-17 qualify-phase12.py binds the post-bind tree (ABI 1.0, package 1.0.0, bound_minor 0; claims table with final_abi true only as the ABI binding); label selection read with -FA . and the two fixture setups added to the JUnit expectation as a constant; SDL lane recorded as pass or skipped with sc2_virtual_joystick closed only by a pass
 - [Phase 12]: 12-17 rehearsal 20261127T020322125432Z-9f4e39a3 (not final evidence; SDL pass) and push of 9f4e39a (no tag) with hosted pair run 45932117914: gate-macos 527 s, gate-linux 277 s, 354 names; cold projection 717 s against 900 s (F-140); harness.phase12-qualification 32.29 s hosted macOS
+- [Phase 12]: 12-18: the final native qualification ran once (record 20261127T033336673294Z-40b7d2d9, sdl-lane pass, sc2_virtual_joystick closed); the pushed head is the documents commit f089171 and the hosted-pair records stay local
 
 ### Pending Todos
 
@@ -337,8 +340,8 @@ None for v1.1. Carry-ins for v1.2 are listed in the Deferred Items table, the v1
 
 ## Session Continuity
 
-Last session: 2026-11-27T03:19:24.266Z
-Stopped at: Completed 12-17-PLAN.md
+Last session: 2026-11-27T04:15:59.333Z
+Stopped at: Completed 12-18-PLAN.md
 Resume file: None
 
 Historical closeout: [v1.0 roadmap](milestones/v1.0-ROADMAP.md), [audit](milestones/v1.0-MILESTONE-AUDIT.md), [lessons](RETROSPECTIVE.md).
