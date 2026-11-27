@@ -1,5 +1,20 @@
 # Milestones
 
+## v1.2 Embeddable and Playable (Shipped: 2026-11-26)
+
+**Phases completed:** 3 phases (10-12), 68 plans, 219 tasks. 14 requirements satisfied (GATE-01/02, VID-07, CORE-06, VER-06, RUN-07, VER-05, API-01..07); VID-04 stays deferred. Planning completion, not a software release: no tag, no release channel (D6).
+
+**Key accomplishments:**
+
+- Phase 10 closed every state-changing carry-in before the freeze: per-row oracle pins (one identity-only rebind), RDP depth under four new si-v2 ids with one state 26 / container v2 bump (shipped ids byte-identical, digest sweep 1599 lines, 0 differences), VG-01..05 pinned from hand-derived literals, a composite end-to-end guest through the supervised runner, and the macOS gate inside a 15-minute limit.
+- Phase 11 delivered the public instance API (poison and in-call guards, `struct_size` handshakes, 47 status classes), an installed package and an independent installed consumer (relocation, collision, doctored-header and version controls, a host-shaped loop, generators, sanitizer and TSan lanes), then a bound freeze candidate (header, layout, symbol, undefined-symbol goldens and a machine-read record).
+- Phase 12 added a pure-C host pump with an optional SDL3 shell, an authored 128x96 playable title run through the runner, the installed consumer and the pump (240 Hz and 3 Hz byte-equal), a written LibFuturo evaluation ("no adapter now") and the final ABI bind at 1.0 (package 1.0.0 as an ABI identity) in one coupled commit.
+- Final Phase 12 qualification record `20261127T033336673294Z-40b7d2d9` (15 stages, SDL lane pass, 12 of 12 mutants killed); hosted pair green at the qualified head (gate-macos 559 s warm, gate-linux 286 s, 354 names); cold gate-macos 606 s of 900 s (F-142).
+
+**Closeout:** audit `tech_debt` accepted under AUTONOMY (`milestones/v1.2-MILESTONE-AUDIT.md`). Known verification overrides: phase verifications of Phases 10 and 11 read `stale` (later phases changed their covered core files by design; integration was re-verified at the head by the milestone audit), judgment-tier prohibitions and the Phase 12 owner checklist are owner-attested non-blocking, 8 deferred-item notes acknowledged. Phase directories 10-12 stay in `.planning/phases/` because live gate scripts read their PIN-IMPACT records by path.
+
+---
+
 ## v1.1 Observable Machine (Shipped: 2026-11-20)
 
 **Phases completed:** 3 phases, 30 plans, 42 tasks

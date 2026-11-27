@@ -19,15 +19,13 @@ build and a reproducible, rights-cleared guest result. When tradeoffs arise,
 correct and deterministic behavior that can be verified comes before speed,
 breadth or polish.
 
-## Current Milestone: v1.2 Embeddable and Playable
+## Next Milestone Goals
 
-**Goal:** A frozen C-ABI proven through an independent installed consumer, plus a rights-cleared homebrew that plays in a minimal host, so Tendies64 does not stay tests-only.
-
-**Target features:**
-- Installed-package consumer (VER-05) and a C-ABI instance API with tested refusal, guest-stop and defect postconditions, frozen only after those tests pass (API-01..04)
-- Optional SDL3 minimal host, a rights-cleared playable homebrew path and a written LibFuturo fit evaluation (API-05..07)
-- Carry-ins from v1.1: Phase 7 test-strength debt (VG-01..05), RDP depth on the composite profiles (active on the descriptor 13 family under new registered ids, unit-tested and authored scope; inactive on descriptors 11 and 12 by decision K1), a composite end-to-end fixture, state-version and RDP-state completeness before the freeze, and hosted macOS gate-time and requalification follow-ups
-- VID-04 (differential oracle evidence) stays deferred and unscheduled until the owner decides D5 and the parallel-rdp rights audit completes; it is not a v1.2 phase requirement
+v1.2 "Embeddable and Playable" closed 2026-11-26 (see Current state). The next milestone is
+planned from the rolling roadmap in `.planning/ROADMAP.md`: v1.3 "Real Microcode" (RSP-to-RDP and
+RSP-to-AI paths from a rights-cleared microcode corpus, Expansion Pak, performance measurement
+only, plus the v1.2 carry-ins listed there). VID-04 stays deferred until owner decision D5 and the
+parallel-rdp rights audit. Run `/gsd-new-milestone` to scope it.
 
 ## Requirements
 
@@ -76,27 +74,22 @@ breadth or polish.
 - ✓ AI DMA, the two-deep queue, DACRATE cadence and interrupts producing raw audio, an exact-sample authored diagnostic, and headless raw video and audio capture as files — Phase 8, v1.1 (AUD-01/02/03, RUN-06; qualified on 3a41734).
 - ✓ Standard controller over SI/PIF from timed logical input, EEPROM 4/16 Kbit and SRAM save media with explicit device selection, save import/export, a scheduler ordering all devices with the quantum in the profile identity, a versioned canonical machine state export/import, and a timed-input replay artifact bound to profile, build and content hash — Phase 9, v1.1 (SAVE-01..04, CORE-02, CORE-04, CORE-05; unit-tested and regression-pinned, authored scope, qualified on d3211e9). Carried limits: Z depth inactive on the descriptor 11 and 12 composite profiles (decision K1, pinned by `unit.core.k1.*`; v1.2 Phase 10 activates it on the four descriptor 13 ids and keeps K1 for descriptors 11 and 12), a resumed runner run never reports pass, replay is cold-admit only.
 
+- ✓ Public C API on one instance: lifetime, profile selection, transactional admission, timed input, bounded advance, output rings with backpressure, reset/unload and defect poisoning, with `struct_size` handshakes, status classes and an installed package; an independent installed consumer (build, relocation, collision and doctored-header controls, a host-shaped loop, generators and sanitizer lanes) runs it with no source tree visible — Phases 11-12, v1.2 (VER-05, API-01..04; software-interface evidence tier only).
+- ✓ RDP depth (Z) on the composite profiles under new registered ids with one state/container version marker (state 26, `t64.state-container.v2`), per-row oracle pins, the Phase 7 test-strength debt (VG-01..05), a composite end-to-end fixture through the runner and the macOS gate inside its limit — Phase 10, v1.2 (GATE-01/02, VID-07, CORE-06, VER-06, RUN-07).
+- ✓ A minimal pure-C host pump with an optional SDL3 shell, an authored playable title (128x96, controller-driven) run through the runner, the installed consumer and the pump with two-speed byte equality, a written LibFuturo fit evaluation ("no adapter now"), and the final ABI bind at 1.0 with package 1.0.0 (an ABI identity, not a release version) — Phase 12, v1.2 (API-05..07). The SDL clause is closed by a local lane PASS on one macOS host; a physical-controller checklist is owner-attested and pending.
+
 ### Active
 
 These are hypotheses until shipped and verified. They are scoped further in
 `REQUIREMENTS.md`.
 
 - [ ] RDP differential conformance evidence (VID-04) with labeled out-of-tree oracles, only after the owner's D5 authority decision and the parallel-rdp per-file rights audit; descoped from v1.1 on 2026-11-20
-- [ ] Accessories (Controller Pak, Rumble Pak, Transfer Pak) as separate, explicitly named profiles; RDP depth (Z) on the composite profiles; a composite end-to-end fixture (video, audio, input, save) through the runner
+- [ ] Accessories (Controller Pak, Rumble Pak, Transfer Pak) as separate, explicitly named profiles
 - [ ] Broader RSP microcode compatibility and later audio/video task evidence,
       beyond the qualified functional profile's ROM-level tests
 - [ ] Public external diagnostic CI only after D2 rights permission; keep
       qualified external diagnostics local and preserve the cleared authored
       hello as the permanent public smoke lane
-- [ ] A public core API that defines instance lifetime, profile selection,
-      content admission and refusal, timed input, bounded advancement, raw
-      output buffers, reset/unload and failure postconditions before it is
-      frozen
-- [ ] An independent installed consumer test that runs the same permitted
-      headless fixture against a clean installed package
-- [ ] A legally cleared, playable homebrew path (an original or
-      rights-reviewed source-built title) so the project does not become
-      tests-only
 - [ ] Named performance benchmarks, run only after a repeatable correctness
       baseline exists, with throughput and latency reported separately from CI
       time
@@ -206,6 +199,8 @@ remain disclosed; current artifacts have immutable consumer/binding retention.
 
 Milestone v1.1 "Observable Machine" (closed 2026-11-20) added the software RDP and VI, the AI path with raw A/V capture, the SI/PIF controller, save media, the full-device scheduler, canonical state export/import and input replay, each qualified on exact native and hosted records with authored-scope, unit-tested claims (Phase 8 on 3a41734, Phase 9 on d3211e9, tag phase09-f2). VID-04 (differential oracle evidence) was descoped to v1.2 by the owner on 2026-11-20 and no oracle was run. The public API/ABI freeze, an installed independent consumer and a playable cleared homebrew remain later milestone work. No software release or release-version tag has been published. The working name remains uncleared; D2/D5/D6 and physical/rights stops remain unchanged.
 
+Milestone v1.2 "Embeddable and Playable" (closed 2026-11-26) added the C API and its installed-package consumer, RDP depth on the descriptor 13 family, the minimal host pump with an optional SDL3 shell, the authored playable title and the final bind of the ABI at 1.0 (package 1.0.0, an ABI identity: no tag, no release, D6 unselected). Evidence tier is authored-scope software interface; no compatibility, accuracy, real-time or hardware claim, and no LibFuturo adapter exists. Accepted debt is listed in `.planning/milestones/v1.2-MILESTONE-AUDIT.md`.
+
 ## Constraints
 
 - **Rights:** Do not commit, use in public CI, or redistribute protected PIF,
@@ -253,7 +248,11 @@ Milestone v1.1 "Observable Machine" (closed 2026-11-20) added the software RDP a
 | Repository visibility: public under the szTheory GitHub account (owner, 2026-11-09) | Owner decision. No PII, credentials or private paths in any tracked file or commit. Commits use the GitHub noreply address. | ✓ Good |
 | One composite software-profile family (descriptor 12, state v25) for SI/save/AI with the scheduler order and quantum in the profile identity (v1.1 Phase 9) | Adds SI, saves and state without changing the 17 earlier profile ids; digests of all earlier ids stay byte-identical. | ✓ v1.1 verified; RDP combiner and coverage state carried after independent review |
 | Independent review, audit and goal verification before final qualification (v1.1 Phase 9) | Found a digest completeness gap, an importer bounds hole and a timeout that would have blocked qualification, none visible to self-comparing tests. | ✓ Keep for every state-bearing phase |
-| VID-04 descoped to v1.2 (owner, 2026-11-20) | Needs the D5 oracle authority decision, a rights audit, a cleared corpus and a replay adapter. | — Pending (owner, v1.2) |
+| VID-04 descoped to v1.2 (owner, 2026-11-20) | Needs the D5 oracle authority decision, a rights audit, a cleared corpus and a replay adapter. | — Pending (owner); not scheduled in v1.3 |
+| Freeze candidate at Phase 11, final ABI bind at the end of Phase 12 after a real host used the API (v1.2 fan-out, 2026-11-23) | No external consumer existed, so an early lock protected nobody; the host found 15 API observations and none needed an amendment. | ✓ Bound at ABI 1.0 (commit 03ccb01) |
+| ABI 1.0 / package 1.0.0 as an ABI identity, not a release version (owner, 2026-11-26) | Lets `find_package(tendies64 1.0)` and the create-time major rule work without choosing a release channel (D6 stays open). | ✓ Good |
+| One shipped profile id and ROM for the title through runner, consumer and pump (v1.2 Phase 12) | Three independent comparators against one oracle-derived expectation, runner-recorded and consumer-recorded pins labelled not independent. | ✓ Keep |
+| Accept `tech_debt` milestone audits under AUTONOMY (v1.2) | The debt is owner-review bookkeeping, not delivery gaps; it is listed in the audit. | ✓ Keep, review the nine exceptions |
 | Release channel and versioning | Still an open owner decision. Releases wait on it. | — Pending (owner) |
 
 ## Evolution
@@ -274,4 +273,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-23 after starting milestone v1.2*
+*Last updated: 2026-11-27 after v1.2 milestone*

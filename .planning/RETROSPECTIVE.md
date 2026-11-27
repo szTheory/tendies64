@@ -119,6 +119,44 @@ from current support evidence. No tag or software release is implied by v1.0.
 
 ---
 
+## Milestone: v1.2 — Embeddable and Playable
+
+**Shipped:** 2026-11-26 (planning milestone, not a software release)
+**Phases:** 3 | **Plans:** 68 | **Tasks:** 219
+
+### What Was Built
+- Phase 10: per-row oracle pins, RDP depth under new si-v2 ids with one state 26 / container v2 bump, VG-01..05, a composite end-to-end guest and the macOS gate inside its limit. Phase 11: the instance C API, an installed package, an independent installed consumer and a bound freeze candidate. Phase 12: the host pump and optional SDL3 shell, an authored playable title through runner, consumer and pump, the LibFuturo evaluation and the final ABI bind at 1.0.
+- VID-04 stays deferred; no oracle ran and no release, tag or channel exists (D6).
+
+### What Worked
+- Settling every digest-moving carry-in before the API shape (Phase 10 before 11) meant the freeze rested on settled behavior; the digest sweep against a fixed base (1599 lines, 0 differences) was the cheap proof at every wave and at the bind.
+- A candidate freeze with a machine-read record, then one coupled bind commit proven first in a scratch clone, left the final bind as a mechanical step; a real host then found 15 API observations and none needed an amendment.
+- One sequential executor per plan with a shared brief (root-pin script, running notes), per-wave independent review in scratch clones, and orchestrator-written numbered defect-fix plans kept 68 coupled plans consistent.
+- Three independent comparators (runner, consumer, pump) against one oracle-derived title expectation, with their pins labelled "not independent".
+
+### What Was Inefficient
+- Plans and phases exceeded the G5 guide (Phase 11 had 29 plans, Phase 12 had 18) and the gate grew 254 to 354 names; the cold gate-macos margin was the recurring worry until measured (731, 729 and 606 s of 900 s).
+- Host load (other projects, a stuck system daemon) failed wall-backstop stages and a hung Docker engine removed the local Linux compile; both cost retries and left Linux evidence to hosted runs.
+- A private path in an orchestrator-written plan forced a local range rebuild once; verification fingerprints of closed phases go stale when later phases change core files.
+- SUMMARY `requirements-completed` frontmatter was left empty for Phase 11 and most of Phase 12, so the three-source cross-check relies on VERIFICATION evidence.
+
+### Patterns Established
+- Timing and gate-growth projections are replaced by one measured cold run at the final head (orchestrator-only: delete the macOS Binutils cache entry, dispatch ci.yml).
+- A numbered defect-fix plan, never an edit outside the plan list; header edits after the bind cost an ABI minor.
+- Fixture-closure counting in CTest regex rows; `-L phase12 -FA .` for label selections.
+
+### Key Lessons
+1. Bind the ABI only after a real host used it; keep the older-minor acceptance test alive by keeping a consumer built with the 1.0 header at the first 1.1 amendment.
+2. Never write absolute home or workspace paths into plan files, SUMMARYs or PIN-IMPACT; scan the tree before every docs commit and the range before every push.
+3. Run the milestone-close checks that read phase directories before archiving them: live scripts (qualifiers, consumer-literals) bind PIN-IMPACT paths, so v1.2 phase directories stay in place.
+4. Close owner-review items (nine exceptions, the physical checklist, D4 to D8) in one batch at the milestone boundary rather than carrying them silently.
+
+### Cost Observations
+- Model mix: sonnet executors for most plans, opus for the final audit, review and bind-critical plans.
+- Notable: native qualification of a final head takes about 22 minutes (15 stages); plan wall time was dominated by gate, sanitizer and hosted runs, not by authoring.
+
+---
+
 ## v1.1 planning discovery lesson
 
 The plan initializer treated advisory `*-RESEARCH.md` notes as complete phase
