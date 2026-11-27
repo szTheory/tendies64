@@ -405,7 +405,7 @@ static int case_handshake(const t64c_args *args) {
     info.abi_version = T64_ABI_VERSION - 1u;
     machine = sentinel_machine;
     refused(&tally, t64_machine_create(&info, &machine), T64_STATUS_ABI_MISMATCH,
-            "create with the minor version one below the library's", NULL, NULL);
+            "create with major version 0 (T64_ABI_VERSION minus one)", NULL, NULL);
     info.abi_version = T64_ABI_VERSION + (UINT32_C(1) << 16);
     machine = sentinel_machine;
     refused(&tally, t64_machine_create(&info, &machine), T64_STATUS_ABI_MISMATCH,

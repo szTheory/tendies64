@@ -109,7 +109,9 @@ static void case_handshake(void) {
   check_refused(&info, &counts, T64_STATUS_STRUCT_TOO_SMALL);
   info.struct_size = (uint32_t)sizeof(t64_machine_create_info);
 
-  /* A skewed ABI version: while the major is 0 the minor must match. */
+  /* A skewed ABI version at the bound major 1: a minor above the library's,
+   * major 0 (T64_ABI_VERSION - 1u is 0.65535) and another major are each
+   * ABI_MISMATCH. unit.core.api.abi-major-rule states the rule itself. */
   info.abi_version = T64_ABI_VERSION + 1u;
   check_refused(&info, &counts, T64_STATUS_ABI_MISMATCH);
   info.abi_version = T64_ABI_VERSION - 1u;
