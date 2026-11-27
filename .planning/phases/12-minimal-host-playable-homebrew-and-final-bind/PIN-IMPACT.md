@@ -1016,3 +1016,56 @@ range had been scanned: `sh scripts/pii-scan.sh --range origin/main..HEAD`, `--t
 - The rehearsal record above was taken at the pushed head, so the hosted pair and the rehearsal bind the
   same commit. The final qualification (plan 12-18) re-runs the qualifier without `--rehearsal` after the
   Qualification base is recorded; this rehearsal is not final evidence.
+
+Final qualification (plan 12-18 Task 2). The final independent audit (12-REVIEW.md "FINAL", head
+`18636c8aa35870628e5f99d50e8ab350d623c680`) was committed as `656dc00433b24629f88b01795e17ef55225adf64`, the
+Qualification base line above ("Wave bases") was committed alone as `40b7d2d9997452a32619b677eeed84b4d68ea660`
+(named H), and at H, with `origin/main` `9f4e39a` green (run 45932117914) and the host 1-minute load 4.99
+(after a bounded wait for it to fall under 9), `python3 -B scripts/qualify-phase12.py --native` (no
+`--rehearsal`) ran once and passed every stage on its first attempt (exit 0; no retry, no limit widened);
+`python3 -B scripts/qualify-phase12.py --verify RECORD` then exited 0 with `record verified against the
+current tree`.
+
+- Final record: build/gate/12-qualification-private/20261127T033336673294Z-40b7d2d9/record.json
+- Final record id: 20261127T033336673294Z-40b7d2d9 (private, never committed; `rehearsal: false`, `status: complete`, commit `40b7d2d9997452a32619b677eeed84b4d68ea660`, record SHA-256 `24d5db59e6f2bd3fd9f2a8a3a5090123d776e761298a1fc458737fb1d7c04a3b`)
+- Final record sdl-lane status: pass (`sc2_virtual_joystick` closed; the lane printed `[host-sdl] PASS` after `[host-sdl] sdl 3.4.10`, `video-driver dummy`, `audio-driver dummy`, `mapping rows 30/30`, `title ok`, `blit ok`, `frames 8`, `audio ok`)
+
+Binding of the final record: 87 bound source inputs (manifest SHA-256
+`0a88d0e83627ae55e90223bb512464b5fd8e7c075b4bc73bf869bc6c948585dc`), an empty `qualification_drift_paths`,
+the four bases (Wave 0, Host, Bind, Qualification), the 25-name inventory (names SHA-256
+`8fc10a2181051898f1cc219a5b7c021c5666b6b3407d791a978927fa9c9ec273`), the bound record
+`docs/abi/FREEZE-CANDIDATE.md` (SHA-256 `856290c58397444abdec149cc842eb7a53b2bd15ea2028418ee2033ed775e162`)
+with its four golden hashes, one build id `t64-build-v1-06a20d33f9a16380b4f97721549b37dcf8ad39421459f7e702821e74dd897203`
+for the core, the installed core of the fresh-archive lane, the installed consumer and the host tests (the
+ASan core `t64-build-v1-44dbfa2f8db9929ebfb57f8c85bca599dd56f98b24fd15c3917b11c28ffc5a54`, the runner
+`t64-runner-v1-bab106e9f6484a894809133c67c4385472b2462ef646ad44195e3162a42660b6` and its test twin
+`t64-runner-v1-eb6db04c066f0727b85ba6507db6190ed10739965f3575012e06e829b9089d70`), and the claims
+`hardware_accuracy`, `oracle_comparison`, `release`, `real_time` and `libfuturo_adapter` false and
+`final_abi` true (only the ABI 1.0 binding). Total 1304.01 s on the qualifier clock (03:33:36Z to
+03:55:20Z, no host sleep); host 1-minute load 4.99 at the start and 6.83 at the end, 15 to 41 during the
+gate and sanitizer stages from unrelated processes, so the seconds are upper bounds.
+
+| Stage | Seconds | Limit | Attempts | Result |
+|-------|---------|-------|----------|--------|
+| ci-scanner | 2.56 | 90 | 1 | ok (selftest 138 cases) |
+| inventory | 0.76 | 60 | 1 | ok (354 names) |
+| oracle | 0.20 | 60 | 1 | ok (blocked; approval refused with exit 2) |
+| abi-cheap | 8.97 | 720 | 1 | ok (16 names) |
+| phase12-suite | 14.45 | 180 | 1 | ok (JUnit 27 testcases, 39.8 s summed, SHA-256 `f1d8c0430667a61aa1949046935ccde7033e8f0a09b083be54e99e8dcff56ab5`) |
+| host | 5.81 | 180 | 1 | ok (`check-host.sh build`, 9 names with the install fixture) |
+| sdl-lane | 1.92 | 180 | 1 | pass |
+| gate | 307.28 | 600 | 1 | ok (`[gate] PASS`, ctest 354 of 354 in 155.44 s, gate total 307 s) |
+| sanitize-shipped | 150.85 | 300 | 1 | ok (27 cases, sequence 20,000 steps at stride 1, `checks=98461 failures=0`) |
+| sanitize-instrumented | 682.32 | 1200 | 1 | ok (27 cases, stride 8, `checks=97335 failures=0`) |
+| tsan | 9.33 | 120 | 1 | ok (both digests `97f27027...1267c`, `checks=18 failures=0`) |
+| fresh-archive | 4.09 | 120 | 1 | ok (archive of H, 1524 files; smoke and composite) |
+| sweep | 61.19 | 300 | 1 | ok (1599 shared lines, 0 differences) |
+| freeze | 0.22 | 60 | 1 | ok (abi 1.0, package 1.0.0, 0 findings) |
+| mutants | 53.24 | 240 | 1 | ok (12 of 12 killed, equivalent control survived, non-compiling control invalid) |
+
+The tightest ratios of limit to observed seconds are 1.76 (sanitize-instrumented), 1.95 (the gate) and 1.99
+(sanitize-shipped), all at the unrelated load named above; no limit was hit and none was widened. The
+rehearsal of 12-17 (`20261127T020322125432Z-9f4e39a3`) stays labelled as a rehearsal and is not final
+evidence. Only the three Phase 12 evidence documents (`docs/claims/phase12.md`,
+`docs/evidence/phase12-qualification.md`, `docs/evidence/phase12-host-manual.md`), `docs/ci-reviews/LOG.md`
+and `.planning/` may change after the base; any other path makes `--verify` refuse.
