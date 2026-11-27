@@ -54,7 +54,7 @@ corpus and a replay adapter (Plan 07-13). No oracle work happens until then.
 
 - [x] **Phase 10: Carry-in Closure Before the Freeze** - Per-row oracle pins, the macOS gate inside its limit, the Phase 7 test-strength debt, Z depth under new profile ids with one state/container version marker, and one composite end-to-end fixture (completed 2026-11-25)
 - [x] **Phase 11: Installed Consumer and Freeze Candidate** - Installable instance API, an independent installed consumer with a host-shaped loop, mechanical API-04 and refusal-is-a-no-op checks, then a bound freeze candidate (completed 2026-11-26)
-- [ ] **Phase 12: Minimal Host, Playable Homebrew and Final Bind** - Host pump and optional SDL3 shell on the installed API, an authored playable title, the LibFuturo evaluation, then the final ABI bind
+- [x] **Phase 12: Minimal Host, Playable Homebrew and Final Bind** - Host pump and optional SDL3 shell on the installed API, an authored playable title, the LibFuturo evaluation, then the final ABI bind (completed 2026-11-26)
 
 **Execution notes (fan-out 2026-11-23; see [synthesis](research/v1.2-fanout/SYNTHESIS.md)):** one phase per group, about 10-15 plans each, plans capped at 4 tasks and about 45 minutes with no decimal plans; every phase opens with a scripted preflight under about 90 s and closes with a review-fix-reverify wave run in scratch clones; at most 3 phases and one owner-decision batch per milestone.
 
@@ -259,7 +259,7 @@ Plans:
   2. The host pump (ring draining, injected clock, input mapping, scripted input) is unit-tested in the required gate; scripted input gives byte-identical video, audio and save results to the headless run at two fake-clock speeds; a virtual joystick under SDL dummy drivers exercises button and axis mapping
   3. The SDL3 shell is optional, off by default and in a non-gating lane; the core builds and links with no SDL dependency and a build without the host target succeeds
   4. A written LibFuturo fit evaluation pinned to a commit SHA exists with an expected no-adapter-now conclusion, and the final ABI bind is made, or each defect-driven amendment is recorded with evidence and a re-run installed-consumer suite
-**Plans:** 18/18 plans executed (linear chain; phase-waves W0 12-01 (reviewed with TITLE by 12-06), TITLE 12-02 to 12-05 reviewed by 12-06, HOST 12-07 to 12-11 reviewed by 12-12, BIND 12-13 to 12-16 (12-14 is the one coupled bind commit and the last ABI-moving plan; 12-13 before it and 12-15, 12-16 after it move no bound hash), QUALIFY 12-17 and 12-18; 12-11 is a conditional amendment slot that closes with a one-line SUMMARY and no code unless 12-10 records a host-found API defect with disposition amend; the cold gate-macos run after the 12-18 push is orchestrator-only)
+**Plans:** 18/18 plans complete (linear chain; phase-waves W0 12-01 (reviewed with TITLE by 12-06), TITLE 12-02 to 12-05 reviewed by 12-06, HOST 12-07 to 12-11 reviewed by 12-12, BIND 12-13 to 12-16 (12-14 is the one coupled bind commit and the last ABI-moving plan; 12-13 before it and 12-15, 12-16 after it move no bound hash), QUALIFY 12-17 and 12-18; 12-11 is a conditional amendment slot that closes with a one-line SUMMARY and no code unless 12-10 records a host-found API defect with disposition amend; the cold gate-macos run after the 12-18 push is orchestrator-only)
 **UI hint**: no (a development window only; skip UI-SPEC and UI-review steps)
 
 Plans:
@@ -347,4 +347,4 @@ Priority order. NEXT and NEAR items name their promotion evidence and blocking d
 |-------|-----------|----------------|--------|-----------|
 | 10. Carry-in Closure Before the Freeze | v1.2 | 21/21 | Complete    | 2026-11-25 |
 | 11. Installed Consumer and Freeze Candidate | v1.2 | 29/29 | Complete    | 2026-11-26 |
-| 12. Minimal Host, Playable Homebrew and Final Bind | v1.2 | 18/18 | In Progress | - |
+| 12. Minimal Host, Playable Homebrew and Final Bind | v1.2 | 18/18 | Complete    | 2026-11-26 |
