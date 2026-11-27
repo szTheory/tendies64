@@ -19,6 +19,7 @@ import builtins
 import contextlib
 import hashlib
 import importlib.util
+import io
 import json
 import os
 import re
@@ -66,12 +67,23 @@ CASE_NAMES: tuple[str, ...] = (
     "claims-pinned",
     "evidence-docs-unbound",
     "artifact-identity-and-freeze-binding",
+    "bound-record-binding",
+    "sdl-lane-status",
+    "host-manual-edit-after-record",
 )
 
 STUB_NAMES = ["t.one", "t.two"]
-EXPECTED_STAGES = ["ci-scanner", "inventory", "oracle", "abi-cheap", "installed", "gate",
-                   "sanitize-shipped", "sanitize-instrumented", "tsan", "fresh-archive",
-                   "sweep", "freeze"]
+EXPECTED_STAGES = ["ci-scanner", "inventory", "oracle", "abi-cheap", "phase12-suite", "host",
+                   "sdl-lane", "gate", "sanitize-shipped", "sanitize-instrumented", "tsan",
+                   "fresh-archive", "sweep", "freeze", "mutants"]
+SDL_PASS_OUTPUT = ("[host-sdl] sdl 3.4.10\n[host-sdl] video-driver dummy\n"
+                   "[host-sdl] audio-driver dummy\n[host-sdl] mapping rows 30/30\n"
+                   "[host-sdl] title ok\n[host-sdl] blit ok\n[host-sdl] frames 8\n"
+                   "[host-sdl] audio ok\n[host-sdl] PASS\n")
+SDL_SKIP_OUTPUT = ("[host-sdl] SKIP: SDL3 >= 3.2.0 not found (link-only system package; "
+                   "this lane installs nothing)\n")
+SC2_CLOSED = "closed"
+SC2_NOT_CLOSED = "not closed (skipped)"
 EVIDENCE_DOCS = ("docs/claims/phase12.md", "docs/evidence/phase12-qualification.md",
                  "docs/evidence/phase12-host-manual.md")
 CLAIMS = {"hardware_accuracy": False, "oracle_comparison": False, "release": False,
@@ -103,23 +115,37 @@ def _write(root: Path, relative: str, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
-def _freeze_files(root: Path, *, abi: str = "0.1") -> None:
-    """A freeze record with a machine-read block and the four golden files it hashes."""
+def _freeze_files(root: Path, *, abi: str = "1.0", package: str = "1.0.0",
+                  bound: bool = True, rows: int = 0, candidate: int | None = None) -> None:
+    """A bound freeze record (plan 12-14) with its four golden files and an amendment log.
+
+    bound False writes a candidate block (no bound_minor, no candidate_amendments); rows is
+    the number of dated amendment-log rows (all made before the bind); candidate is the value
+    of candidate_amendments (default rows).
+    """
     contents = {
         "docs/abi/header.sha256": "aa  include/tendies64/t64_machine.h\n",
         "docs/abi/public-symbols.txt": "t64_one\nt64_two\n",
         "docs/abi/layout.c": "/* pins */\n",
         "docs/abi/status-classes.txt": "OK 0 ok\n",
     }
-    block = [f"abi_version: {abi}", "package_version: 0.1.0", "amendments: 0"]
+    block = [f"abi_version: {abi}", f"package_version: {package}", f"amendments: {rows}"]
+    if bound:
+        block += ["bound_minor: 0",
+                  f"candidate_amendments: {rows if candidate is None else candidate}"]
     for key, relative in GOLDEN_FILES.items():
         _write(root, relative, contents[relative])
         block.append(f"{key}: {hashlib.sha256(contents[relative].encode()).hexdigest()}")
     block += ["public_function_count: 2", "status_count: 1", "stop_reason_count: 0",
               "layout_structs: 1", "layout_members: 2", "layout_constants: 3", "padding_holes: 2",
               "padding_hole: t64_a struct_size 4 4", "padding_hole: t64_b rule 20 4"]
+    log = ["| date | golden | change | defect evidence | consumer suite run | new minor |",
+           "|------|--------|--------|-----------------|--------------------|-----------|"]
+    log += [f"| 2026-11-2{index} | layout | a pre-bind row | evidence | run | 1.0 |"
+            for index in range(rows)]
     _write(root, "docs/abi/FREEZE-CANDIDATE.md",
-           "# Freeze candidate\n\n```freeze-record\n" + "\n".join(block) + "\n```\n")
+           "# Freeze record\n\n```freeze-record\n" + "\n".join(block) + "\n```\n\n"
+           "## Amendment log\n\n" + "\n".join(log) + "\n")
 
 
 def _pin_text(**labels: str) -> str:
@@ -176,15 +202,34 @@ def scratch_repo() -> Iterator[dict]:
                 item.stop()
 
 
+SDL_MARKER = r"^\[host-sdl\] (PASS|SKIP: SDL3 >= 3\.2\.0 not found .*)$"
+
+
+def _sdl_stub(output: str, *, exit_code: int = 0) -> dict:
+    """A stub sdl-lane stage whose one command prints the given lane output."""
+    script = f"import sys; sys.stdout.write({output!r}); sys.exit({exit_code})"
+    return qualify._stage("sdl-lane", "stub derivation of the sdl lane", [
+        qualify._command(["python3", "-c", script], 30, 0.05, expect=0,
+                         marker=SDL_MARKER, check="sdl-lane")])
+
+
+def _stub_table_sdl(output: str, *, exit_code: int = 0):
+    def table(bases: dict) -> list[dict]:
+        return [
+            qualify._stage("alpha", "stub derivation", [
+                qualify._command(["python3", "-c", "print('alpha ok')"], 30, 0.05,
+                                 marker=r"^alpha ok$")]),
+            qualify._stage("beta", "stub derivation", [
+                qualify._command(["python3", "-c", "import sys; sys.exit(3)"], 30, 0.05,
+                                 expect=3)]),
+            _sdl_stub(output, exit_code=exit_code),
+        ]
+    return table
+
+
 def _stub_table(bases: dict) -> list[dict]:
-    return [
-        qualify._stage("alpha", "stub derivation", [
-            qualify._command(["python3", "-c", "print('alpha ok')"], 30, 0.05,
-                             marker=r"^alpha ok$")]),
-        qualify._stage("beta", "stub derivation", [
-            qualify._command(["python3", "-c", "import sys; sys.exit(3)"], 30, 0.05,
-                             expect=3)]),
-    ]
+    """alpha, beta and a stub sdl-lane stage that skips (the default lane state)."""
+    return _stub_table_sdl(SDL_SKIP_OUTPUT)(bases)
 
 
 def _add_qualification_base(scratch: dict) -> str:
@@ -410,12 +455,16 @@ class Phase12Qualification(unittest.TestCase):
                 self.assertEqual(record["wave_bases"]["Host base"], scratch["base"])
                 self.assertEqual(record["wave_bases"]["Bind base"], scratch["base"])
                 self.assertEqual(sorted(record["freeze_record"]["goldens"]), sorted(GOLDEN_FILES))
-                self.assertEqual(record["freeze_record"]["block"]["abi_version"], "0.1")
+                self.assertEqual(record["freeze_record"]["block"]["abi_version"], "1.0")
+                self.assertEqual(record["freeze_record"]["block"]["bound_minor"], "0")
                 self.assertEqual(record["artifact_identity"], {})
                 self.assertEqual(record["wave_bases"]["Qualification base"], audited)
                 self.assertEqual(record["inventory"]["names"], sorted(STUB_NAMES))
                 self.assertEqual(record["inventory"]["count"], record["inventory"]["label_count"])
-                self.assertEqual([s["name"] for s in record["stages"]], ["alpha", "beta"])
+                self.assertEqual([s["name"] for s in record["stages"]],
+                                 ["alpha", "beta", "sdl-lane"])
+                self.assertEqual(record["sdl_lane_status"], "skipped")
+                self.assertEqual(record["sc2_virtual_joystick"], SC2_NOT_CLOSED)
                 self.assertEqual(record["qualification_drift_paths"], [])
                 self.assertEqual(record["source_snapshot"]["base"], scratch["base"])
                 # Planning, CI-ledger and evidence-document commits after the audited head
@@ -538,6 +587,9 @@ class Phase12Qualification(unittest.TestCase):
             with mock.patch.object(qualify, "_stage_table", _stub_table):
                 qualify.verify_record(path, rehearsal=True)
                 with mutated_record(path, lambda r: r["stages"].pop()):
+                    self.refuses("lacks stage(s): sdl-lane", qualify.verify_record, path,
+                                 rehearsal=True)
+                with mutated_record(path, lambda r: r["stages"].pop(1)):
                     self.refuses("lacks stage(s): beta", qualify.verify_record, path,
                                  rehearsal=True)
                 with mutated_record(path, lambda r: r["stages"].pop(0)):
@@ -609,7 +661,11 @@ class Phase12Qualification(unittest.TestCase):
                     "freeze record or one of its four goldens": lambda r: r["freeze_record"][
                         "goldens"]["layout_sha256"].update(sha256="0" * 64),
                     "freeze record or one of its four goldens (block)": lambda r: r[
-                        "freeze_record"]["block"].update(abi_version="0.2"),
+                        "freeze_record"]["block"].update(abi_version="1.1"),
+                    "recorded SDL lane status": lambda r: r.update(sdl_lane_status="pass"),
+                    "recorded SDL lane status (field)": lambda r: r.update(
+                        sc2_virtual_joystick=SC2_CLOSED),
+                    "recorded SDL lane status (missing)": lambda r: r.pop("sdl_lane_status"),
                     "rehearsal label": lambda r: r.pop("rehearsal"),
                     "recorded qualification drift": lambda r: r.update(
                         qualification_drift_paths=["a.c"]),
@@ -757,7 +813,7 @@ class Phase12Qualification(unittest.TestCase):
         self.assertEqual(len({stage["name"] for stage in table}), len(table))
         checks = {None, "gate", "ci-selftest", "inventory", "sweep", "tsan", "fresh-archive",
                   "freeze", "sanitize:shipped", "sanitize:instrumented",
-                  "junit:phase12-junit.xml"}
+                  "junit:phase12-junit.xml", "sdl-lane", "mutants"}
         for stage in table:
             name = stage["name"]
             self.assertTrue(stage["commands"], name)
@@ -792,19 +848,27 @@ class Phase12Qualification(unittest.TestCase):
         self.assertEqual(sweep.count("HEAD"), 1)
         # Artifact identity comes from the stages that built or installed the artifacts.
         self.assertEqual(by_name["gate"]["artifacts"], ["core", "runner_real", "runner_test"])
+        self.assertEqual(by_name["host"]["artifacts"], ["host_tests"])
         self.assertEqual(by_name["sanitize-instrumented"]["artifacts"], ["asan_core"])
         self.assertEqual(by_name["fresh-archive"]["artifacts"],
                          ["installed_core", "installed_consumer"])
         self.assertEqual(qualify._artifact_names(table),
-                         ["asan_core", "core", "installed_consumer", "installed_core",
-                          "runner_real", "runner_test"])
+                         ["asan_core", "core", "host_tests", "installed_consumer",
+                          "installed_core", "runner_real", "runner_test"])
+        # One build id is shared by the core, the installed core, the installed consumer and
+        # the host tests: every artifact of the table is tied to the core by SAME_BUILD_ID.
+        tied = {name for pair in qualify.SAME_BUILD_ID for name in pair}
+        self.assertEqual(tied, {"core", "installed_core", "installed_consumer", "host_tests"})
+        self.assertIn(("core", "host_tests"), qualify.SAME_BUILD_ID)
+        self.assertEqual(dict((n, p) for n, p, _ in qualify.ARTIFACTS)["host_tests"],
+                         "build/gate/host-check/t64h_tests")
         # The two oracle commands: blocked passes, approval refuses with exit 2.
         oracle = by_name["oracle"]["commands"]
         self.assertEqual([spec["expect_exit"] for spec in oracle], [0, 2])
         self.assertIn("--expect-blocked", oracle[0]["argv"])
         self.assertIn("--require-approved", oracle[1]["argv"])
         # The JUnit command writes under the record directory only and selects phase12.
-        junit = [spec for spec in by_name["installed"]["commands"]
+        junit = [spec for spec in by_name["phase12-suite"]["commands"]
                  if "--output-junit" in spec["argv"]]
         self.assertEqual(len(junit), 1)
         self.assertTrue(junit[0]["argv"][junit[0]["argv"].index("--output-junit") + 1]
@@ -823,6 +887,23 @@ class Phase12Qualification(unittest.TestCase):
                          ["sh", "scripts/check-install.sh", "tsan"])
         self.assertEqual(by_name["fresh-archive"]["commands"][0]["argv"],
                          ["sh", "scripts/check-install.sh", "fresh-archive"])
+        # The Phase 12 stages: the host build and the host.pump names, the optional SDL lane
+        # (a local script, never a CTest name) and the local mutant run, which is the last
+        # stage because it needs a clean tree and the longest wall time.
+        host = by_name["host"]["commands"]
+        self.assertEqual(host[0]["argv"], ["sh", "scripts/check-host.sh", "build"])
+        self.assertEqual(host[1]["argv"][host[1]["argv"].index("-R") + 1], r"^host\.pump\.")
+        sdl = by_name["sdl-lane"]["commands"]
+        self.assertEqual(len(sdl), 1)
+        self.assertEqual(sdl[0]["argv"], ["sh", "scripts/check-host.sh", "sdl"])
+        self.assertEqual((sdl[0]["check"], sdl[0]["expect_exit"]), ("sdl-lane", 0))
+        self.assertIn("PASS", sdl[0]["marker"])
+        self.assertIn("SKIP", sdl[0]["marker"])
+        mutants = by_name["mutants"]["commands"]
+        self.assertEqual(mutants[0]["argv"], ["python3", "-B", "scripts/p12-mutants.py", "--run"])
+        self.assertEqual(mutants[0]["check"], "mutants")
+        self.assertEqual(EXPECTED_STAGES[-1], "mutants")
+        self.assertLess(EXPECTED_STAGES.index("sdl-lane"), EXPECTED_STAGES.index("gate"))
         # The freeze stage checks the prefix the fresh-archive stage installed, after it.
         freeze = by_name["freeze"]["commands"][0]["argv"]
         self.assertEqual(freeze[freeze.index("--prefix") + 1], qualify.FRESH_PREFIX)
@@ -866,12 +947,25 @@ class Phase12Qualification(unittest.TestCase):
                names[:2])
         # command_details reads the retained file and records its hash.
         spec = qualify._command(["true"], 10, 1.0, check="junit:j.xml")
+        closure = list(qualify.FIXTURE_CLOSURE)
+        self.assertEqual(closure, ["install.setup", "installed.consumer.build"])
         with tempfile.TemporaryDirectory(prefix="t64-p12q-junit-") as name:
             directory = Path(name)
-            (directory / "j.xml").write_bytes(_junit(STUB_NAMES))
+            # CTest adds the fixture setups of the selected names, so a real run reports the
+            # block plus the closure, no more and no fewer.
+            (directory / "j.xml").write_bytes(_junit([*STUB_NAMES, *closure]))
             with scratch_repo():
                 details = qualify.command_details(spec, b"", b"", directory)
-            self.assertEqual(details["testcases"], 2)
+                self.assertEqual(details["testcases"], 2 + len(closure))
+                (directory / "j.xml").write_bytes(_junit(STUB_NAMES))
+                self.refuses("lacks the Phase 12 test(s): install.setup",
+                             qualify.command_details, spec, b"", b"", directory)
+                (directory / "j.xml").write_bytes(
+                    _junit([*STUB_NAMES, *closure, "installed.consumer.other"]))
+                self.refuses("outside the Phase 12 inventory: installed.consumer.other",
+                             qualify.command_details, spec, b"", b"", directory)
+                (directory / "j.xml").write_bytes(_junit([*STUB_NAMES, *closure]))
+            self.assertEqual(details["testcases"], 4)
             self.assertEqual(details["junit_sha256"],
                              hashlib.sha256((directory / "j.xml").read_bytes()).hexdigest())
 
@@ -912,6 +1006,7 @@ class Phase12Qualification(unittest.TestCase):
         self.refuses("did not pass", qualify._inventory_details, b"test inventory FAIL\n")
         self._sanitizer_lane_rules()
         self._tsan_fresh_freeze_rules()
+        self._sdl_and_mutant_rules()
 
     def _sanitizer_lane_rules(self) -> None:
         cases = qualify._cases_listed()
@@ -1008,6 +1103,76 @@ class Phase12Qualification(unittest.TestCase):
         self.refuses("printed no summary line", qualify._freeze_details,
                      b"check-abi: freeze findings=0\n")
 
+    def _sdl_and_mutant_rules(self) -> None:
+        """The SDL lane verdict (two distinct statuses) and the mutant table rules."""
+        passed = qualify._sdl_details(SDL_PASS_OUTPUT.encode())
+        self.assertEqual((passed["status"], passed["sc2_virtual_joystick"]), ("pass", SC2_CLOSED))
+        self.assertEqual((passed["sdl_version"], passed["frames"], passed["mapping_rows"]),
+                         ("3.4.10", 8, "30/30"))
+        self.assertIsNone(passed["skip_line"])
+        skipped = qualify._sdl_details(SDL_SKIP_OUTPUT.encode())
+        self.assertEqual((skipped["status"], skipped["sc2_virtual_joystick"]),
+                         ("skipped", SC2_NOT_CLOSED))
+        self.assertEqual(skipped["skip_line"], SDL_SKIP_OUTPUT.strip())
+        self.assertNotEqual(passed["status"], skipped["status"])
+        self.assertEqual(qualify.SDL_SKIP_LINE, SDL_SKIP_OUTPUT.strip())
+        both = (SDL_PASS_OUTPUT + SDL_SKIP_OUTPUT).encode()
+        self.refuses("neither or both", qualify._sdl_details, both)
+        self.refuses("neither or both", qualify._sdl_details, b"")
+        self.refuses("neither or both", qualify._sdl_details, b"[host-sdl] sdl 3.4.10\n")
+        self.refuses("failed smoke", qualify._sdl_details,
+                     ("[host-sdl] FAIL: shell open\n" + SDL_PASS_OUTPUT).encode())
+        self.refuses("not the recorded skip line", qualify._sdl_details,
+                     b"[host-sdl] SKIP: some other reason\n")
+        for missing, needle in (("[host-sdl] audio ok\n", "'audio ok' smoke line"),
+                                ("[host-sdl] title ok\n", "'title ok' smoke line"),
+                                ("[host-sdl] blit ok\n", "'blit ok' smoke line"),
+                                ("[host-sdl] frames 8\n", "no clean frames line"),
+                                ("[host-sdl] sdl 3.4.10\n", "no clean sdl version line")):
+            self.refuses(needle, qualify._sdl_details,
+                         SDL_PASS_OUTPUT.replace(missing, "").encode())
+        self.refuses("no clean video driver line", qualify._sdl_details,
+                     SDL_PASS_OUTPUT.replace("video-driver dummy", "video-driver cocoa").encode())
+        self.refuses("no clean audio driver line", qualify._sdl_details,
+                     SDL_PASS_OUTPUT.replace("audio-driver dummy", "audio-driver coreaudio")
+                     .encode())
+        self.refuses("did not all match", qualify._sdl_details,
+                     SDL_PASS_OUTPUT.replace("30/30", "29/30").encode())
+        self.refuses("presented no frame", qualify._sdl_details,
+                     SDL_PASS_OUTPUT.replace("frames 8", "frames 0").encode())
+        # The recorded marker accepts the two verdict lines and nothing else.
+        marker = re.compile(SDL_MARKER, flags=re.MULTILINE)
+        self.assertIsNotNone(marker.search(SDL_PASS_OUTPUT))
+        self.assertIsNotNone(marker.search(SDL_SKIP_OUTPUT))
+        self.assertIsNone(marker.search("[host-sdl] FAIL: shell open\n"))
+        # The mutant table of p12-mutants.py --run.
+        ids = [f"P12-P{number:02d}" for number in range(1, 9)] + \
+              [f"P12-T{number:02d}" for number in range(1, 5)]
+
+        def table(*, drop: str | None = None, result: dict | None = None,
+                  controls: tuple = ("SURVIVED SURVIVED", "INVALID INVALID")) -> bytes:
+            lines = [f"mutant {ident} KILLED 1.0" for ident in ids]
+            lines += [f"{ident} {(result or {}).get(ident, 'KILLED KILLED')} 1.0 host.pump.clock"
+                      for ident in ids if ident != drop]
+            lines += [f"P12-C-EQUIV {controls[0]} 5.1 -", f"P12-C-INVALID {controls[1]} 0.7 -"]
+            return ("\n".join(lines) + "\n").encode()
+
+        accepted = qualify._mutants_details(table())
+        self.assertEqual((accepted["mutants"], accepted["killed"]), (12, 12))
+        self.assertEqual(accepted["controls"], qualify.MUTANT_CONTROLS)
+        self.assertEqual(accepted["killing_tests"]["P12-T04"], "host.pump.clock")
+        self.assertEqual(qualify.MUTANT_COUNT, 12)
+        self.refuses("listed 11 mutants", qualify._mutants_details, table(drop="P12-P05"))
+        self.refuses("did not kill: P12-P03", qualify._mutants_details,
+                     table(result={"P12-P03": "KILLED SURVIVED"}))
+        self.refuses("did not kill: P12-T01", qualify._mutants_details,
+                     table(result={"P12-T01": "KILLED INVALID"}))
+        self.refuses("two controls", qualify._mutants_details,
+                     table(controls=("SURVIVED KILLED", "INVALID INVALID")))
+        self.refuses("two controls", qualify._mutants_details,
+                     table(controls=("SURVIVED SURVIVED", "INVALID SURVIVED")))
+        self.refuses("listed 0 mutants", qualify._mutants_details, b"step baseline 1.0 (7 checks)\n")
+
     def test_tool_paths_and_real_pin_line(self) -> None:
         listed = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, capture_output=True,
                                 check=True).stdout.split(b"\0")
@@ -1043,6 +1208,9 @@ class Phase12Qualification(unittest.TestCase):
         binding = qualify.freeze_binding()
         self.assertEqual(sorted(binding["goldens"]), sorted(GOLDEN_FILES))
         self.assertEqual(binding["block"]["amendments"], "0")
+        self.assertEqual((binding["block"]["abi_version"], binding["block"]["package_version"],
+                          binding["block"]["bound_minor"],
+                          binding["block"]["candidate_amendments"]), ("1.0", "1.0.0", "0", "0"))
         # The excluded rule is exactly planning metadata, the CI ledger and the three
         # evidence documents of Phase 12; the closed Phase 10 and Phase 11 documents stay bound.
         self.assertTrue(qualify._excluded(".planning/STATE.md"))
@@ -1147,7 +1315,7 @@ class Phase12Qualification(unittest.TestCase):
             record = root / qualify.FREEZE_RECORD_SUBPATH
             original = record.read_text(encoding="utf-8")
             binding = qualify.freeze_binding()
-            self.assertEqual(binding["block"]["abi_version"], "0.1")
+            self.assertEqual(binding["block"]["abi_version"], "1.0")
             self.assertEqual(binding["padding_hole_rows"],
                              ["t64_a struct_size 4 4", "t64_b rule 20 4"])
             self.assertEqual(sorted(binding["goldens"]), sorted(GOLDEN_FILES))
@@ -1168,7 +1336,7 @@ class Phase12Qualification(unittest.TestCase):
                 "does not hold exactly one machine-read block": original.replace(
                     "```freeze-record", "```freeze-records"),
                 "states abi_version twice": original.replace(
-                    "abi_version: 0.1\n", "abi_version: 0.1\nabi_version: 0.1\n"),
+                    "abi_version: 1.0\n", "abi_version: 1.0\nabi_version: 1.0\n"),
                 "no SHA-256 for header_sha256": original.replace(
                     first_hash, "header_sha256: abc"),
                 "lacks status_count": original.replace("status_count: 1\n", ""),
@@ -1180,11 +1348,162 @@ class Phase12Qualification(unittest.TestCase):
             for needle, text in variants.items():
                 record.write_text(text, encoding="utf-8")
                 self.refuses(needle, qualify.freeze_binding)
-            record.write_text(original + "\n```freeze-record\nabi_version: 0.1\n```\n",
+            record.write_text(original + "\n```freeze-record\nabi_version: 1.0\n```\n",
                               encoding="utf-8")
             self.refuses("does not hold exactly one machine-read block", qualify.freeze_binding)
             record.write_text(original, encoding="utf-8")
             self.assertEqual(qualify.freeze_binding(), binding)
+
+    # -- the bound record, the SDL lane and the host checklist -----------------------
+
+    def test_bound_record_binding(self) -> None:
+        """A candidate block is not the bound record; the bound keys and values are pinned."""
+        with scratch_repo() as scratch:
+            root = scratch["root"]
+            record = root / qualify.FREEZE_RECORD_SUBPATH
+            binding = qualify.freeze_binding()
+            self.assertEqual((binding["block"]["abi_version"], binding["block"]["package_version"],
+                              binding["block"]["bound_minor"],
+                              binding["block"]["candidate_amendments"]),
+                             ("1.0", "1.0.0", "0", "0"))
+            self.assertEqual((qualify.BOUND_ABI_VERSION, qualify.BOUND_PACKAGE_VERSION,
+                              qualify.BOUND_MINOR), ("1.0", "1.0.0", "0"))
+            # Dated rows made before the bind are folded into 1.0: amendments and
+            # candidate_amendments equal the rows, and the record is still the bound record.
+            _freeze_files(root, rows=2)
+            folded = qualify.freeze_binding()
+            self.assertEqual((folded["block"]["amendments"],
+                              folded["block"]["candidate_amendments"]), ("2", "2"))
+            needle = "not the bound record"
+            refused = {
+                "a candidate block (no bound keys, ABI 0.1)": dict(
+                    abi="0.1", package="0.1.0", bound=False),
+                "a candidate block at 1.0 without the bound keys": dict(bound=False),
+                "the bound keys at ABI 1.1": dict(abi="1.1"),
+                "the bound keys at ABI 0.1": dict(abi="0.1", package="0.1.0"),
+                "the bound keys at package 1.0.1": dict(package="1.0.1"),
+                "the bound keys at package 1.1.0": dict(package="1.1.0"),
+            }
+            for label, arguments in refused.items():
+                _freeze_files(root, **arguments)
+                self.refuses(needle, qualify.freeze_binding)
+            text = ""
+            _freeze_files(root)
+            text = record.read_text(encoding="utf-8")
+            variants = {
+                "bound_minor 1": (text.replace("bound_minor: 0", "bound_minor: 1"), needle),
+                "only bound_minor": (text.replace("candidate_amendments: 0\n", ""), needle),
+                "only candidate_amendments": (text.replace("bound_minor: 0\n", ""), needle),
+            }
+            for label, (changed, expected) in variants.items():
+                record.write_text(changed, encoding="utf-8")
+                self.refuses(expected, qualify.freeze_binding)
+            # candidate_amendments must equal the dated rows of the log, which all precede
+            # the bind: a row after the bind would raise the minor (the abi_version above 1.0).
+            for arguments in (dict(rows=0, candidate=1), dict(rows=1, candidate=0),
+                              dict(rows=2, candidate=1)):
+                _freeze_files(root, **arguments)
+                self.refuses("made before the bind", qualify.freeze_binding)
+            _freeze_files(root)
+            record.write_text(text.replace("candidate_amendments: 0", "candidate_amendments: x"),
+                              encoding="utf-8")
+            self.refuses("made before the bind", qualify.freeze_binding)
+            _freeze_files(root)
+            self.assertEqual(qualify.freeze_binding(), binding)
+            # A record bound from a candidate block is refused when verified as well: the
+            # recorded binding no longer equals the current one.
+            with mock.patch.object(qualify, "_stage_table", _stub_table):
+                path = qualify.native_qualify(rehearsal=True)
+                qualify.verify_record(path, rehearsal=True)
+                self.assertEqual(qualify.verify_record(path, rehearsal=True)["freeze_record"],
+                                 binding)
+
+    def test_sdl_lane_status(self) -> None:
+        """pass and skipped are distinct records; a skip passes the record but never closes SC2."""
+        with scratch_repo() as scratch:
+            records = {}
+            for output, status, field in ((SDL_PASS_OUTPUT, "pass", SC2_CLOSED),
+                                          (SDL_SKIP_OUTPUT, "skipped", SC2_NOT_CLOSED)):
+                with mock.patch.object(qualify, "_stage_table", _stub_table_sdl(output)):
+                    path = qualify.native_qualify(rehearsal=True)
+                    records[status] = path
+                    record = qualify.verify_record(path, rehearsal=True)
+                    self.assertEqual((record["sdl_lane_status"], record["sc2_virtual_joystick"]),
+                                     (status, field))
+                    stage = [item for item in record["stages"] if item["name"] == "sdl-lane"][0]
+                    self.assertEqual(stage["details"]["0"]["status"], status)
+                    self.assertEqual(qualify.sdl_summary(record["stages"]),
+                                     {"status": status, "sc2_virtual_joystick": field})
+                    # The command line shows the two values distinctly.
+                    printed = io.StringIO()
+                    with mock.patch.object(sys, "argv", ["q", "--verify", str(path),
+                                                         "--rehearsal"]), \
+                            contextlib.redirect_stdout(printed):
+                        self.assertEqual(qualify.main(), 0)
+                    self.assertIn(f"sdl-lane status: {status}; sc2_virtual_joystick: {field}",
+                                  printed.getvalue())
+            self.assertNotEqual(*[json.loads(path.read_bytes())["sdl_lane_status"]
+                                  for path in records.values()])
+            # A relabelled skip is refused: a skip is never a pass, and the retained skip log
+            # cannot be rewritten into a pass without being noticed.
+            path = records["skipped"]
+            with mock.patch.object(qualify, "_stage_table", _stub_table_sdl(SDL_SKIP_OUTPUT)):
+                with mutated_record(path, lambda r: r.update(sdl_lane_status="pass")):
+                    self.refuses("SDL lane status", qualify.verify_record, path, rehearsal=True)
+                with mutated_record(path, lambda r: r.update(sc2_virtual_joystick=SC2_CLOSED)):
+                    self.refuses("sc2_virtual_joystick", qualify.verify_record, path,
+                                 rehearsal=True)
+                with mutated_record(path, lambda r: r["stages"][2]["details"]["0"].update(
+                        status="pass")):
+                    self.refuses("details differ from its retained output",
+                                 qualify.verify_record, path, rehearsal=True)
+                log = path.parent / "steps/sdl-lane.0.stdout.log"
+                original = log.read_bytes()
+                log.write_bytes(SDL_PASS_OUTPUT.encode())
+                try:
+                    self.refuses("log was changed", qualify.verify_record, path, rehearsal=True)
+                finally:
+                    log.write_bytes(original)
+            # A found SDL3 with a failing smoke fails the run and leaves no record, whether it
+            # exits non-zero or prints a failure line next to its verdict; a table without the
+            # sdl-lane stage cannot produce a record either.
+            before = sorted((scratch["root"] / qualify.PRIVATE_SUBPATH).rglob("record.json"))
+            with mock.patch.object(qualify, "_stage_table", _stub_table_sdl(
+                    "[host-sdl] FAIL: shell open\n", exit_code=1)):
+                self.refuses("sdl-lane command 0 exited 1, expected 0", qualify.native_qualify,
+                             rehearsal=True)
+            with mock.patch.object(qualify, "_stage_table", _stub_table_sdl(
+                    "[host-sdl] FAIL: smoke\n" + SDL_PASS_OUTPUT)):
+                self.refuses("failed smoke", qualify.native_qualify, rehearsal=True)
+            with mock.patch.object(qualify, "_stage_table", _stub_table_sdl("nothing\n")):
+                self.refuses("lacks its pass marker", qualify.native_qualify, rehearsal=True)
+            with mock.patch.object(qualify, "_stage_table", lambda bases: _stub_table(bases)[:2]):
+                self.refuses("no single sdl-lane stage", qualify.native_qualify, rehearsal=True)
+            self.assertEqual(sorted((scratch["root"] / qualify.PRIVATE_SUBPATH)
+                                    .rglob("record.json")), before)
+
+    def test_host_manual_edit_after_record(self) -> None:
+        """The owner may fill the manual checklist later; any other bound input refuses."""
+        manual = "docs/evidence/phase12-host-manual.md"
+        self.assertIn(manual, qualify.EVIDENCE_DOCS)
+        with scratch_repo() as scratch:
+            root = scratch["root"]
+            _add_qualification_base(scratch)
+            with mock.patch.object(qualify, "_stage_table", _stub_table):
+                path = qualify.native_qualify(rehearsal=False)
+                qualify.verify_record(path, rehearsal=False)
+                _write(root, manual, "status: human-needed, not run\n")
+                _commit(root, "the checklist template")
+                _write(root, manual, "date: filled in by the owner\nD-pad: pass\n")
+                _commit(root, "owner fills the manual checklist")
+                qualify.verify_record(path, rehearsal=False)
+                # Any other bound input refuses: a golden, then the qualifier itself.
+                for relative, text in (("docs/abi/layout.c", "/* edited pins */\n"),
+                                       ("scripts/qualify-phase12.py", "# edited\n")):
+                    _write(root, relative, text)
+                    _commit(root, "bound change " + relative)
+                    self.refuses("changed since the qualification base", qualify.verify_record,
+                                 path, rehearsal=False)
 
     def test_no_undefined_global_names(self) -> None:
         for path in (QUALIFIER, Path(__file__)):

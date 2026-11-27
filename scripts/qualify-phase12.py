@@ -162,6 +162,32 @@ FREEZE_GOLDENS = (
     ("status_classes_sha256", "docs/abi/status-classes.txt"),
 )
 FRESH_PREFIX = "build/gate/fresh-archive/prefix with space"
+# The bound record (plan 12-14): ABI 1.0 as an ABI identity, package 1.0.0, bound minor 0. A
+# candidate block (no bound_minor) is refused as not the bound record; the amendment log has
+# exactly the rows made before the bind (candidate_amendments) and none after it, because a
+# row after the bind raises the minor and so the abi_version above 1.0.
+BOUND_ABI_VERSION = "1.0"
+BOUND_PACKAGE_VERSION = "1.0.0"
+BOUND_MINOR = "0"
+AMENDMENT_ROW_RE = re.compile(r"^\|\s*\d{4}-\d{2}-\d{2}\s*\|", re.MULTILINE)
+# CTest adds the setup tests of the fixtures a selected test requires (install.setup and
+# installed.consumer.build carry the label phase11), so a real run of the label phase12 reports
+# these two names in its JUnit besides the PHASE12_TESTS block; any other name is refused.
+FIXTURE_CLOSURE = ("install.setup", "installed.consumer.build")
+# The SDL lane (scripts/check-host.sh sdl) prints one of two verdict lines; they are distinct
+# statuses of the record, never merged, and only a pass closes the ROADMAP success-criterion-2
+# virtual-joystick clause. A skip never fails a record and is never recorded as a pass.
+SDL_PASS_LINE = "[host-sdl] PASS"
+SDL_SKIP_LINE = ("[host-sdl] SKIP: SDL3 >= 3.2.0 not found (link-only system package; "
+                 "this lane installs nothing)")
+SDL_STATUS_PASS = "pass"
+SDL_STATUS_SKIPPED = "skipped"
+SC2_CLOSED = "closed"
+SC2_NOT_CLOSED = "not closed (skipped)"
+# The pump and title mutant table of scripts/p12-mutants.py: 12 mutants, every one killed by its
+# named test, and the two controls (an equivalent edit survives, a non-compiling edit is invalid).
+MUTANT_COUNT = 12
+MUTANT_CONTROLS = {"P12-C-EQUIV": "SURVIVED", "P12-C-INVALID": "INVALID"}
 
 # Artifact files whose embedded build id is the tested artifact identity
 # (T64_BUILD_ID hashes production content and build policy; AUTONOMY section 2).
@@ -176,11 +202,17 @@ ARTIFACTS = (
     ("asan_core", "build/asan/core/libt64_core.a", CORE_BUILD_RE),
     ("installed_core", f"{FRESH_PREFIX}/lib/libt64_core.a", CORE_BUILD_RE),
     ("installed_consumer", "build/gate/fresh-archive/consumer/t64c", CORE_BUILD_RE),
+    ("host_tests", "build/gate/host-check/t64h_tests", CORE_BUILD_RE),
 )
+# host_tests is the standalone host project's test binary (scripts/check-host.sh build): it
+# links the installed core of the gate tree's install check, so it embeds that archive's id.
 # Artifacts that must carry the same build id when a record names both: the fresh
 # archive was configured exactly as the gate (T64_BUILD_ID hashes production
-# content and build policy, not paths), and the consumer links the installed archive.
-SAME_BUILD_ID = (("core", "installed_core"), ("installed_core", "installed_consumer"))
+# content and build policy, not paths), the consumer links the installed archive, and the
+# host tests link the installed core of the gate tree. With all four named, one build id is
+# shared by the core, the installed core, the installed consumer and the host tests.
+SAME_BUILD_ID = (("core", "installed_core"), ("installed_core", "installed_consumer"),
+                 ("core", "host_tests"))
 
 # Measured limits: see _stage_table for the derivation of each limit.
 PYTHON = "python3"
@@ -458,7 +490,11 @@ def freeze_binding() -> dict[str, Any]:
 
     Each golden file must hash to the value the block states (the same compare as
     repo.abi-freeze-record), so the record binds the goldens that the bound
-    inputs hold. A malformed, missing or doubled block is refused.
+    inputs hold. A malformed, missing or doubled block is refused. The block must be the
+    bound record of plan 12-14: ABI 1.0, package 1.0.0, bound_minor 0, and
+    candidate_amendments equal to the dated rows of the amendment log, which are all made
+    before the bind (a row after it raises the minor, and so the abi_version above 1.0). A
+    candidate block (no bound_minor) is refused as not the bound record.
     """
     raw = _read(ROOT / FREEZE_RECORD_SUBPATH, 1024 * 1024)
     text = raw.decode("utf-8", errors="strict")
@@ -489,6 +525,25 @@ def freeze_binding() -> dict[str, Any]:
                 "status_count", "stop_reason_count", "layout_structs", "layout_members",
                 "layout_constants", "padding_holes"):
         _require(key in block, f"the freeze record block lacks {key}")
+    _require("bound_minor" in block and "candidate_amendments" in block,
+             "the freeze record is not the bound record: its block lacks bound_minor and "
+             "candidate_amendments (a candidate block is refused)")
+    _require(block["abi_version"] == BOUND_ABI_VERSION,
+             f"the freeze record is not the bound record: abi_version {block['abi_version']}, "
+             f"the bound record is {BOUND_ABI_VERSION}")
+    _require(block["package_version"] == BOUND_PACKAGE_VERSION,
+             f"the freeze record is not the bound record: package_version "
+             f"{block['package_version']}, the bound record is {BOUND_PACKAGE_VERSION}")
+    _require(block["bound_minor"] == BOUND_MINOR,
+             f"the freeze record is not the bound record: bound_minor {block['bound_minor']}, "
+             f"the bound record is {BOUND_MINOR}")
+    rows = len(AMENDMENT_ROW_RE.findall(text))
+    _require(re.fullmatch(r"[0-9]+", block["amendments"]) is not None and
+             re.fullmatch(r"[0-9]+", block["candidate_amendments"]) is not None and
+             int(block["amendments"]) == rows and int(block["candidate_amendments"]) == rows,
+             f"the freeze record block states amendments {block['amendments']} and "
+             f"candidate_amendments {block['candidate_amendments']}, the amendment log holds "
+             f"{rows} dated row(s) made before the bind")
     _require(re.fullmatch(r"[0-9]+", block["padding_holes"]) is not None and
              int(block["padding_holes"]) == len(holes),
              "the freeze record block states a padding hole count that its rows do not match")
@@ -547,18 +602,19 @@ def _stage_table(bases: dict[str, str]) -> list[dict[str, Any]]:
     beside each limit, in the record as well, and the hermetic tests enforce the
     factor, so a limit cannot drift below its derivation unnoticed. The CI scanner,
     inventory and oracle figures are the Phase 10 measurements (0.03 s and 2 s,
-    0.6 to 1 s, 0.09 s; plan 10-17), no Phase 11 plan edited those tools. The
-    others are Phase 11 measurements named in each derivation: PIN-IMPACT "Install
-    steps" (plans 11-16 to 11-20, 1-minute host load 5 to 19) and "Freeze steps"
-    (plans 11-22 to 11-24, load 3 to 7), and the native seconds of this plan's
-    Task 2 (see PIN-IMPACT "Freeze steps", plan 11-24).
+    0.6 to 1 s, 0.09 s; plan 10-17): no Phase 11 or Phase 12 plan edited those tools.
+    The lane figures are Phase 11 measurements (PIN-IMPACT "Install steps" and "Freeze
+    steps", host load 3 to 19); the Phase 12 stages carry the native seconds measured
+    in plan 12-17 (host load 4 to 9; PIN-IMPACT "Qualification steps") and the gate
+    figures of plans 12-14 and 12-16 (PIN-IMPACT "Bind steps").
     """
     wave0 = bases[WAVE0_LABEL]
     gate_env = _gate_env()
     abi_regex = r"^(repo\.abi|install\.|api04\.)"
     abi_ctest = ["ctest", "--preset", "gate", "-R", abi_regex, "--no-tests=error"]
-    installed_ctest = ["ctest", "--preset", "gate", "-L", "phase12", "--no-tests=error",
-                       "--output-junit", "{record}/phase12-junit.xml"]
+    suite_ctest = ["ctest", "--preset", "gate", "-L", "phase12", "--no-tests=error",
+                   "--output-junit", "{record}/phase12-junit.xml"]
+    host_ctest = ["ctest", "--preset", "gate", "-R", r"^host\.pump\.", "--no-tests=error"]
     return [
         _stage(
             "ci-scanner",
@@ -572,13 +628,13 @@ def _stage_table(bases: dict[str, str]) -> list[dict[str, Any]]:
             ]),
         _stage(
             "inventory",
-            "exact test inventory of the gate preset (the PHASE11_TESTS block is part of it): measured 0.6 to 1 s natively (328 names); limit 60 s",
+            "exact test inventory of the gate preset (the PHASE12_TESTS block is part of it): measured 0.6 to 1 s natively in Phase 11 and 3.1 s wall at host load 12 to 27 in plan 12-17 (354 names); limit 60 s",
             [_command(["sh", "scripts/check-test-inventory.sh", "--preset", "gate"],
-                      60, 1.0, check="inventory",
+                      60, 3.1, check="inventory",
                       marker=r"^test inventory PASS preset=gate count=[0-9]+$")]),
         _stage(
             "oracle",
-            "owner-gated oracle request stays blocked (Phase 10 PIN-IMPACT section 8; no Phase 11 plan changes it): measured 0.09 s per run natively, limit 30 s covers interpreter start on a loaded host",
+            "owner-gated oracle request stays blocked (Phase 10 PIN-IMPACT section 8; no Phase 11 or Phase 12 plan changes it): measured 0.09 s per run natively, limit 30 s covers interpreter start on a loaded host",
             [
                 _command([PYTHON, "-B", "scripts/check-rdp-oracle-authority.py",
                           "--expect-blocked"], 30, 0.09, expect=0,
@@ -589,20 +645,35 @@ def _stage_table(bases: dict[str, str]) -> list[dict[str, Any]]:
             ]),
         _stage(
             "abi-cheap",
-            "the build of the gate preset (incremental: measured 2.6 s natively, load 3; the 600 s limit also covers a rebuild after core edits) and the cheap-first ABI, install and API-04 names (the preflight abi-cheap step, 16 names with the install fixture): measured 4.5 s wall natively (PIN-IMPACT plan 11-24 Task 2), so 120 s is 26 times; the earlier figures were 1 s (plan 11-17, load 15) and 8 s (load 20 to 33)",
+            "the build of the gate preset (incremental: measured 2.6 s natively, load 3; the 600 s limit also covers a rebuild after core edits) and the cheap-first ABI, install and API-04 names (the preflight abi-cheap step with the install fixture): measured 4.5 s wall in Phase 11 and 19.4 s wall at host load 12 to 27 in plan 12-17 (the api04 names sum 38.6 s of CPU), so 120 s is 6.2 times the larger",
             [
                 _command(["cmake", "--build", "--preset", "gate"], 600, 2.6),
-                _command(abi_ctest, 120, 4.5, env=gate_env, marker=r"^100% tests passed"),
+                _command(abi_ctest, 120, 19.4, env=gate_env, marker=r"^100% tests passed"),
             ]),
         _stage(
-            "installed",
-            "the Phase 11 CTest names with JUnit on the gate preset (install, installed.consumer, installed.controls, api04, repo.abi, unit.core.api, the case map and this qualifier's own hermetic test): measured 8.8 s wall and 34.7 s summed for 74 names natively at load 3 (PIN-IMPACT plan 11-24 Task 2), so 180 s is 20 times; the hosted multiplier of 4.3 (Phase 10 section 6.1) gives 38 s",
-            [_command(installed_ctest, 180, 8.8, env=gate_env,
+            "phase12-suite",
+            "the 25 Phase 12 CTest names with JUnit on the gate preset plus the two fixture setups CTest adds (install.setup and installed.consumer.build): the title through the runner, the installed consumer and the pump, the host guards, the API-07 evaluation guard, the two bind-proof names and this qualifier's own hermetic test; measured 19.1 s wall and 62.3 s summed for 27 names at host load 7 to 9 in plan 12-17, so 180 s is 9.4 times",
+            [_command(suite_ctest, 180, 19.1, env=gate_env,
                       marker=r"^100% tests passed", check="junit:phase12-junit.xml")]),
         _stage(
+            "host",
+            "the standalone host project built against the moved prefix of the install check (check-host.sh build: measured 0.72 s wall natively) and the host.pump names with their install fixture (measured 7.75 s wall for 9 names at load 5 to 7, plan 12-17), so 60 s is 83 times and 120 s is 15 times; the stage names the host test binary whose embedded installed-core build id must equal the core's",
+            [
+                _command(["sh", "scripts/check-host.sh", "build"], 60, 0.72,
+                         marker=r"^check-host: build ok: host/ linked against the moved prefix$"),
+                _command(host_ctest, 120, 7.75, env=gate_env, marker=r"^100% tests passed"),
+            ],
+            artifacts=("host_tests",)),
+        _stage(
+            "sdl-lane",
+            "the optional local SDL3 lane (check-host.sh sdl, never a CTest name or a workflow step): a virtual gamepad through the mapping table and the title through the pump into a window and an audio stream under SDL's dummy drivers, measured 2.1 s wall on an incremental build in plan 12-17 (SDL 3.4.10 from the Homebrew core formula) and 2.0 s in plan 12-09; the limit of 180 s also covers a cold configure and build of host/ with the shell. The verdict is one of two distinct statuses: pass (the line [host-sdl] PASS) or skipped (the recorded skip line); a skip never fails the record, is never recorded as a pass and leaves the SC2 virtual-joystick clause not closed",
+            [_command(["sh", "scripts/check-host.sh", "sdl"], 180, 2.1,
+                      marker=r"^\[host-sdl\] (PASS|SKIP: SDL3 >= 3\.2\.0 not found .*)$",
+                      check="sdl-lane")]),
+        _stage(
             "gate",
-            "the full gate (scripts/gate.sh): measured 156 s in the plan 11-17 closeout (PIN-IMPACT Install steps, load 9 to 11), 145 s in the plan 11-21 closeout and 142 s at load 5.6 to 7.2 in plan 11-22 (326 and 328 names), so 600 s is 3.8 times the largest; a cold Binutils fixture build adds about 186 s (F-111) and stays inside",
-            [_command(["sh", "scripts/gate.sh"], 600, 156,
+            "the full gate (scripts/gate.sh): measured 148 s at load 7 to 9 in plan 12-16 (353 names), 163 s of CTest and 248 s in all in the cold scratch clone of plan 12-14 at load 10 to 17 (351 names; the cold Binutils fixture build is part of that figure), and 156 s in Phase 11, so 600 s is 2.4 times the largest",
+            [_command(["sh", "scripts/gate.sh"], 600, 248,
                       marker=r"^\[gate\] PASS$", check="gate")],
             artifacts=("core", "runner_real", "runner_test")),
         _stage(
@@ -626,23 +697,48 @@ def _stage_table(bases: dict[str, str]) -> list[dict[str, Any]]:
                       check="tsan")]),
         _stage(
             "fresh-archive",
-            "git archive of HEAD built outside the repository as the gate preset configures it, only t64_core, installed into a prefix with a space, the consumer smoke and composite cases against it (check-install.sh fresh-archive; plan 11-24 Task 1): measured 3.3 s and 4 s in all (library 3 s, consumer under 1 s) at load 3, so 120 s is 30 times and covers a loaded host",
+            "git archive of HEAD built outside the repository as the gate preset configures it, only t64_core, installed into a prefix with a space, the consumer (which requests tendies64 1.0) smoke and composite cases against it (check-install.sh fresh-archive; plan 11-24 Task 1): measured 3.3 s and 4 s in all (library 3 s, consumer under 1 s) at load 3, so 120 s is 30 times and covers a loaded host",
             [_command(["sh", "scripts/check-install.sh", "fresh-archive"], 120, 4,
                       marker=r"^check-install: fresh-archive ok: ", check="fresh-archive")],
             artifacts=("installed_core", "installed_consumer")),
         _stage(
             "sweep",
-            "digest sweep of the 21 shipped ids against the Wave 0 base (two tree builds and two sweeps in parallel): measured 41 s and 60.6 s at load 8.5 in Phase 10 (PIN-IMPACT section 7), unchanged by Phase 11 (no production source changed since plan 11-14), so 300 s is 4.9 times the larger",
+            "digest sweep of the 21 shipped ids against the Wave 0 base (two tree builds and two sweeps in parallel): measured 41 s and 60.6 s at load 8.5 in Phase 10 (PIN-IMPACT section 7), 62 s at load 4.6 to 5.6 in plan 12-16 and 64 s at load 10 to 17 in plan 12-14, all with 1599 shared lines and 0 differences (the bind moves no behavior), so 300 s is 4.7 times the largest",
             [_command([PYTHON, "-B", "scripts/digest-sweep.py", "--base", wave0, "--head",
-                       "HEAD"], 300, 60.6, check="sweep",
+                       "HEAD"], 300, 64, check="sweep",
                       marker=r"^sweep: [0-9]+ shared lines")]),
         _stage(
             "freeze",
-            "the bound freeze-candidate record recomputed from the prefix that the fresh-archive stage installed (check-abi.py freeze; the same check as repo.abi-freeze-record on a fresh install): measured 0.11 s natively, limit 60 s covers interpreter, nm and one cc probe on a loaded host",
+            "the bound record recomputed from the prefix that the fresh-archive stage installed (check-abi.py freeze; the same check as repo.abi-freeze-record on a fresh install): measured 0.11 s natively, limit 60 s covers interpreter, nm and one cc probe on a loaded host",
             [_command([PYTHON, "-B", "scripts/check-abi.py", "freeze", "--record",
                        FREEZE_RECORD_SUBPATH, "--prefix", FRESH_PREFIX], 60, 0.2,
                       marker=r"^check-abi: freeze findings=0$", check="freeze")]),
+        _stage(
+            "mutants",
+            "the local mutant run of the host pump and the title (scripts/p12-mutants.py --run: 12 mutants in a throwaway worktree under build/12-mutants, each killed by its named host test, plus the equivalent and the non-compiling control; it needs a clean tree): measured 37 s in the plan 12-12 review clone and 54.2 s wall at load 5 to 7 in plan 12-17, so 240 s is 4.4 times the larger",
+            [_command([PYTHON, "-B", "scripts/p12-mutants.py", "--run"], 240, 54.2,
+                      marker=r"^P12-C-INVALID INVALID INVALID ", check="mutants")]),
     ]
+
+
+def sdl_summary(stages: list[dict[str, Any]]) -> dict[str, str]:
+    """The SDL lane's recorded status and the SC2 virtual-joystick field it implies.
+
+    Read from the sdl-lane stage's own details (re-derived from its retained log at verify),
+    so a skipped lane is "skipped" with "not closed (skipped)", never a pass, and only a
+    lane that printed its pass line makes the field "closed".
+    """
+    found = [stage for stage in stages if isinstance(stage, dict) and
+             stage.get("name") == "sdl-lane"]
+    _require(len(found) == 1, "the stage list has no single sdl-lane stage")
+    details = found[0].get("details", {})
+    details = details.get("0") if isinstance(details, dict) else None
+    _require(isinstance(details, dict) and
+             details.get("status") in (SDL_STATUS_PASS, SDL_STATUS_SKIPPED),
+             "the sdl-lane stage records neither pass nor skipped")
+    status = details["status"]
+    return {"status": status,
+            "sc2_virtual_joystick": SC2_CLOSED if status == SDL_STATUS_PASS else SC2_NOT_CLOSED}
 
 
 def _artifact_names(table: list[dict[str, Any]]) -> list[str]:
@@ -907,6 +1003,70 @@ def _freeze_details(stdout: bytes) -> dict[str, Any]:
     return {"printed": printed, "headers": int(headers)}
 
 
+def _sdl_details(stdout: bytes) -> dict[str, Any]:
+    """The SDL lane's verdict: exactly one of "pass" and "skipped", never merged.
+
+    pass: the line "[host-sdl] PASS" with the lane's own smoke lines (version, the two dummy
+    drivers, the mapping rows all matched, title, blit, frames, audio). skipped: exactly the
+    recorded skip line. Neither verdict, both, a [host-sdl] FAIL line or a missing smoke
+    line is refused, so a skip is never recorded as a pass and a found SDL3 with a failing
+    smoke never records anything.
+    """
+    text = stdout.decode("utf-8", errors="replace")
+    lines = [line for line in text.splitlines() if line.startswith("[host-sdl]")]
+    _require(not any(line.startswith("[host-sdl] FAIL") for line in lines),
+             "the SDL lane reports a failed smoke")
+    passed = [line for line in lines if line == SDL_PASS_LINE]
+    skipped = [line for line in lines if line.startswith("[host-sdl] SKIP")]
+    _require(len(passed) + len(skipped) == 1,
+             "the SDL lane printed neither or both of its pass and skip verdict lines")
+    if skipped:
+        _require(skipped[0] == SDL_SKIP_LINE,
+                 "the SDL lane's skip line is not the recorded skip line")
+        return {"status": SDL_STATUS_SKIPPED, "skip_line": skipped[0],
+                "sc2_virtual_joystick": SC2_NOT_CLOSED}
+    required = {"sdl_version": r"^\[host-sdl\] sdl ([0-9]+\.[0-9]+\.[0-9]+)$",
+                "video_driver": r"^\[host-sdl\] video-driver (dummy)$",
+                "audio_driver": r"^\[host-sdl\] audio-driver (dummy)$",
+                "mapping_rows": r"^\[host-sdl\] mapping rows ([0-9]+/[0-9]+)$",
+                "frames": r"^\[host-sdl\] frames ([0-9]+)$"}
+    found: dict[str, str] = {}
+    for key, pattern in required.items():
+        values = re.findall(pattern, text, flags=re.MULTILINE)
+        _require(len(values) == 1, f"the SDL lane printed no clean {key.replace('_', ' ')} line")
+        found[key] = values[0]
+    for line in ("title ok", "blit ok", "audio ok"):
+        _require(f"[host-sdl] {line}" in lines,
+                 f"the SDL lane did not print its '{line}' smoke line")
+    matched, total = (int(value) for value in found["mapping_rows"].split("/"))
+    _require(matched == total and total > 0, "the SDL lane's mapping rows did not all match")
+    _require(int(found["frames"]) > 0, "the SDL lane's smoke presented no frame")
+    return {"status": SDL_STATUS_PASS, "skip_line": None, "sdl_version": found["sdl_version"],
+            "mapping_rows": found["mapping_rows"], "frames": int(found["frames"]),
+            "sc2_virtual_joystick": SC2_CLOSED}
+
+
+def _mutants_details(stdout: bytes) -> dict[str, Any]:
+    """The mutant table of scripts/p12-mutants.py --run: 12 mutants killed, both controls as expected."""
+    text = stdout.decode("utf-8", errors="replace")
+    rows = re.findall(r"^(P12-[A-Z0-9-]+) (KILLED|SURVIVED|INVALID) (KILLED|SURVIVED|INVALID) "
+                      r"([0-9.]+) (\S+)$", text, flags=re.MULTILINE)
+    mutants = {ident: (expected, result, killer) for ident, expected, result, _, killer in rows
+               if re.fullmatch(r"P12-[PT][0-9]{2}", ident)}
+    controls = {ident: result for ident, expected, result, _, _ in rows
+                if ident in MUTANT_CONTROLS and expected == result}
+    _require(len(mutants) == MUTANT_COUNT,
+             f"the mutant run listed {len(mutants)} mutants, the pinned table has {MUTANT_COUNT}")
+    survivors = sorted(ident for ident, (expected, result, _) in mutants.items()
+                       if expected != "KILLED" or result != "KILLED")
+    _require(not survivors, "the mutant run did not kill: " + ", ".join(survivors[:4]))
+    _require(controls == MUTANT_CONTROLS,
+             "the mutant run's two controls (equivalent survives, non-compiling invalid) differ")
+    return {"mutants": len(mutants), "killed": len(mutants),
+            "killing_tests": {ident: killer for ident, (_, _, killer) in sorted(mutants.items())},
+            "controls": dict(sorted(controls.items()))}
+
+
 def command_details(spec: dict[str, Any], stdout: bytes, stderr: bytes,
                     directory: Path) -> dict[str, Any] | None:
     """Pass marker and special checks of one command; the details it adds."""
@@ -933,9 +1093,14 @@ def command_details(spec: dict[str, Any], stdout: bytes, stderr: bytes,
         return _fresh_archive_details(stdout)
     if check == "freeze":
         return _freeze_details(stdout)
+    if check == "sdl-lane":
+        return _sdl_details(stdout)
+    if check == "mutants":
+        return _mutants_details(stdout)
     if check.startswith("junit:"):
         data = _read(directory / check.partition(":")[2], JUNIT_MAX_BYTES)
-        return {**junit_problems(data, phase12_tests()), "junit_sha256": _sha(data)}
+        return {**junit_problems(data, [*phase12_tests(), *FIXTURE_CLOSURE]),
+                "junit_sha256": _sha(data)}
     raise Refusal(f"unknown command check: {check}")
 
 
@@ -1055,6 +1220,7 @@ def native_qualify(*, rehearsal: bool) -> Path:
     identity = artifact_identity(_artifact_names(table))
     cross_checks(head, stages, identity)
     _require(freeze_binding() == freeze, "the freeze record or a golden changed during the run")
+    sdl = sdl_summary(stages)
     record = {
         "schema": SCHEMA, "schema_version": SCHEMA_VERSION, "status": "complete",
         "record_id": directory.name, "rehearsal": bool(rehearsal),
@@ -1066,6 +1232,8 @@ def native_qualify(*, rehearsal: bool) -> Path:
         "freeze_record": freeze,
         "artifact_identity": identity,
         "stages": stages,
+        "sdl_lane_status": sdl["status"],
+        "sc2_virtual_joystick": sdl["sc2_virtual_joystick"],
         "host": {"platform": _platform(), "load_start": load_start, "load_end": _load()},
         "started_utc": started, "finished_utc": _utc_now(),
         "total_seconds": round(time.monotonic() - started_clock, 2),
@@ -1180,6 +1348,11 @@ def verify_record(path: Path, *, rehearsal: bool) -> dict[str, Any]:
     cross_checks(commit, stages, identity)
     _require(record.get("freeze_record") == freeze_binding(),
              "the freeze record or one of its four goldens differs from the recorded binding")
+    sdl = sdl_summary(stages)
+    _require(record.get("sdl_lane_status") == sdl["status"] and
+             record.get("sc2_virtual_joystick") == sdl["sc2_virtual_joystick"],
+             "the recorded SDL lane status or sc2_virtual_joystick field differs from the lane's "
+             "own retained output")
     return record
 
 
@@ -1209,10 +1382,13 @@ def main() -> int:
             record = native_qualify(rehearsal=args.rehearsal)
             print("qualify-phase12: native qualification passed; private record at "
                   f"{_relative(record)}")
+            summary = _json(record)
         else:
-            verify_record(args.verify, rehearsal=args.rehearsal)
+            summary = verify_record(args.verify, rehearsal=args.rehearsal)
             print("qualify-phase12: record verified against the current tree: "
                   f"{_relative(args.verify)}")
+        print(f"qualify-phase12: sdl-lane status: {summary['sdl_lane_status']}; "
+              f"sc2_virtual_joystick: {summary['sc2_virtual_joystick']}")
         if args.rehearsal:
             print(f"qualify-phase12: {REHEARSAL_STATEMENT}")
         return 0
