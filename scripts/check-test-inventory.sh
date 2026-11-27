@@ -377,7 +377,8 @@ repo.host-isolation
 repo.host-policy
 repo.host-policy-selftest
 repo.p12-mutant-anchors
-repo.api07-evaluation'
+repo.api07-evaluation
+unit.core.api.abi-major-rule'
 
 CPU_COVERAGE_OPCODES='ADD
 ADDU

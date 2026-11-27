@@ -926,6 +926,15 @@ set_tests_properties(unit.core.api.abi-version PROPERTIES
   LABELS "unit;phase11"
   TIMEOUT 30
   COST 1)
+# The create-time rule at the bound major (plan 12-16): a caller minor above the
+# library's, major 0 and any other major answer ABI_MISMATCH; the library's own
+# version creates. Public header only, no fixture. COST is the measured native time.
+add_test(NAME unit.core.api.abi-major-rule
+  COMMAND test_api_surface --case abi-major-rule)
+set_tests_properties(unit.core.api.abi-major-rule PROPERTIES
+  LABELS "unit;phase12"
+  TIMEOUT 30
+  COST 0.02)
 
 # Defect class and entry guards (plan 11-03). White-box: the test includes
 # core/t64_internal.h so it can force a defect and corrupt members the public

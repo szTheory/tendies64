@@ -24,7 +24,7 @@
 11	^installed\.controls\.
 2	^repo\.stale-freeze-text
 2	^repo\.api-init-guard
-13	^unit\.core\.api\.
+14	^unit\.core\.api\.
 # Phase 12 name families, zero until the owning plan registers them. The owning plan raises the
 # row in the same commit as its registration and extends the PHASE12_TESTS block of
 # scripts/check-test-inventory.sh.
