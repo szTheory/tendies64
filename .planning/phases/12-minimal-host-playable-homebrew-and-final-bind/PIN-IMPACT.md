@@ -20,6 +20,7 @@ reference HEAD as a base.
 - Wave 0 base: 60b9e3c34fc0efc0ff64296cfa31415565b847b2
 - Host base: 0836e40f583f8b47486ee93b0de36889e5626f0b
 - Bind base: 49d41ac9e1966bd9cdb9e953b61d0355a1178554
+- Qualification base: 656dc00433b24629f88b01795e17ef55225adf64
 
 ## Registration map
 
